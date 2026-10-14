@@ -90,7 +90,7 @@ fun VlcFallbackScreen(
                 if (length > 0L) durationMs = length
                 if (!scrubbing) positionMs = player.time.coerceAtLeast(0L)
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
-                    player.time = initialPositionMs.coerceIn(0L, durationMs)
+                    player.setTime(initialPositionMs.coerceIn(0L, durationMs))
                     initialSeekPending = false
                 }
             }
@@ -102,7 +102,7 @@ fun VlcFallbackScreen(
         if (player.isSeekable) {
             val cap = durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
             val t = target.coerceIn(0L, cap)
-            player.time = t
+            player.setTime(t)
             positionMs = t
         }
     }
