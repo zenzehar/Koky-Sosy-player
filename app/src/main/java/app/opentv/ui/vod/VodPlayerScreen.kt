@@ -84,6 +84,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -150,6 +151,7 @@ fun VodPlayerScreen(
     val tracks by controller.tracks.collectAsState()
 
     var paused by remember { mutableStateOf(false) }
+    var usingVlc by remember(streamUrl) { mutableStateOf(false) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
     val panelFocus = remember { FocusRequester() }
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -215,6 +217,18 @@ fun VodPlayerScreen(
         }
     }
 
+    // Unsupported container is a decoder/parser incompatibility, not a network buffering issue.
+    // Stop Media3 before the native VLC view is attached. Never loop back automatically.
+    LaunchedEffect(state, usingVlc) {
+        val failure = state as? PlayerController.State.Error
+        if (!usingVlc && !growingRec &&
+            failure?.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+        ) {
+            controller.stop()
+            usingVlc = true
+        }
+    }
+
     // Sleep timer: leave the film when the armed deadline passes (position is saved on dispose).
     val sleepDeadline by SleepTimer.deadline.collectAsState()
     LaunchedEffect(sleepDeadline) {
@@ -260,7 +274,7 @@ fun VodPlayerScreen(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = !usingVlc) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
         when {
@@ -270,7 +284,15 @@ fun VodPlayerScreen(
         }
     }
 
-    Box(
+    if (usingVlc) {
+        VlcFallbackScreen(
+            streamUrl = streamUrl,
+            title = title,
+            userAgent = userAgent,
+            initialPositionMs = positionMs,
+            onBack = onBack,
+        )
+    } else Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)

@@ -128,6 +128,9 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
 
+    // Native fallback for provider VOD containers that Media3 cannot parse.
+    implementation("org.videolan.android:libvlc-all:3.6.1")
+
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)

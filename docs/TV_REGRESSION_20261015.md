@@ -15,3 +15,10 @@ Corrections staged:
 - Fix the playback unsupported-container case via guarded native LibVLC fallback in follow-up commit, not merely changing the error message.
 
 Testing states must remain differentiated: source written, GitHub build passed, physical TV verified.
+
+## Playback correction (v0.1.1 TV alpha)
+- Media3 reports unsupported-container through typed errorCode, not error-message text.
+- No automatic retry of this deterministic parser error.
+- Correct bounded retries by preserving failure counter across same-request attempts.
+- VOD invokes embedded LibVLC after stopping Media3, with an independent native video surface and controls.
+- This is **not verified against the user's provider/device** by GitHub JVM/build alone.
