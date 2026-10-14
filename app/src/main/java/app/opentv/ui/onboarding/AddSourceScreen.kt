@@ -76,14 +76,18 @@ fun AddSourceScreen(
     val isTelevision = remember(context) { isRunningOnTelevision(context) }
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
-    var usePhone by remember { mutableStateOf(isTelevision && editingSourceId == null) }
+    var usePhone by remember { mutableStateOf(false) }
 
     if (usePhone) {
         PhonePairingScreen(
             // Even on a failed sync, leave the pairing screen: the source is already saved, so the
             // home screen shows either the guide (success) or a recoverable error (failure) rather
             // than stranding the user on an endless "Got it — connecting…" spinner.
-            onReceived = { draft -> viewModel.saveAndSync(draft) { onFinished() } },
+            onReceived = { draft ->
+                viewModel.saveAndSync(draft) { ok ->
+                    if (ok) onFinished() else usePhone = false
+                }
+            },
             onCancel = { usePhone = false },
         )
         return
@@ -173,59 +177,43 @@ fun AddSourceScreen(
 
             Spacer(Modifier.height(20.dp))
 
-            OutlinedTextField(
+            TvNativeTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text(stringResource(R.string.epg_name_optional)) },
-                singleLine = true,
+                label = stringResource(R.string.epg_name_optional),
+                initialFocus = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
 
-            OutlinedTextField(
+            TvNativeTextField(
                 value = url,
                 onValueChange = { url = it },
-                label = {
-                    Text(
-                        when (kind) {
-                            SourceKind.XTREAM -> stringResource(R.string.onboarding_server_address)
-                            SourceKind.M3U -> stringResource(R.string.onboarding_playlist_url)
-                            SourceKind.STALKER -> stringResource(R.string.onboarding_portal_url)
-                        },
-                    )
-                },
-                supportingText = {
-                    Text(
-                        when (kind) {
-                            SourceKind.XTREAM -> stringResource(R.string.onboarding_server_help)
-                            SourceKind.M3U -> stringResource(R.string.onboarding_playlist_help)
-                            SourceKind.STALKER -> stringResource(R.string.onboarding_portal_help)
-                        },
-                    )
+                label = when (kind) {
+                    SourceKind.XTREAM -> stringResource(R.string.onboarding_server_address)
+                    SourceKind.M3U -> stringResource(R.string.onboarding_playlist_url)
+                    SourceKind.STALKER -> stringResource(R.string.onboarding_portal_url)
                 },
                 trailingIcon = { PasteButton { url += it } },
-                singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
 
             if (kind == SourceKind.XTREAM) {
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TvNativeTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text(stringResource(R.string.recset_field_username)) },
+                    label = stringResource(R.string.recset_field_username),
                     trailingIcon = { PasteButton { username += it } },
-                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TvNativeTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text(stringResource(R.string.recset_field_password)) },
+                    label = stringResource(R.string.recset_field_password),
                     trailingIcon = { PasteButton { password += it } },
-                    singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
@@ -234,13 +222,11 @@ fun AddSourceScreen(
 
             if (kind == SourceKind.STALKER) {
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TvNativeTextField(
                     value = mac,
                     onValueChange = { mac = it },
-                    label = { Text(stringResource(R.string.onboarding_mac_address)) },
-                    supportingText = { Text(stringResource(R.string.onboarding_mac_help)) },
+                    label = stringResource(R.string.onboarding_mac_address),
                     trailingIcon = { PasteButton { mac += it } },
-                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -252,31 +238,29 @@ fun AddSourceScreen(
 
             if (showAdvanced) {
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TvNativeTextField(
                     value = epgUrl,
                     onValueChange = { epgUrl = it },
-                    label = { Text(stringResource(R.string.onboarding_guide_url_optional)) },
-                    supportingText = {
-                        Text(stringResource(R.string.onboarding_guide_blank_help))
-                    },
-                    singleLine = true,
+                    label = stringResource(R.string.onboarding_guide_url_optional),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TvNativeTextField(
                     value = userAgent,
                     onValueChange = { userAgent = it },
-                    label = { Text("User-Agent") },
-                    supportingText = {
-                        Text(stringResource(R.string.onboarding_user_agent_help))
-                    },
-                    singleLine = true,
+                    label = "User-Agent",
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
 
             Spacer(Modifier.height(20.dp))
 
+            Text(
+                "Use the TV remote to focus a field, then press OK to open your installed Android keyboard.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
             ui.testResult?.let { message ->
                 Card(Modifier.fillMaxWidth()) {
                     Text(message, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)

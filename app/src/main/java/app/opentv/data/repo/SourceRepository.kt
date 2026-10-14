@@ -13,12 +13,21 @@ import app.opentv.data.remote.XtreamApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 class SourceRepository(
     private val dao: SourceDao,
     private val api: XtreamApi,
     private val stalkerApi: StalkerApi,
 ) {
+    private val validationClient = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(18, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .build()
+
     fun observeAll(): Flow<List<Source>> = dao.observeAll()
 
     suspend fun enabled(): List<Source> = dao.enabled()
@@ -51,7 +60,20 @@ class SourceRepository(
                         }
                     }
                 }
-                SourceKind.M3U -> "Playlist address looks valid. It will be checked on first sync."
+                SourceKind.M3U -> {
+                    val url = normaliseUrl(source.url, source.kind)
+                    val request = Request.Builder().url(url).get().build()
+                    validationClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            error("Playlist is unavailable (HTTP ${response.code}).")
+                        }
+                        val prefix = response.peekBody(8192L).string().trimStart('\uFEFF', ' ', '\n', '\r')
+                        if (!prefix.startsWith("#EXTM3U", ignoreCase = true)) {
+                            error("The address responded, but did not provide a valid M3U playlist.")
+                        }
+                        "M3U playlist verified."
+                    }
+                }
                 SourceKind.STALKER -> {
                     stalkerApi.handshakeTest(source.copy(url = normaliseUrl(source.url, source.kind)))
                     "Portal accepted the MAC address. Loading channels…"

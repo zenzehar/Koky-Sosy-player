@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import app.opentv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -89,62 +91,49 @@ fun SearchScreen(
     BackHandler { onBack() }
 
     Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 20.dp),
+        Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 20.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.nav_search), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.width(20.dp))
-            Text(
-                query.ifEmpty { stringResource(R.string.search_type_name) },
-                style = MaterialTheme.typography.titleLarge,
-                color = if (query.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.primary,
-            )
+            Text("Master Search", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
         }
-
-        Spacer(Modifier.height(20.dp))
-
-        Row(Modifier.fillMaxSize()) {
-            OnScreenKeyboard(
-                onKey = { if (query.length < 40) query += it },
-                onSpace = { if (query.length < 40) query += " " },
-                onBackspace = { query = query.dropLast(1) },
-                onClear = { query = "" },
-            )
-
-            Spacer(Modifier.width(28.dp))
-
-            Column(Modifier.weight(1f).fillMaxSize()) {
-                when {
-                    query.isBlank() -> Hint(stringResource(R.string.search_start_hint))
-                    query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
-                    !anyResults -> Hint(stringResource(R.string.search_no_results, query))
-                    else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (channelResults.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.common_channels)) }
-                            items(channelResults, key = { "c${it.key}" }) { row ->
-                                SearchResultRow(row = row, onClick = { onPlayChannel(row.primary) })
-                            }
+        Spacer(Modifier.height(18.dp))
+        TvNativeTextField(
+            value = query,
+            onValueChange = { if (it.length <= 160) query = it },
+            label = "Search channels, movies and series — press OK to type",
+            modifier = Modifier.fillMaxWidth(),
+            initialFocus = true,
+        )
+        Spacer(Modifier.height(18.dp))
+        when {
+            query.isBlank() -> Hint(stringResource(R.string.search_start_hint))
+            query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
+            !anyResults -> Hint(stringResource(R.string.search_no_results, query))
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (channelResults.isNotEmpty()) {
+                    item { SectionHeader(stringResource(R.string.common_channels)) }
+                    items(channelResults, key = { "c${it.key}" }) { row ->
+                        SearchResultRow(row = row, onClick = { onPlayChannel(row.primary) })
+                    }
+                }
+                if (movieResults.isNotEmpty()) {
+                    item { SectionHeader(stringResource(R.string.nav_movies)) }
+                    items(movieResults, key = { "m${it.id}" }) { movie ->
+                        VodResultRow(movie.displayTitle, movie.posterUrl, movie.year?.toString()) {
+                            onPlayMovie(movie)
                         }
-                        if (movieResults.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.nav_movies)) }
-                            items(movieResults, key = { "m${it.id}" }) { movie ->
-                                VodResultRow(movie.displayTitle, movie.posterUrl, movie.year?.toString()) {
-                                    onPlayMovie(movie)
-                                }
-                            }
-                        }
-                        if (seriesResults.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.nav_shows)) }
-                            items(seriesResults, key = { "s${it.id}" }) { show ->
-                                VodResultRow(show.displayTitle, show.posterUrl, show.year?.toString()) {
-                                    onOpenSeries(show)
-                                }
-                            }
+                    }
+                }
+                if (seriesResults.isNotEmpty()) {
+                    item { SectionHeader(stringResource(R.string.nav_shows)) }
+                    items(seriesResults, key = { "s${it.id}" }) { show ->
+                        VodResultRow(show.displayTitle, show.posterUrl, show.year?.toString()) {
+                            onOpenSeries(show)
                         }
                     }
                 }
