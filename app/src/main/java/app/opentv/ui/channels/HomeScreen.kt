@@ -461,7 +461,7 @@ fun HomeScreen(
                         selectedKey = highlightedRow?.key,
                         onSelectRow = { row ->
                             selectedRow = row
-                            audibleReturnPreview = previewSound
+                            // Keep returned preview audio; browsing focus alone does not retune.
                             channelMenu = row
                         },
                         onFocusRow = onFocusChannel,
@@ -481,7 +481,7 @@ fun HomeScreen(
                         // Record series. The preview already follows the highlight as you browse.
                         onSelectRow = { row ->
                             selectedRow = row
-                            audibleReturnPreview = previewSound
+                            // Keep returned preview audio; browsing focus alone does not retune.
                             channelMenu = row
                         },
                         onFocusRow = onFocusChannel,
