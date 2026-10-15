@@ -276,12 +276,13 @@ internal fun TvSeriesDetailLayout(
                             EpisodePreviewRow(
                                 ep, s.posterUrl,
                                 if (lastPlayedEpisode == ep.id) Modifier.focusRequester(playedFocus) else Modifier,
+                                onPlay = {
+                                    lastPlayedEpisode = ep.id
+                                    onPlayEpisode("ep:${ep.id}", ep.streamUrl,
+                                        "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
+                                },
                                 onOptions = { selectedEpisodeOptions = ep },
-                            ) {
-                                lastPlayedEpisode = ep.id
-                                onPlayEpisode("ep:${ep.id}", ep.streamUrl,
-                                    "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
-                            }
+                            )
                         }
                     }
                 }
