@@ -295,8 +295,29 @@ fun VodPlayerScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.keepScreenOn = false
-            // Do not cancel the pending final history write with the UI scope.
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { savePosition() }
+            // IMPORTANT: Media3 player getters must run on their application/main
+            // thread and must never be read after release(). Earlier versions launched
+            // savePosition() on IO and immediately released the player, which could crash
+            // Android on Back from VOD. Snapshot first, persist only captured primitives.
+            val endingPos = if (usingVlc) positionMs else
+                runCatching { controller.player.currentPosition }.getOrDefault(0L)
+            val endingDuration = if (usingVlc) durationMs else
+                runCatching { controller.player.duration.takeIf { it > 0L } ?: 0L }.getOrDefault(0L)
+            val endingProfile = settings.activeProfileId.value
+            val endingIsComplete = advanced.get()
+            if (!endingIsComplete && endingPos > 5_000L && endingDuration > 0L) {
+                val snapshot = app.opentv.data.model.PlaybackPosition(
+                    profileId = endingProfile,
+                    mediaKey = mediaKey,
+                    positionMillis = endingPos,
+                    durationMillis = endingDuration,
+                    updatedAtMillis = System.currentTimeMillis(),
+                )
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    runCatching { graph.playbackPositions.upsert(snapshot) }
+                        .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
+                }
+            }
             controller.release()
             scope.cancel()
         }
