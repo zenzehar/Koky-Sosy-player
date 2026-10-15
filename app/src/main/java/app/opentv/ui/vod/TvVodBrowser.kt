@@ -101,8 +101,16 @@ internal fun TvVodBrowser(
     var selection by rememberSaveable(isSeries) { mutableStateOf("all") }
     var categoryQuery by rememberSaveable(isSeries) { mutableStateOf("") }
     var titleQuery by rememberSaveable(isSeries) { mutableStateOf("") }
+    fun chooseCategory(id: String) {
+        if (selection != id) {
+            categoryQuery = ""
+            titleQuery = ""
+            selection = id
+        }
+    }
     var sourceMenu by remember { mutableStateOf(false) }
     var resetTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
+    var optionsTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
     var moviePage by remember(isSeries) { mutableStateOf<List<Movie>>(emptyList()) }
     var seriesPage by remember(isSeries) { mutableStateOf<List<Series>>(emptyList()) }
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
@@ -211,19 +219,19 @@ internal fun TvVodBrowser(
                 }
             }
             LazyColumn(Modifier.weight(1f)) {
-                item { CategoryOption("ALL", totalCount.toString(), selection == "all") { selection = "all" } }
+                item { CategoryOption("ALL", totalCount.toString(), selection == "all") { chooseCategory("all") } }
                 item { CategoryOption("FAVOURITES", favouriteCount.toString(), selection == "favourites") {
-                    selection = "favourites"
+                    chooseCategory("favourites")
                 } }
                 item { CategoryOption("CONTINUE WATCHING", scopedResume.size.toString(), selection == "continue") {
-                    selection = "continue"
+                    chooseCategory("continue")
                 } }
                 item { CategoryOption("RECENTLY ADDED", recentCount.toString(), selection == "recent") {
-                    selection = "recent"
+                    chooseCategory("recent")
                 } }
                 items(categories, key = { "cat:${it.sourceId}:${it.id}" }) { category ->
                     CategoryOption(category.name, (categoryCounts[category.id] ?: 0).toString(),
-                        selection == category.id) { selection = category.id }
+                        selection == category.id) { chooseCategory(category.id) }
                 }
             }
         }
