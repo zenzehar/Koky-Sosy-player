@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenTV</string>
+    <string name="app_name">Koky &amp; Sosy Player</string>
 
     <!-- ============================ Common / reused ============================ -->
     <string name="common_done">Done</string>
@@ -13,8 +13,8 @@
     <string name="common_stop">Stop</string>
     <string name="common_delete">Delete</string>
     <string name="common_selected">Selected</string>
-    <string name="exit_title">Leave OpenTV?</string>
-    <string name="exit_body">You\'ll go back to your TV\'s home screen.</string>
+    <string name="exit_title">Leave Koky &amp; Sosy Player?</string>
+    <string name="exit_body">Return to your TV\'s home screen?</string>
     <string name="exit_confirm">Leave</string>
     <string name="exit_cancel">Stay</string>
     <string name="common_favourite">Favourite</string>

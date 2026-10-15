@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,6 +91,7 @@ private val RAIL_EXPANDED = 236.dp
 fun MainScreen(
     isTelevision: Boolean,
     hasSources: Boolean,
+    sourceForFooter: app.opentv.data.model.Source?,
     isSyncing: Boolean,
     onPlayChannel: (Channel) -> Unit,
     onOpenMovie: (Movie) -> Unit,
@@ -125,6 +127,7 @@ fun MainScreen(
     val homeTab = visibleTabs.first()
 
     var tab by remember { mutableStateOf(homeTab) }
+    var showDashboard by rememberSaveable { mutableStateOf(true) }
 
     // If the selected tab gets hidden (its type toggled off while it's open), drop back to the
     // home tab so the content area never tries to show a tab that's no longer there.
@@ -132,14 +135,14 @@ fun MainScreen(
         if (tab !in visibleTabs) tab = homeTab
     }
 
-    // Back from a non-home tab returns to the home tab rather than dropping out of the app.
-    BackHandler(enabled = tab != homeTab) { tab = homeTab }
+    // The top-level Back hierarchy is content -> dashboard -> deliberate exit.
+    BackHandler(enabled = !showDashboard) { showDashboard = true }
 
     // On the home tab, Back would otherwise drop straight out to the TV launcher — one stray press
     // and you've closed the app. Ask first. (A dialog or panel open in a child screen swallows Back
     // before this, so this only fires at the true root.)
     var showExit by remember { mutableStateOf(false) }
-    BackHandler(enabled = tab == homeTab) { showExit = true }
+    BackHandler(enabled = showDashboard) { showExit = true }
     if (showExit) {
         AlertDialog(
             onDismissRequest = { showExit = false },
@@ -160,6 +163,23 @@ fun MainScreen(
     // screen has its own category rail down its left edge, and an overlaying menu would land on top
     // of it and leave a sliver poking out — so they live side by side and never collide.
     Column(Modifier.fillMaxSize()) {
+      if (showDashboard) {
+          Box(Modifier.weight(1f).fillMaxWidth()) {
+              KokyDashboardScreen(
+                  hasSources = hasSources,
+                  sourceForFooter = sourceForFooter,
+                  onAddProvider = onAddSource,
+                  onLive = { tab = Tab.LIVE; showDashboard = false },
+                  onMovies = { tab = Tab.MOVIES; showDashboard = false },
+                  onSeries = { tab = Tab.SHOWS; showDashboard = false },
+                  onRecordings = { tab = Tab.RECORDINGS; showDashboard = false },
+                  onSearch = onOpenSearch,
+                  onProfiles = onOpenProfiles,
+                  onSettings = onOpenSettings,
+                  onRefresh = onRefresh,
+              )
+          }
+      } else {
       Row(Modifier.weight(1f).fillMaxWidth()) {
         NavRail(
             tabs = visibleTabs,
@@ -199,6 +219,7 @@ fun MainScreen(
                 Tab.RECORDINGS -> RecordingsScreen(onPlay = onPlayRecording)
             }
         }
+      }
       }
       StatusBar()
     }
@@ -281,7 +302,7 @@ private fun NavRail(
             .padding(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        // Brand: the logo mark alone when collapsed, the mark + "OpenTV" wordmark when open. The
+        // Brand: the logo mark alone when collapsed, the mark + "Koky & Sosy" wordmark when open. The
         // name stays on purpose — it's what people search for.
         Row(
             Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
@@ -289,13 +310,13 @@ private fun NavRail(
         ) {
             Image(
                 painter = painterResource(R.drawable.ic_opentv_logo),
-                contentDescription = "OpenTV",
+                contentDescription = "Koky & Sosy",
                 modifier = Modifier.size(34.dp),
             )
             if (expanded) {
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    "OpenTV",
+                    "Koky & Sosy",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,

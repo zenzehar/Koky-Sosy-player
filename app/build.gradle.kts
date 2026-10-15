@@ -11,11 +11,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.opentv"
+        applicationId = "tv.kokysosy.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.11.8"
+        versionCode = 5
+        versionName = "0.1.4-tv-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -127,6 +127,9 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
+
+    // Native fallback for provider VOD containers that Media3 cannot parse.
+    implementation("org.videolan.android:libvlc-all:3.6.1")
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

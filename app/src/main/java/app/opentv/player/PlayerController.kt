@@ -94,7 +94,12 @@ class PlayerController(
         data class Buffering(val title: String) : State
         data class Playing(val title: String) : State
         /** Playback stopped and retries are exhausted. [message] is written for humans. */
-        data class Error(val title: String, val message: String, val canRetry: Boolean) : State
+        data class Error(
+            val title: String,
+            val message: String,
+            val canRetry: Boolean,
+            val errorCode: Int? = null,
+        ) : State
     }
 
     data class Request(
@@ -236,14 +241,17 @@ class PlayerController(
                 override fun onPlayerError(error: PlaybackException) {
                     consecutiveFailures++
                     val request = current
+                    val unsupportedContainer =
+                        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
                     _state.value = State.Error(
                         title = request?.title.orEmpty(),
                         message = PlaybackErrors.describe(error),
-                        canRetry = consecutiveFailures < MAX_AUTO_RESTARTS,
+                        canRetry = !unsupportedContainer && consecutiveFailures < MAX_AUTO_RESTARTS,
+                        errorCode = error.errorCode,
                     )
                     // One silent restart covers the common case of a provider dropping the
                     // connection when another device on the account starts streaming.
-                    if (consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
+                    if (!unsupportedContainer && consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
                         scope.launch {
                             delay(AUTO_RESTART_DELAY_MILLIS)
                             if (current == request) play(request, debounce = false)
@@ -263,12 +271,12 @@ class PlayerController(
         // Cancelling here is what makes fast channel-changing safe: the previous switch never
         // reaches the player, so we never stack prepares.
         switchJob?.cancel()
+        if (current != request) consecutiveFailures = 0
         current = request
 
         switchJob = scope.launch {
             if (debounce) delay(switchDebounceMillis)
 
-            consecutiveFailures = 0
             httpFactory.setDefaultRequestProperties(mapOf("User-Agent" to request.userAgent))
             _state.value = State.Buffering(request.title)
 
@@ -301,6 +309,7 @@ class PlayerController(
     }
 
     fun retry() {
+        consecutiveFailures = 0
         current?.let { play(it, debounce = false) }
     }
 

@@ -78,12 +78,6 @@
             android:screenOrientation="fullUser"
             android:theme="@style/Theme.OpenTV">
 
-            <!-- Phones and tablets -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
             <!-- Android TV / Fire TV home screen -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

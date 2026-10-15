@@ -6,13 +6,20 @@
 package app.opentv.ui.onboarding
 
 import android.widget.Toast
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -20,7 +27,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -37,6 +50,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -65,6 +86,7 @@ import app.opentv.ui.channels.readClipboardText
 fun AddSourceScreen(
     viewModel: SourcesViewModel,
     onFinished: () -> Unit,
+    onListUsers: () -> Unit,
     editingSourceId: Long? = null,
 ) {
     val context = LocalContext.current
@@ -76,14 +98,18 @@ fun AddSourceScreen(
     val isTelevision = remember(context) { isRunningOnTelevision(context) }
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
-    var usePhone by remember { mutableStateOf(isTelevision && editingSourceId == null) }
+    var usePhone by remember { mutableStateOf(false) }
 
     if (usePhone) {
         PhonePairingScreen(
             // Even on a failed sync, leave the pairing screen: the source is already saved, so the
             // home screen shows either the guide (success) or a recoverable error (failure) rather
             // than stranding the user on an endless "Got it — connecting…" spinner.
-            onReceived = { draft -> viewModel.saveAndSync(draft) { onFinished() } },
+            onReceived = { draft ->
+                viewModel.saveAndSync(draft) { ok ->
+                    if (ok) onFinished() else usePhone = false
+                }
+            },
             onCancel = { usePhone = false },
         )
         return
@@ -105,6 +131,7 @@ fun AddSourceScreen(
     var mac by remember(existing?.id) { mutableStateOf(existing?.macAddress ?: "") }
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
@@ -129,210 +156,225 @@ fun AddSourceScreen(
         SourceKind.STALKER -> mac.isNotBlank()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    // Reference composition: large brand at left, four large credentials at right.
+    // The IPTV Smarters logo is NOT copied: Koky & Sosy uses independent artwork.
+    val whiteButtonColors = ButtonDefaults.buttonColors(
+        containerColor = Color.White,
+        contentColor = Color(0xFF24172F),
+        disabledContainerColor = Color.White.copy(alpha = 0.45f),
+        disabledContentColor = Color(0xFF5F5762),
+    )
+    Row(
+        modifier = Modifier.fillMaxSize()
+            .background(Brush.horizontalGradient(listOf(
+                Color(0xFF4E28CB), Color(0xFF8D40A7), Color(0xFFE97893),
+            )))
+            .padding(horizontal = 35.dp, vertical = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(35.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.widthIn(max = 640.dp)) {
-            Text(
-                stringResource(
-                    if (existing != null) R.string.settings_edit_provider_title
-                    else R.string.onboarding_add_provider_title,
-                ),
-                style = MaterialTheme.typography.displaySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.onboarding_add_provider_desc),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(24.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilterChip(
-                    selected = kind == SourceKind.XTREAM,
-                    onClick = { kind = SourceKind.XTREAM },
-                    label = { Text(stringResource(R.string.onboarding_xtream_login)) },
+        Column(
+            modifier = Modifier.weight(0.82f).fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Canvas(Modifier.size(width = 225.dp, height = 130.dp)) {
+                val px = 1.dp.toPx()
+                drawRoundRect(
+                    color = Color.White,
+                    topLeft = Offset(21 * px, 36 * px),
+                    size = Size(183 * px, 85 * px),
+                    cornerRadius = CornerRadius(25 * px),
+                    style = Stroke(width = 5 * px),
                 )
-                FilterChip(
-                    selected = kind == SourceKind.M3U,
-                    onClick = { kind = SourceKind.M3U },
-                    label = { Text(stringResource(R.string.onboarding_m3u_url)) },
-                )
-                FilterChip(
-                    selected = kind == SourceKind.STALKER,
-                    onClick = { kind = SourceKind.STALKER },
-                    label = { Text(stringResource(R.string.onboarding_stalker_portal)) },
-                )
+                drawLine(Color.White, Offset(104 * px, 34 * px), Offset(82 * px, 5 * px), 4 * px)
+                drawLine(Color.White, Offset(117 * px, 34 * px), Offset(140 * px, 5 * px), 4 * px)
+                drawCircle(Color.White, 5 * px, Offset(82 * px, 5 * px))
+                drawCircle(Color.White, 5 * px, Offset(140 * px, 5 * px))
             }
-
-            Spacer(Modifier.height(20.dp))
-
-            OutlinedTextField(
+            Text("KOKY", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Light)
+            Text("& SOSY PLAYER", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(23.dp))
+            Button(
+                onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+                    }.onFailure {
+                        Toast.makeText(context, "VPN settings are not available on this device.", Toast.LENGTH_LONG).show()
+                    }
+                },
+                colors = whiteButtonColors,
+                modifier = Modifier.width(200.dp).height(49.dp),
+            ) { Text("CONNECT VPN") }
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { usePhone = true },
+                enabled = isTelevision,
+                colors = whiteButtonColors,
+                modifier = Modifier.width(200.dp).height(49.dp),
+            ) {
+                Icon(Icons.Filled.PhoneAndroid, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("LOGIN BY PHONE")
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (choice in SourceKind.entries) {
+                    OutlinedButton(
+                        onClick = { kind = choice },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (kind == choice) Color.White else Color.Transparent,
+                            contentColor = if (kind == choice) Color(0xFF40277E) else Color.White,
+                        ),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 11.dp, vertical = 5.dp),
+                    ) {
+                        Text(when (choice) {
+                            SourceKind.XTREAM -> "XTREAM"
+                            SourceKind.M3U -> "M3U"
+                            SourceKind.STALKER -> "STALKER"
+                        }, fontSize = 11.sp)
+                    }
+                }
+            }
+            TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                Text(if (showAdvanced) "HIDE ADVANCED SETTINGS" else "ADVANCED SETTINGS", color = Color.White)
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1.22f).fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                if (existing == null) "Enter Your Login Details" else "Edit Your Login Details",
+                fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White,
+            )
+            Spacer(Modifier.height(17.dp))
+            TvNativeTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text(stringResource(R.string.epg_name_optional)) },
-                singleLine = true,
+                label = "Playlist name",
                 modifier = Modifier.fillMaxWidth(),
+                initialFocus = true,
+                smartersStyle = true,
             )
-            Spacer(Modifier.height(12.dp))
-
-            OutlinedTextField(
-                value = url,
-                onValueChange = { url = it },
-                label = {
-                    Text(
-                        when (kind) {
-                            SourceKind.XTREAM -> stringResource(R.string.onboarding_server_address)
-                            SourceKind.M3U -> stringResource(R.string.onboarding_playlist_url)
-                            SourceKind.STALKER -> stringResource(R.string.onboarding_portal_url)
-                        },
-                    )
-                },
-                supportingText = {
-                    Text(
-                        when (kind) {
-                            SourceKind.XTREAM -> stringResource(R.string.onboarding_server_help)
-                            SourceKind.M3U -> stringResource(R.string.onboarding_playlist_help)
-                            SourceKind.STALKER -> stringResource(R.string.onboarding_portal_help)
-                        },
-                    )
-                },
-                trailingIcon = { PasteButton { url += it } },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
+            Spacer(Modifier.height(9.dp))
             if (kind == SourceKind.XTREAM) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TvNativeTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text(stringResource(R.string.recset_field_username)) },
-                    trailingIcon = { PasteButton { username += it } },
-                    singleLine = true,
+                    label = "Username",
                     modifier = Modifier.fillMaxWidth(),
+                    smartersStyle = true,
                 )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text(stringResource(R.string.recset_field_password)) },
-                    trailingIcon = { PasteButton { password += it } },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            if (kind == SourceKind.STALKER) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                Spacer(Modifier.height(9.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TvNativeTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = "Password",
+                        modifier = Modifier.weight(1f),
+                        visualTransformation = if (showPassword)
+                            androidx.compose.ui.text.input.VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        smartersStyle = true,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Button(
+                        onClick = { showPassword = !showPassword },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFE5B9C8),
+                            contentColor = Color.White,
+                        ),
+                        modifier = Modifier.width(76.dp).height(60.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) {
+                        Icon(
+                            if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            modifier = Modifier.size(31.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(9.dp))
+            } else if (kind == SourceKind.STALKER) {
+                TvNativeTextField(
                     value = mac,
                     onValueChange = { mac = it },
-                    label = { Text(stringResource(R.string.onboarding_mac_address)) },
-                    supportingText = { Text(stringResource(R.string.onboarding_mac_help)) },
-                    trailingIcon = { PasteButton { mac += it } },
-                    singleLine = true,
+                    label = "MAC address",
                     modifier = Modifier.fillMaxWidth(),
+                    smartersStyle = true,
                 )
+                Spacer(Modifier.height(9.dp))
             }
-
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = { showAdvanced = !showAdvanced }) {
-                Text(if (showAdvanced) stringResource(R.string.onboarding_hide_advanced) else stringResource(R.string.onboarding_advanced))
+            TvNativeTextField(
+                value = url,
+                onValueChange = { url = it },
+                label = when (kind) {
+                    SourceKind.XTREAM -> "http://server-address:port"
+                    SourceKind.M3U -> "M3U playlist URL"
+                    SourceKind.STALKER -> "Portal URL"
+                },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                smartersStyle = true,
+            )
+            Spacer(Modifier.height(9.dp))
+            Button(
+                onClick = { viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
+                enabled = canSubmit && !ui.testing && !ui.syncing,
+                modifier = Modifier.fillMaxWidth().height(57.dp),
+                colors = whiteButtonColors,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+            ) {
+                Text(if (ui.syncing) "VALIDATING…" else "ADD USER", fontSize = 22.sp)
+            }
+            Spacer(Modifier.height(5.dp))
+            TextButton(onClick = onListUsers, modifier = Modifier.height(42.dp)) {
+                Icon(Icons.Filled.People, contentDescription = null, tint = Color.White)
+                Spacer(Modifier.width(12.dp))
+                Text("List Users", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            }
+            OutlinedButton(
+                onClick = { viewModel.test(draft()) },
+                enabled = canSubmit && !ui.testing && !ui.syncing,
+            ) {
+                if (ui.testing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("TEST CONNECTION", color = Color.White, fontSize = 12.sp)
             }
 
             if (showAdvanced) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                Spacer(Modifier.height(10.dp))
+                TvNativeTextField(
                     value = epgUrl,
                     onValueChange = { epgUrl = it },
-                    label = { Text(stringResource(R.string.onboarding_guide_url_optional)) },
-                    supportingText = {
-                        Text(stringResource(R.string.onboarding_guide_blank_help))
-                    },
-                    singleLine = true,
+                    label = "EPG URL (optional)",
                     modifier = Modifier.fillMaxWidth(),
+                    smartersStyle = true,
                 )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                Spacer(Modifier.height(9.dp))
+                TvNativeTextField(
                     value = userAgent,
                     onValueChange = { userAgent = it },
-                    label = { Text("User-Agent") },
-                    supportingText = {
-                        Text(stringResource(R.string.onboarding_user_agent_help))
-                    },
-                    singleLine = true,
+                    label = "User-Agent",
                     modifier = Modifier.fillMaxWidth(),
+                    smartersStyle = true,
                 )
             }
-
-            Spacer(Modifier.height(20.dp))
-
-            ui.testResult?.let { message ->
-                Card(Modifier.fillMaxWidth()) {
-                    Text(message, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
-                }
-                Spacer(Modifier.height(12.dp))
+            ui.testResult?.let { msg ->
+                Spacer(Modifier.height(5.dp))
+                Text(msg, color = Color.White, style = MaterialTheme.typography.bodySmall)
             }
-            ui.testError?.let { message ->
-                Card(Modifier.fillMaxWidth()) {
-                    Text(
-                        message,
-                        Modifier.padding(16.dp),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
+            ui.testError?.let { err ->
+                Spacer(Modifier.height(5.dp))
+                Text(err, color = Color(0xFFFFF3A0), style = MaterialTheme.typography.bodySmall)
             }
-            ui.syncMessage?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(12.dp))
+            ui.syncMessage?.let { status ->
+                Spacer(Modifier.height(5.dp))
+                Text(status, color = Color.White, style = MaterialTheme.typography.bodySmall)
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = { viewModel.test(draft()) },
-                    enabled = canSubmit && !ui.testing && !ui.syncing,
-                ) {
-                    if (ui.testing) {
-                        CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text(stringResource(R.string.recset_test_connection))
-                    }
-                }
-                Button(
-                    onClick = { viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
-                    enabled = canSubmit && !ui.testing && !ui.syncing,
-                ) {
-                    Text(if (ui.syncing) stringResource(R.string.onboarding_working) else stringResource(R.string.onboarding_save_load))
-                }
-            }
-
-            // "Set up from your phone" (the QR pairing flow) is offered only on a TV — see the
-            // isTelevision note above. On a phone it would just show a QR to nowhere.
-            if (isTelevision) {
-                Spacer(Modifier.height(20.dp))
-                OutlinedButton(onClick = { usePhone = true }) {
-                    Text(stringResource(R.string.onboarding_use_phone))
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
-            Text(
-                stringResource(R.string.onboarding_privacy_note),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

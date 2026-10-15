@@ -305,6 +305,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
             composable(Routes.ADD_SOURCE) {
                 AddSourceScreen(
                     viewModel = sourcesViewModel,
+                    onListUsers = { navController.navigate(Routes.PROVIDERS) },
                     onFinished = {
                         navController.navigate(Routes.HOME) {
                             popUpTo(Routes.ADD_SOURCE) { inclusive = true }
@@ -318,6 +319,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 AddSourceScreen(
                     viewModel = sourcesViewModel,
                     editingSourceId = sourceId,
+                    onListUsers = { navController.navigate(Routes.PROVIDERS) },
                     onFinished = { navController.popBackStack() },
                 )
             }
@@ -326,6 +328,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                 MainScreen(
                     isTelevision = isTelevision,
                     hasSources = sourcesUi.sources.isNotEmpty(),
+                    sourceForFooter = sourcesUi.sources.firstOrNull { it.enabled },
                     isSyncing = sourcesUi.syncing,
                     onPlayChannel = { channel -> navController.navigate(Routes.player(channel.id)) },
                     onOpenMovie = { movie ->

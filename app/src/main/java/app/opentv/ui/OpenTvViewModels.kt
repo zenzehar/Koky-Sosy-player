@@ -113,7 +113,21 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     /** Saves, then immediately pulls the catalogue so the user sees channels, not a spinner. */
     fun saveAndSync(draft: Source, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(syncing = true, syncMessage = "Saving source…")
+            if (_ui.value.syncing) return@launch
+            _ui.value = _ui.value.copy(
+                syncing = true, syncMessage = "Validating provider login…",
+                testError = null, testResult = null,
+            )
+            val validation = graph.sourceRepository.test(draft)
+            if (validation.isFailure) {
+                _ui.value = _ui.value.copy(
+                    syncing = false, syncMessage = null,
+                    testError = validation.exceptionOrNull()?.message ?: "Connection failed. Check your details.",
+                )
+                onDone(false)
+                return@launch
+            }
+            _ui.value = _ui.value.copy(syncMessage = "Saving verified provider…", testResult = validation.getOrNull())
             val id = graph.sourceRepository.save(draft)
             val saved = graph.sourceRepository.byId(id)
             if (saved == null) {
