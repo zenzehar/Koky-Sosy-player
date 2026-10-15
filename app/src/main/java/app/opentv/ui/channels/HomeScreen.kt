@@ -140,8 +140,10 @@ fun HomeScreen(
     //  - highlightedRow: where the d-pad is in the grid. Moves freely with up/down.
     //  - selectedRow: what the preview pane plays. Only changes when you press OK, so scrolling
     //    the list is calm and silent instead of re-tuning a stream on every keypress.
+    val returnedChannelId = remember { LiveReturnState.consume() }
     var highlightedRow by remember { mutableStateOf<ChannelsViewModel.Row?>(null) }
     var selectedRow by remember { mutableStateOf<ChannelsViewModel.Row?>(null) }
+    var restoreFocusToChannel by remember { mutableStateOf(returnedChannelId != null) }
     val previewSound by settings.guidePreviewSound.collectAsState()
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -167,9 +169,9 @@ fun HomeScreen(
     // The rail is full-width while focus is on it, then slides shut once focus moves into the
     // guide (onFocusRow) so the grid gets the whole width. Pressing d-pad LEFT from the guide's
     // leftmost (channel) column slides it back and drops focus on the selected category.
-    var railExpanded by remember { mutableStateOf(true) }
+    var railExpanded by remember { mutableStateOf(returnedChannelId == null) }
     val railWidth by animateDpAsState(
-        targetValue = if (railExpanded) 240.dp else 0.dp,
+        targetValue = if (railExpanded) 298.dp else 0.dp,
         label = "railWidth",
     )
     val railFocusRequester = remember { FocusRequester() }
@@ -198,10 +200,12 @@ fun HomeScreen(
     // Keep both valid as the list changes (e.g. switching category): stay on the same channel if
     // it's still present, otherwise fall back to the top of the new list.
     LaunchedEffect(rows) {
-        val lastWatched = settings.lastChannelId
-        val previouslyPlaying = rows.firstOrNull { it.primary.id == lastWatched }
-        highlightedRow = previouslyPlaying ?: rows.firstOrNull { it.key == highlightedRow?.key } ?: rows.firstOrNull()
-        selectedRow = previouslyPlaying ?: rows.firstOrNull { it.key == selectedRow?.key } ?: rows.firstOrNull()
+        val returned = returnedChannelId?.let { id -> rows.firstOrNull { it.primary.id == id } }
+        val previous = selectedRow?.let { row -> rows.firstOrNull { it.key == row.key } }
+            ?: returned ?: rows.firstOrNull { it.primary.id == settings.lastChannelId }
+        highlightedRow = rows.firstOrNull { it.key == highlightedRow?.key }
+            ?: returned ?: previous ?: rows.firstOrNull()
+        selectedRow = previous ?: highlightedRow
     }
 
     // ---- Live preview player -----------------------------------------------------------------
@@ -264,9 +268,10 @@ fun HomeScreen(
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
-    // Preview audio follows the setting; muted by default so browsing stays quiet.
-    LaunchedEffect(previewSound) {
-        previewController.player.volume = if (previewSound) 1f else 0f
+    // A full-screen return restores audible preview until another channel is chosen.
+    var audibleReturnPreview by remember { mutableStateOf(returnedChannelId != null) }
+    LaunchedEffect(previewSound, audibleReturnPreview) {
+        previewController.player.volume = if (previewSound || audibleReturnPreview) 1f else 0f
     }
 
     // Tune the preview to the highlighted channel, so it follows the d-pad as you browse — the
@@ -274,9 +279,9 @@ fun HomeScreen(
     // While a recording is running the preview is silenced entirely: on a single-connection line a
     // muted preview is still a second stream, which fights the recording and risks a provider ban.
     val recordingActive = activeRecordings.isNotEmpty()
-    LaunchedEffect(highlightedRow?.key, previewEnabled, screenResumed, recordingActive) {
-        val row = highlightedRow
-        if (!previewEnabled || !screenResumed || recordingActive || row == null) {
+    LaunchedEffect(selectedRow?.key, previewEnabled, screenResumed, recordingActive, audibleReturnPreview) {
+        val row = selectedRow
+        if ((!previewEnabled && !audibleReturnPreview) || !screenResumed || recordingActive || row == null) {
             previewController.stop()
             return@LaunchedEffect
         }
@@ -420,12 +425,12 @@ fun HomeScreen(
                     }
                 }
                 GuidePreview(
-                    row = highlightedRow,
+                    row = selectedRow ?: highlightedRow,
                     nowMillis = nowMillis,
-                    onWatch = { highlightedRow?.let { goFullscreen(it.primary) } },
+                    onWatch = { (selectedRow ?: highlightedRow)?.let { goFullscreen(it.primary) } },
                     onRefresh = onRefresh,
                     onAddSource = onAddSource,
-                    previewPlayer = if (previewEnabled && !recordingActive) previewController.player else null,
+                    previewPlayer = if ((previewEnabled || audibleReturnPreview) && !recordingActive) previewController.player else null,
                     isRecording = highlightedRow?.primary?.id?.let { id ->
                         activeRecordings.any { it.channelId == id }
                     } == true,
@@ -454,10 +459,16 @@ fun HomeScreen(
                     ChannelList(
                         rows = rows,
                         selectedKey = highlightedRow?.key,
-                        onSelectRow = { row -> channelMenu = row },
+                        onSelectRow = { row ->
+                            selectedRow = row
+                            audibleReturnPreview = previewSound
+                            channelMenu = row
+                        },
                         onFocusRow = onFocusChannel,
                         onToggleFavourite = { viewModel.toggleFavourite(it) },
                         onExitLeftFromChannel = onExitLeftChannel,
+                        restoreFocusToSelected = restoreFocusToChannel,
+                        onFocusRestored = { restoreFocusToChannel = false },
                         modifier = Modifier.weight(1f).padding(start = 12.dp, end = 12.dp),
                     )
                 } else {
@@ -468,11 +479,17 @@ fun HomeScreen(
                         selectedKey = highlightedRow?.key,
                         // OK on a channel opens its menu: Watch, Record now, Schedule a later show,
                         // Record series. The preview already follows the highlight as you browse.
-                        onSelectRow = { row -> channelMenu = row },
+                        onSelectRow = { row ->
+                            selectedRow = row
+                            audibleReturnPreview = previewSound
+                            channelMenu = row
+                        },
                         onFocusRow = onFocusChannel,
                         onProgramme = { row, programme -> recordTarget = row to programme },
                         onToggleFavourite = { viewModel.toggleFavourite(it) },
                         onExitLeftFromChannel = onExitLeftChannel,
+                        restoreFocusToSelected = restoreFocusToChannel,
+                        onFocusRestored = { restoreFocusToChannel = false },
                         modifier = Modifier.weight(1f).padding(start = 12.dp, end = 12.dp),
                     )
                 }
@@ -894,7 +911,7 @@ private fun RailEntry(label: String, selected: Boolean, onClick: () -> Unit, mod
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
         else MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
+        maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .fillMaxWidth()
