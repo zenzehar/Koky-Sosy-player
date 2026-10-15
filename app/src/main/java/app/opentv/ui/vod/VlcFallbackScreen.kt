@@ -149,16 +149,35 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Drive long-press preview from monotonic time, regardless of remote repeat rate.
+    LaunchedEffect(seekHeldDirection, seekHoldStartedAtMs, durationMs) {
+        val direction = seekHeldDirection ?: return@LaunchedEffect
+        if (durationMs <= 0L) return@LaunchedEffect
+        while (isActive && seekHeldDirection == direction) {
+            val heldMs = (android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs).coerceAtLeast(0L)
+            if (heldMs >= TvSeekPolicy.HOLD_THRESHOLD_MS) {
+                val accelerated = TvSeekPolicy.heldPreview(seekOriginMs, heldMs, direction, durationMs)
+                val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                previewMs = if (direction == SeekDirection.FORWARD) max(firstTap, accelerated)
+                    else min(firstTap, accelerated)
+                scrubbing = true
+            }
+            delay(75)
+        }
+    }
+
     LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed, ended) {
         if (controlsVisible && ready && !paused && !scrubbing && !failed && !ended) {
             delay(5_000)
             controlsVisible = false
         }
     }
-    LaunchedEffect(controlsVisible) {
+    LaunchedEffect(controlsVisible, ready) {
         delay(55)
         runCatching {
-            if (controlsVisible) pauseFocus.requestFocus() else rootFocus.requestFocus()
+            if (controlsVisible && ready) seekFocus.requestFocus()
+            else if (controlsVisible) pauseFocus.requestFocus()
+            else rootFocus.requestFocus()
         }
     }
 
@@ -182,11 +201,23 @@ fun VlcFallbackScreen(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (controlsVisible) {
-                    // Every remote interaction resets the idle-hiding timer.
-                    if (event.key != Key.Back && event.key != Key.Escape) interaction++
-                    return@onPreviewKeyEvent false
-                }
-                when (event.key) {
+                    // Always allow Up to select timeline, and Down to return to transport.
+                    // Do not rely solely on spatial focus traversal between Compose rows.
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            if (!timelineFocused) { seekFocus.requestFocus(); showControls(); true }
+                            else false
+                        }
+                        Key.DirectionDown -> {
+                            if (timelineFocused) { pauseFocus.requestFocus(); showControls(); true }
+                            else false
+                        }
+                        else -> {
+                            if (event.key != Key.Back && event.key != Key.Escape) interaction++
+                            false
+                        }
+                    }
+                } else when (event.key) {
                     Key.DirectionLeft -> { seekTo(positionMs - 10_000L); true }
                     Key.DirectionRight -> { seekTo(positionMs + 10_000L); true }
                     Key.DirectionUp, Key.DirectionDown, Key.Enter, Key.DirectionCenter -> {
@@ -239,8 +270,8 @@ fun VlcFallbackScreen(
                 Text(title, color = Color.White, maxLines = 1, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    if (timelineFocused) "Seek timeline  •  Left/Right ±10s  •  Hold to scrub  •  Down for controls"
-                    else "Press Up from the playback controls to focus the timeline",
+                    if (timelineFocused) "SEEK  •  Left/Right ±10s  •  Hold to accelerate  •  Down for buttons"
+                    else "Press Up to focus the timeline",
                     color = if (timelineFocused) Color.White else Color.LightGray,
                 )
                 Spacer(Modifier.height(3.dp))
