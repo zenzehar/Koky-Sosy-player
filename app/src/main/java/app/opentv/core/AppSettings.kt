@@ -408,6 +408,16 @@ class AppSettings private constructor(context: Context) {
     )
     val tmdbApiKey: StateFlow<String> = _tmdbApiKey.asStateFlow()
 
+    private val _tmdbReadToken = MutableStateFlow(
+        prefs.getString("tmdb_read_token", app.opentv.BuildConfig.TMDB_DEFAULT_READ_TOKEN).orEmpty()
+    )
+    val tmdbReadToken: StateFlow<String> = _tmdbReadToken.asStateFlow()
+    fun setTmdbReadToken(token: String) {
+        val trimmed = token.trim()
+        prefs.edit().putString("tmdb_read_token", trimmed).apply()
+        _tmdbReadToken.value = trimmed
+    }
+
     fun setTmdbApiKey(key: String) {
         val trimmed = key.trim()
         prefs.edit().putString(KEY_TMDB_KEY, trimmed).apply()
