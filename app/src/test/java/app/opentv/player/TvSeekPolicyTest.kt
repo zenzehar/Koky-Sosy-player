@@ -20,6 +20,12 @@ class TvSeekPolicyTest {
         assertTrue(p1 < p2 && p2 < p3)
         assertTrue(p3 - p2 > p2 - p1)
     }
+    @Test fun longHoldUsesThreefoldAccelerationWithoutChangingTapStep() {
+        assertEquals(10_000L, TvSeekPolicy.tap(0L, 2_000_000L, SeekDirection.FORWARD))
+        assertEquals(602_400L,
+            TvSeekPolicy.heldPreview(0L, 5_000L, SeekDirection.FORWARD, 2_000_000L))
+    }
+
     @Test fun heldPreviewClampsToDuration() {
         assertEquals(90_000L, TvSeekPolicy.heldPreview(5_000L, 5000L, SeekDirection.FORWARD, 90_000L))
         assertEquals(0L, TvSeekPolicy.heldPreview(5_000L, 5000L, SeekDirection.BACKWARD, 90_000L))
