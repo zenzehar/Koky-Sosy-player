@@ -4,6 +4,7 @@
 - Increased cast coverage to **up to 60** credited performers per opened title and up to **350 local hits per media type**; provider-only names remain present with a photo placeholder.
 - When a person page is opened, optional TMDB filmography supplies additional movie/TV IDs and exact title candidates. Only matches already in the user's local catalogue are returned, via bounded Room database lookups. Credited membership is stored for future use.
 - Cast portrait metadata is bounded to **96 title entries in memory**. Photos use Coil's normal on-demand memory/disk cache; **no mass photo downloads or catalogue-wide TMDB crawl**.
+- Fixed a concrete VOD exit race: the final save previously read Media3 player properties on an IO thread *after* releasing the player; this could throw an uncaught wrong-thread/released-player exception on Back. Now final position/duration are snapshotted on the UI thread before release, and only those immutable values are persisted in background.
 - Stabilized Series navigation: remember a single episode Room Flow while composing; avoid forcing focus on lazy episode rows while returning from playback.
 - Refresh Movie/Series resume after lifecycle resume, showing **minutes watched and percentage** on detail-level Resume actions. Series defaults to the latest unfinished episode and its season.
 - Fire TV screensaver behavior **still pending hardware verification**, carried forward unchanged.
