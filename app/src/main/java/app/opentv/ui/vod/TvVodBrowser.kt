@@ -178,8 +178,8 @@ internal fun TvVodBrowser(
 
     Row(Modifier.fillMaxSize().background(background)) {
         Column(
-            Modifier.weight(0.99f).fillMaxSize().background(sideBackground)
-                .padding(start = 18.dp, end = 14.dp, top = 18.dp, bottom = 8.dp),
+            Modifier.weight(0.94f).fillMaxSize().background(sideBackground)
+                .padding(start = 18.dp, end = 9.dp, top = 16.dp, bottom = 8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onExit) {
@@ -227,7 +227,7 @@ internal fun TvVodBrowser(
                 }
             }
         }
-        Column(Modifier.weight(1.95f).fillMaxSize().padding(start = 10.dp, end = 15.dp, top = 8.dp)) {
+        Column(Modifier.weight(2.8f).fillMaxSize().padding(start = 13.dp, end = 13.dp, top = 8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Search, contentDescription = null, tint = Color.White)
                 Spacer(Modifier.width(10.dp))
@@ -253,10 +253,10 @@ internal fun TvVodBrowser(
                     Text("Nothing to continue yet", color = Color.LightGray)
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(123.dp),
+                        columns = GridCells.Fixed(6),
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(11.dp),
-                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         gridItems(scopedResume.filter {
                             titleQuery.isBlank() || it.title.contains(titleQuery.trim(), ignoreCase = true)
@@ -269,11 +269,11 @@ internal fun TvVodBrowser(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(123.dp),
+                    columns = GridCells.Fixed(6),
                     state = grid,
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(11.dp),
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     if (isSeries) gridItems(seriesPage, key = { "s:${it.id}" }) { item ->
                         TvPoster(item.displayTitle, item.posterUrl) { onOpenSeries(item) }
@@ -310,20 +310,32 @@ internal fun TvVodBrowser(
 @Composable
 private fun CategoryOption(label: String, count: String, selected: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    var lastClick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val selectedBackground = if (selected) teal else if (focused) Color(0xFF18243C) else sideBackground
     Row(
         Modifier.fillMaxWidth()
-            .background(if (selected) teal else if (focused) Color(0xFF1E3151) else sideBackground)
+            .background(selectedBackground)
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 0.dp, Color.White)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 13.dp),
+            .clickable {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastClick >= 180L) { lastClick = now; onClick() }
+            },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Text(count, color = Color.White, fontSize = 15.sp)
+        Box(
+            Modifier.width(3.dp).height(48.dp)
+                .background(if (focused) Color(0xFF69E0EF) else if (selected) Color.White.copy(alpha=.55f) else Color.Transparent),
+        )
+        Row(Modifier.weight(1f).padding(start = 13.dp, end = 7.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = if (focused || selected) Color.White else Color(0xFFDEDFE7),
+                fontSize = 15.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(count, color = Color(0xFFC5D4DF), fontSize = 14.sp)
+        }
     }
 }
+
 
 @Composable
 private fun TvPoster(title: String, poster: String?, onClick: () -> Unit) {
@@ -331,9 +343,9 @@ private fun TvPoster(title: String, poster: String?, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().aspectRatio(.66f)
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 3.dp else 0.dp, Color.White, RoundedCornerShape(5.dp))
+            .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
             .clickable(onClick = onClick)
-            .background(Color(0xFF1B2237)),
+            .background(Color(0xFF151B2B)),
     ) {
         AsyncImage(model = poster, contentDescription = title,
             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -361,7 +373,7 @@ private fun ResumePoster(
     Column(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 3.dp else 0.dp, Color.White, RoundedCornerShape(5.dp))
+            .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
             .combinedClickable(onClick = onPlay, onLongClick = onReset),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(.66f)) {
