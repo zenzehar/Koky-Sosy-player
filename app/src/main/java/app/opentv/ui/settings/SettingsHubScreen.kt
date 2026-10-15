@@ -37,6 +37,13 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.ui.platform.LocalContext
+import android.app.ActivityManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,6 +78,8 @@ fun SettingsHubScreen(
     onOpenAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var confirmFactoryReset by remember { mutableStateOf(false) }
     val entries = listOf(
         HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title), stringResource(R.string.settings_providers_subtitle), onOpenProviders),
         HubEntry(Icons.Filled.Extension, stringResource(R.string.settings_addons_title), stringResource(R.string.settings_addons_subtitle), onOpenAddons),
@@ -82,8 +91,29 @@ fun SettingsHubScreen(
         HubEntry(Icons.Filled.Lock, stringResource(R.string.settings_parental_title), stringResource(R.string.settings_parental_subtitle), onOpenParental),
         HubEntry(Icons.Filled.Sync, stringResource(R.string.settings_sync_title), stringResource(R.string.settings_sync_subtitle), onOpenSync),
         HubEntry(Icons.Filled.Info, stringResource(R.string.settings_about_title), stringResource(R.string.settings_about_subtitle), onOpenAbout),
+        HubEntry(Icons.Filled.DeleteForever, "Factory reset", "Clear all app settings, logins and history",
+            { confirmFactoryReset = true }),
     )
 
+    if (confirmFactoryReset) {
+        AlertDialog(
+            onDismissRequest = { confirmFactoryReset = false },
+            title = { Text("Factory reset Koky & Sosy?") },
+            text = { Text("All provider logins, preferences, viewing progress, saved recordings and other app data will be permanently erased. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmFactoryReset = false
+                    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                    if (!manager.clearApplicationUserData()) {
+                        Toast.makeText(context, "Reset could not be started", Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("Erase all data") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmFactoryReset = false }) { Text("Cancel") }
+            },
+        )
+    }
     Column(
         Modifier
             .fillMaxSize()
