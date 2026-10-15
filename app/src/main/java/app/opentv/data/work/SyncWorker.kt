@@ -17,6 +17,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.opentv.core.ServiceLocator
+import app.opentv.core.AppSettings
 import app.opentv.data.repo.CatalogRepository
 import java.util.concurrent.TimeUnit
 
@@ -66,7 +67,11 @@ class SyncWorker(
         runCatching { graph.recordingEngine.rescanSeriesRules() }
 
         // A partial failure is still a retry — but the user keeps everything already on disk.
-        return if (anyFailed) Result.retry() else Result.success()
+        if (!anyFailed) {
+            graph.settings.catalogueSyncedAtMillis = now
+            graph.settings.vodSyncedAtMillis = now
+        }
+        return if (anyFailed) Result.failure() else Result.success()
     }
 
     companion object {
@@ -95,25 +100,25 @@ class SyncWorker(
             )
         }
 
-        fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build(),
-                )
-                .setBackoffCriteria(
-                    androidx.work.BackoffPolicy.EXPONENTIAL,
-                    15,
-                    TimeUnit.MINUTES,
-                )
+        /** Network sync only at startup when the selected interval has elapsed. */
+        fun refreshAtLaunch(context: Context) {
+            val settings = AppSettings.get(context)
+            val hours = settings.catalogueRefreshHours.value
+            if (hours == 0) return
+            val now = System.currentTimeMillis()
+            val last = settings.catalogueSyncedAtMillis
+            if (last > 0L && now >= last && now - last < hours * 3_600_000L) return
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
-                request,
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "koky-launch-catalogue", ExistingWorkPolicy.KEEP, request,
             )
+        }
+
+        fun schedule(context: Context) {
+            // Cancel the previous version's unattended six-hour periodic downloader.
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
         }
     }
 }
