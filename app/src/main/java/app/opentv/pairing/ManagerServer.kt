@@ -255,8 +255,15 @@ class ManagerServer(
             .coerceAtMost(MAX_BODY_BYTES)
         if (contentLength <= 0) return ""
         val buffer = CharArray(contentLength)
-        val read = reader.read(buffer, 0, contentLength)
-        return if (read > 0) String(buffer, 0, read) else ""
+        var received = 0
+        while (received < contentLength) {
+            val count = reader.read(buffer, received, contentLength - received)
+            if (count <= 0) break
+            received += count
+        }
+        // BufferedReader is character-based. TMDB credentials and JSON field names are ASCII;
+        // loop rather than trusting a single partial TCP read to return the entire body.
+        return String(buffer, 0, received)
     }
 
     // ---- Routes --------------------------------------------------------------------------------

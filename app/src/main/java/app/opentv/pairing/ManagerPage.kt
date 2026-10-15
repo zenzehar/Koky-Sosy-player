@@ -524,23 +524,42 @@ object ManagerPage {
           };
 
           // Secrets never leave the TV. GET only reports whether each is configured.
-          get('/tmdb').then(function(status){
+          getJson('/tmdb').then(function(status){
             el('castApiStatus').textContent = 'API key: ' +
               (status.hasApiKey ? 'configured' : 'not set') + ' · Read token: ' +
               (status.hasReadToken ? 'configured' : 'not set');
           }).catch(function(){ el('castApiStatus').textContent = 'Status unavailable'; });
-          el('castApiSave').onclick = function(){
+          el('castApiSave').onclick = async function(){
             var key = el('castApiKey').value.trim(), read = el('castApiToken').value.trim();
-            if (!key && !read){ setStatus('Enter at least one new credential.', 'err'); return; }
+            if (!key && !read) {
+              el('castApiStatus').textContent = 'Enter an API key or access token before saving.';
+              setStatus('Enter at least one new credential.', 'err');
+              return;
+            }
             var payload = {};
             if (key) payload.apiKey = key;
             if (read) payload.readToken = read;
-            post('/tmdb', payload).then(function(){
+            var saveButton = el('castApiSave');
+            saveButton.disabled = true;
+            el('castApiStatus').textContent = 'Saving credentials to TV…';
+            try {
+              var reply = await post('/tmdb', payload);
+              if (!reply || reply.ok !== true) throw new Error('Save was not acknowledged');
+              // The GET endpoint returns configured/not-configured flags only, never credentials.
+              var saved = await getJson('/tmdb');
+              if ((key && !saved.hasApiKey) || (read && !saved.hasReadToken)) {
+                throw new Error('TV has not confirmed the saved credentials');
+              }
               el('castApiKey').value = '';
               el('castApiToken').value = '';
-              el('castApiStatus').textContent = 'TMDB configured on TV';
-              setStatus('TMDB saved on your television', 'ok');
-            }).catch(function(){ setStatus('Could not save TMDB settings', 'err'); });
+              el('castApiStatus').textContent = 'Saved and verified on your TV. API key: ' +
+                (saved.hasApiKey ? 'configured' : 'not set') + ' · Read token: ' +
+                (saved.hasReadToken ? 'configured' : 'not set');
+              setStatus('TMDB saved and verified on TV', 'ok');
+            } catch (error) {
+              el('castApiStatus').textContent = 'Save failed: ' + error.message;
+              setStatus('TMDB save failed; check the TV manager connection.', 'err');
+            } finally { saveButton.disabled = false; }
           };
           loadMeta();
           loadRecording();

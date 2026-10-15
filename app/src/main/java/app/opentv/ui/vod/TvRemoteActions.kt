@@ -33,31 +33,28 @@ internal fun Modifier.tvRemoteActions(onClick: () -> Unit, onLongPress: () -> Un
     val latestClick by rememberUpdatedState(onClick)
     val latestLong by rememberUpdatedState(onLongPress)
     var downAt by remember { mutableLongStateOf(0L) }
-    var longTriggered by remember { mutableStateOf(false) }
+    // Do not open the menu on KeyDown repeats: a subsequent KeyUp can land on
+    // the newly focused menu and accidentally invoke its first item.
+    // Dispatch the long/short action only after the original key is released.
     return this.onPreviewKeyEvent { event ->
         when (event.key) {
             Key.Menu -> {
-                if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) latestLong()
+                if (event.type == KeyEventType.KeyUp) latestLong()
                 true
             }
             Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                 when (event.type) {
                     KeyEventType.KeyDown -> {
-                        val now = SystemClock.elapsedRealtime()
-                        if (downAt == 0L) { downAt = now; longTriggered = false }
-                        if (!longTriggered && (event.nativeKeyEvent.repeatCount >= 2 || now - downAt >= 600L)) {
-                            longTriggered = true
-                            latestLong()
-                        }
+                        if (downAt == 0L) downAt = SystemClock.elapsedRealtime()
                         true
                     }
                     KeyEventType.KeyUp -> {
-                        val elapsed = SystemClock.elapsedRealtime() - downAt
-                        if (downAt != 0L && !longTriggered) {
-                            if (elapsed >= 600L) latestLong() else latestClick()
-                        }
+                        val start = downAt
                         downAt = 0L
-                        longTriggered = false
+                        if (start != 0L) {
+                            if (SystemClock.elapsedRealtime() - start >= 600L) latestLong()
+                            else latestClick()
+                        }
                         true
                     }
                     else -> false
