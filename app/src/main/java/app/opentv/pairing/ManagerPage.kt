@@ -112,7 +112,7 @@ object ManagerPage {
         <body>
           <div class="wrap">
             <header>
-              <h1>OpenTV — manage channels</h1>
+              <h1>Koky &amp; Sosy — manage TV</h1>
               <p class="hint">Changes apply to your TV the moment you make them.</p>
             </header>
 
@@ -138,6 +138,19 @@ object ManagerPage {
                   <input id="provMac" placeholder="00:1A:79:xx:xx:xx" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
                 <button class="save" id="provSave">Add &amp; load channels</button>
                 <button class="save" id="provTest" style="background:var(--surface2);border-color:var(--line);margin-left:8px;">Test</button>
+              </div>
+            </details>
+
+            <details class="rec" id="castApiCard">
+              <summary>Cast photos and TMDB metadata</summary>
+              <div class="body">
+                <p class="hint">Configure TMDB on your television from this phone. Enter a replacement key or read-access token; leave either field blank to keep its current value. Values are never sent back to your phone.</p>
+                <p class="hint" id="castApiStatus">Checking current configuration…</p>
+                <label class="field"><span>TMDB API key</span>
+                  <input id="castApiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+                <label class="field"><span>TMDB API read access token (optional)</span>
+                  <input id="castApiToken" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+                <button class="save" id="castApiSave">Save TMDB settings on TV</button>
               </div>
             </details>
 
@@ -510,6 +523,25 @@ object ManagerPage {
               .catch(function(){ setStatus(UNREACH, 'err'); });
           };
 
+          // Secrets never leave the TV. GET only reports whether each is configured.
+          get('/tmdb').then(function(status){
+            el('castApiStatus').textContent = 'API key: ' +
+              (status.hasApiKey ? 'configured' : 'not set') + ' · Read token: ' +
+              (status.hasReadToken ? 'configured' : 'not set');
+          }).catch(function(){ el('castApiStatus').textContent = 'Status unavailable'; });
+          el('castApiSave').onclick = function(){
+            var key = el('castApiKey').value.trim(), read = el('castApiToken').value.trim();
+            if (!key && !read){ setStatus('Enter at least one new credential.', 'err'); return; }
+            var payload = {};
+            if (key) payload.apiKey = key;
+            if (read) payload.readToken = read;
+            post('/tmdb', payload).then(function(){
+              el('castApiKey').value = '';
+              el('castApiToken').value = '';
+              el('castApiStatus').textContent = 'TMDB configured on TV';
+              setStatus('TMDB saved on your television', 'ok');
+            }).catch(function(){ setStatus('Could not save TMDB settings', 'err'); });
+          };
           loadMeta();
           loadRecording();
         </script>
