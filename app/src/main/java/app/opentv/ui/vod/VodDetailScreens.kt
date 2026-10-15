@@ -86,6 +86,9 @@ fun MovieDetailScreen(
 ) {
     var movie by remember(movieId) { mutableStateOf<Movie?>(null) }
     var moreLike by remember(movieId) { mutableStateOf<List<Movie>>(emptyList()) }
+    var castPhotos by remember(movieId) {
+        mutableStateOf<List<app.opentv.data.remote.TmdbCastPortrait>>(emptyList())
+    }
     var resumeExists by remember(movieId) { mutableStateOf(false) }
     var confirmMovieReset by remember(movieId) { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
@@ -101,6 +104,7 @@ fun MovieDetailScreen(
         if (loaded != null) {
             resumeExists = viewModel.resumePosition("movie:${loaded.id}")?.let { !it.isFinished } == true
             moreLike = viewModel.moreLikeThis(loaded)
+            castPhotos = runCatching { viewModel.movieCastPortraits(loaded) }.getOrDefault(emptyList())
         }
     }
 
@@ -151,6 +155,7 @@ fun MovieDetailScreen(
             DetailInfo(
                 plot = m.plot,
                 cast = m.cast,
+                castPortraits = castPhotos,
                 director = m.director,
                 genre = m.genre,
                 onOpenPerson = onOpenPerson,
@@ -288,7 +293,7 @@ fun SeriesDetailScreen(
     onBack: () -> Unit,
     viewModel: VodViewModel = viewModel(),
 ) {
-    TvSeriesDetailLayout(seriesId, onPlayEpisode, onBack, viewModel)
+    TvSeriesDetailLayout(seriesId, onPlayEpisode, onBack, viewModel, onOpenPerson)
 }
 
 // ---- Shared detail pieces ----------------------------------------------------------------------
@@ -434,6 +439,7 @@ private fun HeroPosterCard(posterUrl: String?, title: String) {
 private fun DetailInfo(
     plot: String?,
     cast: String?,
+    castPortraits: List<app.opentv.data.remote.TmdbCastPortrait>,
     director: String?,
     genre: String?,
     onOpenPerson: (String) -> Unit,
@@ -448,13 +454,13 @@ private fun DetailInfo(
             Spacer(Modifier.height(16.dp))
         }
         plot?.takeIf { it.isNotBlank() }?.let { LabeledBlock(stringResource(R.string.vod_synopsis), it) }
-        if (castList.isNotEmpty()) {
+        val people = if (castPortraits.isNotEmpty()) castPortraits else
+            castList.map { app.opentv.data.remote.TmdbCastPortrait(it, null) }
+        if (people.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
             SectionLabel(stringResource(R.string.vod_cast))
             Spacer(Modifier.height(8.dp))
-            ChipRow(castList.size, key = { castList[it] }) {
-                PersonChip(castList[it]) { onOpenPerson(castList[it]) }
-            }
+            CastPortraitShelf(people, onOpenPerson)
         }
         if (directors.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
