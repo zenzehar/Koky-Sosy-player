@@ -78,7 +78,7 @@ fun TvNativeTextField(
             keyboard?.show()
         } else {
             keyboard?.hide()
-            if (focused) runCatching { idleRequester.requestFocus() }
+            runCatching { idleRequester.requestFocus() }
         }
     }
     BackHandler(enabled = editing) { editing = false }

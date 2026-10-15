@@ -294,7 +294,7 @@ private fun DashboardTile(
                     when {
                         loading && progress <= 0f -> "FETCHING…"
                         loading -> "${(reveal * 100).toInt()}%"
-                        else -> "WAITING",
+                        else -> "WAITING"
                     },
                     color = Color.White,
                     fontSize = 13.sp,
