@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
@@ -92,6 +91,7 @@ fun VlcFallbackScreen(
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
     var seekOriginMs by remember { mutableLongStateOf(0L) }
+    var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var timelineFocused by remember { mutableStateOf(false) }
     var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
@@ -261,11 +261,13 @@ fun VlcFallbackScreen(
                                         if (player.isSeekable && durationMs > 0L) {
                                             if (seekHeldDirection != direction) {
                                                 seekOriginMs = positionMs
+                                                seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
                                                 seekHeldDirection = direction
                                                 previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
                                             } else {
-                                                val heldMs = (event.nativeKeyEvent.eventTime -
-                                                    event.nativeKeyEvent.downTime).coerceAtLeast(0L)
+                                                val heldMs = (
+                                                    android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs
+                                                ).coerceAtLeast(0L)
                                                 val accelerated = TvSeekPolicy.heldPreview(
                                                     seekOriginMs, heldMs, direction, durationMs,
                                                 )
