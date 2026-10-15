@@ -24,6 +24,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -90,7 +96,20 @@ fun GuideGrid(
     onExitLeftFromChannel: () -> Boolean = { false },
     dayOffset: Int = 0,
     modifier: Modifier = Modifier,
+    restoreFocusToSelected: Boolean = false,
+    onFocusRestored: () -> Unit = {},
 ) {
+    val channelFocus = remember { FocusRequester() }
+    val columnState = rememberLazyListState()
+    LaunchedEffect(restoreFocusToSelected, selectedKey, rows.size) {
+        if (!restoreFocusToSelected || selectedKey == null) return@LaunchedEffect
+        val index = rows.indexOfFirst { it.key == selectedKey }
+        if (index < 0) return@LaunchedEffect
+        columnState.scrollToItem(index)
+        withFrameNanos { }
+        delay(75L)
+        if (runCatching { channelFocus.requestFocus() }.isSuccess) onFocusRestored()
+    }
     val scroll = rememberScrollState()
     val now = System.currentTimeMillis()
     // Jumping to another day resets the horizontal scroll to that day's start; a within-day time
@@ -103,6 +122,7 @@ fun GuideGrid(
         TimeHeader(windowStartMillis, scroll)
 
         LazyColumn(
+            state = columnState,
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
@@ -118,6 +138,7 @@ fun GuideGrid(
                     onProgramme = { programme -> onProgramme(row, programme) },
                     onToggleFavourite = { onToggleFavourite(row) },
                     onExitLeft = onExitLeftFromChannel,
+                    targetFocus = if (restoreFocusToSelected && row.key == selectedKey) channelFocus else null,
                 )
             }
         }
@@ -140,9 +161,23 @@ fun ChannelList(
     onToggleFavourite: (ChannelsViewModel.Row) -> Unit = {},
     onExitLeftFromChannel: () -> Boolean = { false },
     modifier: Modifier = Modifier,
+    restoreFocusToSelected: Boolean = false,
+    onFocusRestored: () -> Unit = {},
 ) {
+    val channelFocus = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(restoreFocusToSelected, selectedKey, rows.size) {
+        if (!restoreFocusToSelected || selectedKey == null) return@LaunchedEffect
+        val i = rows.indexOfFirst { it.key == selectedKey }
+        if (i < 0) return@LaunchedEffect
+        listState.scrollToItem(i)
+        withFrameNanos { }
+        delay(75L)
+        if (runCatching { channelFocus.requestFocus() }.isSuccess) onFocusRestored()
+    }
     val now = System.currentTimeMillis()
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -156,6 +191,7 @@ fun ChannelList(
                 onFocus = { onFocusRow(row) },
                 onToggleFavourite = { onToggleFavourite(row) },
                 onExitLeft = onExitLeftFromChannel,
+                targetFocus = if (restoreFocusToSelected && row.key == selectedKey) channelFocus else null,
             )
         }
     }
@@ -170,6 +206,7 @@ private fun ChannelListRow(
     onFocus: () -> Unit,
     onToggleFavourite: () -> Unit,
     onExitLeft: () -> Boolean,
+    targetFocus: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Row(
@@ -188,6 +225,7 @@ private fun ChannelListRow(
             .onPreviewKeyEvent { e ->
                 if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) onExitLeft() else false
             }
+            .then(if (targetFocus != null) Modifier.focusRequester(targetFocus) else Modifier)
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocus()
@@ -320,6 +358,7 @@ private fun GuideRow(
     onProgramme: (Programme) -> Unit,
     onToggleFavourite: () -> Unit = {},
     onExitLeft: () -> Boolean = { false },
+    targetFocus: FocusRequester? = null,
 ) {
     // Focus (the d-pad border) just moves the highlight. Selection (the filled cell) is the
     // channel the preview is playing — it only changes when you press OK.
@@ -349,6 +388,7 @@ private fun GuideRow(
                     if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) onExitLeft()
                     else false
                 }
+                .then(if (targetFocus != null) Modifier.focusRequester(targetFocus) else Modifier)
                 .onFocusChanged {
                     focused = it.isFocused
                     if (it.isFocused) onFocus()
@@ -369,14 +409,14 @@ private fun GuideRow(
             AsyncImage(
                 model = row.primary.logoUrl,
                 contentDescription = null,
-                modifier = Modifier.size(34.dp).clip(RoundedCornerShape(4.dp)),
+                modifier = Modifier.size(31.dp).clip(RoundedCornerShape(4.dp)),
             )
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     row.primary.shownName,
                     style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (row.variants.size > 1) {
@@ -393,7 +433,7 @@ private fun GuideRow(
             // focusable so it works from a TV remote too.
             IconButton(
                 onClick = onToggleFavourite,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(34.dp),
             ) {
                 Icon(
                     imageVector = if (row.primary.favourite) Icons.Filled.Star else Icons.Outlined.StarOutline,
@@ -525,11 +565,11 @@ private fun widthFor(fromMillis: Long, toMillis: Long): Dp {
 }
 
 // A weak TV box will happily scroll this; the whole strip is ~12h * 60 * 4dp = ~2880dp wide.
-private const val MINUTE_DP = 4f
+private const val MINUTE_DP = 3f
 private const val HOURS_IN_WINDOW = 24
 private const val HALF_HOUR_MS = 30 * 60 * 1000L
-private val CHANNEL_COLUMN = 220.dp
-private val ROW_HEIGHT = 64.dp
+private val CHANNEL_COLUMN = 350.dp
+private val ROW_HEIGHT = 77.dp
 // Floor for a programme block so a nearly-finished or very short show still shows its name.
 private val MIN_BLOCK_WIDTH = 72.dp
 private val HALF_HOUR_WIDTH: Dp = (30 * MINUTE_DP).dp

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -74,6 +75,7 @@ internal fun TvSeriesDetailLayout(
     onPlayEpisode: (String, String, String) -> Unit,
     onBack: () -> Unit,
     viewModel: VodViewModel,
+    onOpenPerson: (String) -> Unit = {},
 ) {
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var expandedPlot by rememberSaveable(seriesId) { mutableStateOf(false) }
@@ -82,6 +84,7 @@ internal fun TvSeriesDetailLayout(
     var lastPlayedEpisode by rememberSaveable(seriesId) { mutableStateOf(0L) }
     var seasonMenuOpen by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    var resumeEpisode by remember(seriesId) { mutableStateOf<Episode?>(null) }
     var playFocused by remember { mutableStateOf(false) }
     var seasonFocused by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
@@ -116,6 +119,18 @@ internal fun TvSeriesDetailLayout(
     val activeSeason = selectedSeason.takeIf { it in bySeason.keys } ?: bySeason.keys.firstOrNull() ?: 1
     val currentEpisodes = bySeason[activeSeason].orEmpty()
     val firstEpisode = currentEpisodes.firstOrNull()
+    val playEpisode = resumeEpisode?.takeIf { it.season == activeSeason && currentEpisodes.any { e -> e.id == it.id } }
+        ?: firstEpisode
+    LaunchedEffect(seriesId, series, episodes) {
+        val currentSeries = series ?: return@LaunchedEffect
+        if (episodes.isEmpty()) return@LaunchedEffect
+        val saved = viewModel.latestResumeEpisode(currentSeries)
+        resumeEpisode = saved?.takeIf { ep -> episodes.any { it.id == ep.id } }
+        if (selectedSeason == -1 && resumeEpisode != null) {
+            selectedSeason = resumeEpisode!!.season
+        }
+        if (resumeEpisode != null) lastPlayedEpisode = resumeEpisode!!.id
+    }
     LaunchedEffect(episodes, activeSeason, lastPlayedEpisode, showCast) {
         if (showCast) return@LaunchedEffect
         val index = currentEpisodes.indexOfFirst { it.id == lastPlayedEpisode }
@@ -177,17 +192,20 @@ internal fun TvSeriesDetailLayout(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
-                        onClick = { firstEpisode?.let { ep ->
+                        onClick = { playEpisode?.let { ep ->
                             lastPlayedEpisode = ep.id
                             onPlayEpisode("ep:${ep.id}", ep.streamUrl,
                                 "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
                         } },
-                        enabled = firstEpisode != null,
+                        enabled = playEpisode != null,
                         modifier = Modifier.focusRequester(playFocus)
                             .onFocusChanged { playFocused = it.isFocused }
                             .border(if (playFocused) 2.dp else 0.dp,
                                 Color(0xFF6FE5F5), RoundedCornerShape(6.dp)),
-                    ) { Icon(Icons.Default.PlayArrow, null); Text("Play - S$activeSeason:E${firstEpisode?.episodeNumber ?: 1}") }
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null)
+                        Text("${if (playEpisode?.id == resumeEpisode?.id && resumeEpisode != null) "Resume" else "Play"} - S${playEpisode?.season ?: activeSeason}:E${playEpisode?.episodeNumber ?: 1}")
+                    }
                     Box {
                         Button(
                             onClick = { seasonMenuOpen = true }, enabled = bySeason.isNotEmpty(),
@@ -234,7 +252,16 @@ internal fun TvSeriesDetailLayout(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     gridItems(cast, key = { it.name }) { actor ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        var actorFocused by remember { mutableStateOf(false) }
+                        Column(
+                            modifier = Modifier
+                                .onFocusChanged { actorFocused = it.isFocused }
+                                .border(if (actorFocused) 2.dp else 0.dp, Color(0xFF79ECF7),
+                                    RoundedCornerShape(5.dp))
+                                .tvRemoteActions({ onOpenPerson(actor.name) }, { onOpenPerson(actor.name) })
+                                .padding(3.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Box(Modifier.width(95.dp).height(128.dp)
                                 .background(Color(0xFF222A42), RoundedCornerShape(6.dp)),
                                 contentAlignment = Alignment.Center) {
@@ -264,11 +291,13 @@ internal fun TvSeriesDetailLayout(
                             EpisodePreviewRow(
                                 ep, s.posterUrl,
                                 if (lastPlayedEpisode == ep.id) Modifier.focusRequester(playedFocus) else Modifier,
-                            ) {
-                                lastPlayedEpisode = ep.id
-                                onPlayEpisode("ep:${ep.id}", ep.streamUrl,
-                                    "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
-                            }
+                                onPlay = {
+                                    lastPlayedEpisode = ep.id
+                                    onPlayEpisode("ep:${ep.id}", ep.streamUrl,
+                                        "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
+                                },
+                                onReset = { viewModel.resetEpisodeProgress(ep.id) },
+                            )
                         }
                     }
                 }
@@ -323,40 +352,58 @@ private fun EpisodePreviewRow(
     fallbackArt: String?,
     modifier: Modifier = Modifier,
     onPlay: () -> Unit,
+    onReset: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var lastPlayAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    Row(
-        modifier.fillMaxWidth()
-            .onFocusChanged { focused = it.isFocused }
-            .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
-            .clickable {
-                // Remote key repeats must not open several identical players.
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastPlayAt >= 650L) {
-                    lastPlayAt = now
-                    onPlay()
-                }
+    Box(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth()
+                .onFocusChanged { focused = it.isFocused }
+                .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
+                .tvRemoteActions(
+                    onClick = {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastPlayAt >= 650L) {
+                            lastPlayAt = now
+                            onPlay()
+                        }
+                    },
+                    onLongPress = { menuOpen = true },
+                )
+                .padding(horizontal = 4.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(Modifier.width(140.dp).height(79.dp)) {
+                AsyncImage(
+                    model = episode.stillUrl ?: fallbackArt,
+                    contentDescription = episode.title,
+                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                )
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play",
+                    tint = Color.White, modifier = Modifier.align(Alignment.Center))
             }
-            .padding(horizontal = 4.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Box(Modifier.width(140.dp).height(79.dp)) {
-            AsyncImage(
-                model = episode.stillUrl ?: fallbackArt,
-                contentDescription = episode.title,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-            )
-            Icon(Icons.Default.PlayArrow, contentDescription = "Play",
-                tint = Color.White, modifier = Modifier.align(Alignment.Center))
+            Column(Modifier.weight(1f)) {
+                Text("S%02dE%02d - %s".format(episode.season, episode.episodeNumber, episode.title),
+                    color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Text(episode.durationSeconds?.takeIf { it > 0 }?.let { "${it / 60}m" } ?: "Duration unavailable",
+                    color = Color.LightGray)
+            }
+            if (focused) IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Episode options",
+                    tint = Color(0xFF89E6F5))
+            }
         }
-        Column {
-            Text("S%02dE%02d - %s".format(episode.season, episode.episodeNumber, episode.title),
-                color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Text(episode.durationSeconds?.takeIf { it > 0 }?.let { "${it / 60}m" } ?: "Duration unavailable",
-                color = Color.LightGray)
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(text = { Text("Play episode") }, onClick = {
+                menuOpen = false; onPlay()
+            })
+            DropdownMenuItem(text = { Text("Reset episode progress") }, onClick = {
+                menuOpen = false; onReset()
+            })
         }
     }
 }

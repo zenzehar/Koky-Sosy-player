@@ -1,4 +1,32 @@
-# Architecture
+# Koky & Sosy Player — Android TV architecture
+
+## v0.1.10 components and invariants
+
+```text
+ui/vod/                  movies, series, episode navigation, person discovery
+  TvVodBrowser            SQL-paged grid with poster action menus
+  TvRemoteActions         Select hold (~600ms), native Menu and touch fallback
+  CastPortraitShelf       clickable movie actors with TMDB portraits
+  TvSeriesDetailLayout    cast portraits, episode actions, season selection
+  PersonScreen            matching movie AND series titles for an actor
+ui/channels/
+  HomeScreen              selected playback channel separate from D-pad highlight
+  LiveReturnState         one-shot fullscreen-to-preview handoff
+  GuideGrid               focus recovery and legible EPG column
+ui/player/PlayerScreen   Media3 Live, screen-off/screensaver pause
+ui/vod/VodPlayerScreen   Media3/VLC VOD, screensaver pause
+pairing/ManagerServer    LAN-only, token-protected TMDB configuration
+data/remote/TmdbClient   read-only metadata and cast-photo API
+```
+
+The Live guide must not retune on mere focus moves. The selected stream changes only after deliberate selection. Returning from fullscreen restores the exact channel focus and preview audio/video without reopening the category rail.
+
+Remote options should not rely only on touch long-click. Native key hold and Menu events are supplemented by visible options controls. Avoid duplicate click/long-click dispatch and delayed navigation.
+
+The local phone manager must not echo saved TMDB credentials. Its short-lived QR token, private-network checks and body-size caps apply equally to `GET /tmdb` and `POST /tmdb`. Embedded APK credentials are extractable.
+
+---
+## Original OpenTV architecture notes
 
 This document explains the decisions that are not obvious from reading the code, and in
 particular the ones made in direct response to how apps in this category typically fail.

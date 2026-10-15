@@ -1,4 +1,52 @@
-# Changelog
+# v0.1.10.1 TV alpha hotfix — unapproved
+
+- Phone Web Manager TMDB API entry: corrected undefined JavaScript helper that stopped event-handler installation; reliable POST-body reading and confirmed saved-status read-back; explicit phone-page success/error output.
+- Added an **Enter TMDB from phone** button inside TV Settings → Metadata, linking directly to the Web Manager QR screen.
+- Made native remote long holds open action menus **on key release**, preventing the released OK key from also activating a menu item.
+- Replaced modal movie/series/episode/Continue Watching action dialogs with anchored TV dropdown menus. Reset confirmation remains available for Continue Watching.
+- Movie and Series posters now **always show a readable title** below the image.
+- Series details choose the newest unfinished episode as the default season and Play/Resume target; manual season selection still works.
+- About now says whether a newer **published release** was found and links to GitHub Actions for alpha builds. Previously-installed versions cannot discover unpublished CI artifacts retrospectively.
+- Fire TV screensaver behaviour: **deferred hardware test**, no claim of verification.
+- Android versionCode 12, name 0.1.10.1-tv-alpha. v0.1.9 remains the approved checkpoint.
+
+---
+# Koky & Sosy Player — changelog
+
+Version names below are Android TV application versions. The earlier **OpenTV upstream changelog** is retained under the historical section for licensing/provenance context; its numbering does **not** mean a newer Koky & Sosy APK is available.
+
+## v0.1.10 TV alpha — development / not yet approved
+
+- TMDB cast portraits for **Movies** and **Series**, with D-pad-accessible person cards that open matching Movies and Series in the local library.
+- Enter or replace the TMDB API key/read-access token using the **LAN-only, QR-token-authenticated phone manager**; no credential values are returned by status requests.
+- TV remote gestures: brief OK plays/opens; hold OK/Select or Menu opens the relevant title/episode options. Visible options controls remain available.
+- Episode-specific Reset progress, and movie/series poster actions. Existing Continue Watching actions retained.
+- Pause fullscreen Live audio and video when the device goes to screensaver / screen-off (and on background stop except intentional PiP).
+- Rebalanced EPG layout: wider channel text, two-line names, tighter programme timeline, more legible category rail.
+- Back from fullscreen Live restores the playing channel in the guide, focuses the channel row, and continues preview until a different channel is explicitly selected.
+- Documentation and manual Fire TV/Android TV regression checklist refreshed.
+- `versionCode = 11` (in-place upgrade over approved v0.1.9).
+
+**Status:** compile and real-device verification required; do not merge this alpha without approval.
+
+## v0.1.9 TV — approved milestone
+
+- Improved branding, splash/launcher visuals, search descenders, search reset on category changes.
+- Richer Continue Watching posters and click/long-hold actions.
+- Initial Live return selection and left-hand login focus; factory reset.
+- Correct repository-scoped update checker and optional TMDB key/token setup.
+
+## v0.1.8 TV — approved milestone
+
+- Automatic next episode/season setting, saved next-episode resume location.
+- Live tile update percentage during imports and VOD lock through final catalogue preparation.
+- Compact episode details and series TMDB cast-photo tab.
+
+## v0.1.7 TV — approved milestone
+
+- Six-up VOD grid, simplified category styling, improved focus, updated navigation and in-tile import progress.
+
+## Earlier original OpenTV upstream history (not Koky & Sosy release numbering)
 
 ## 0.11.8
 

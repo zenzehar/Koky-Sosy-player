@@ -1,4 +1,16 @@
-# Releasing
+# Koky & Sosy — release and milestone procedure
+
+The last approved version is **v0.1.9**, on `main`, preserved as `milestone/v0.1.9-tv-approved`. v0.1.10 lives on `feat/v0.1.10-cast-menu-live-epg` until accepted.
+
+1. Increase `versionCode` and `versionName` for the feature branch (v0.1.10 = 11).
+2. Run `./gradlew :app:testDebugUnitTest :app:assembleDebug` through GitHub Actions.
+3. Confirm the artifact contains a valid Android APK. Distribute direct APK links only after successful upload.
+4. Verify the Fire TV and Android TV scenarios in [TESTING](TESTING.md), especially screenshots, long holds, screensaver audio and Live channel focus. Green CI does not verify hardware behaviour.
+5. Obtain explicit approval, merge the feature PR, and create a fixed milestone branch. Preserve older milestones for rollback.
+6. Never commit provider logins, TMDB keys, pairing URLs or tokens. Optional `TMDB_API_KEY` and `TMDB_READ_TOKEN` CI secrets protect source control but not extracted APK contents.
+
+---
+## Upstream OpenTV release history and signing guidance
 
 Releases are cut by pushing a tag. GitHub Actions does the rest.
 

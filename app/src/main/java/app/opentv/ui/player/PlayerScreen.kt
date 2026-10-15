@@ -5,9 +5,17 @@
  */
 package app.opentv.ui.player
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -175,6 +183,44 @@ fun PlayerScreen(
     // Digits typed on the remote accumulate here, then jump to that channel number after a beat.
     var numberEntry by remember { mutableStateOf("") }
     var paused by remember { mutableStateOf(false) }
+
+    // Fire TV's screensaver can appear without the usual Activity focus transition.
+    // The system broadcasts screen-off and dreaming-start; do not let the
+    // underlying stream continue playing audio behind the screensaver.
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner, context, controller) {
+        fun suspendForScreenOff() {
+            if (!app.opentv.core.PipState.inPip.value) {
+                controller.player.pause()
+                paused = true
+                app.opentv.core.PipState.isPlaying = false
+            }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF, Intent.ACTION_DREAMING_STARTED -> suspendForScreenOff()
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) suspendForScreenOff()
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose {
+            owner.lifecycle.removeObserver(observer)
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
     var resizeMode by remember { mutableIntStateOf(settings.playerResizeMode.value) }
 
     var controlsVisible by remember { mutableStateOf(true) }
@@ -329,6 +375,7 @@ fun PlayerScreen(
             panel != Panel.NONE -> panel = Panel.NONE
             controlsVisible -> controlsVisible = false
             else -> {
+                app.opentv.ui.channels.LiveReturnState.handOff(currentId)
                 controller.stop()
                 onBack()
             }

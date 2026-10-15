@@ -498,7 +498,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
             }
 
             composable(Routes.APP_SETTINGS) {
-                AppSettingsScreen(onBack = { navController.popBackStack() })
+                AppSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenWebManager = { navController.navigate(Routes.WEB_MANAGER) },
+                )
             }
 
             composable(Routes.PLAYER) { entry ->
