@@ -102,6 +102,10 @@ internal fun TvVodBrowser(
     val rawCategories = if (isSeries) seriesCategories else movieCategories
     val scopedMovies = remember(movies, sourceId) { movies.filter { sourceId == null || it.sourceId == sourceId } }
     val scopedSeries = remember(series, sourceId) { series.filter { sourceId == null || it.sourceId == sourceId } }
+    val movieCounts = remember(scopedMovies) { scopedMovies.groupingBy { it.categoryId }.eachCount() }
+    val seriesCounts = remember(scopedSeries) { scopedSeries.groupingBy { it.categoryId }.eachCount() }
+    val recentMovieIds = remember(recentlyMovies) { recentlyMovies.map { it.id }.toHashSet() }
+    val recentSeriesIds = remember(recentlySeries) { recentlySeries.map { it.id }.toHashSet() }
     val scopedResume = remember(recentResumes, sourceId, isSeries) {
         recentResumes.filter { (sourceId == null || it.sourceId == sourceId) &&
             (if (isSeries) it.seriesProviderId != null else it.seriesProviderId == null) }
@@ -112,7 +116,7 @@ internal fun TvVodBrowser(
     val visibleMovies = remember(scopedMovies, selection, titleQuery, recentlyMovies) {
         val base = when (selection) {
             "favourites" -> scopedMovies.filter { it.favourite }
-            "recent" -> scopedMovies.filter { m -> recentlyMovies.any { it.id == m.id } }
+            "recent" -> scopedMovies.filter { it.id in recentMovieIds }
             "all", "continue" -> scopedMovies
             else -> scopedMovies.filter { it.categoryId == selection }
         }
@@ -121,7 +125,7 @@ internal fun TvVodBrowser(
     val visibleSeries = remember(scopedSeries, selection, titleQuery, recentlySeries) {
         val base = when (selection) {
             "favourites" -> scopedSeries.filter { it.favourite }
-            "recent" -> scopedSeries.filter { s -> recentlySeries.any { it.id == s.id } }
+            "recent" -> scopedSeries.filter { it.id in recentSeriesIds }
             "all", "continue" -> scopedSeries
             else -> scopedSeries.filter { it.categoryId == selection }
         }
@@ -166,8 +170,8 @@ internal fun TvVodBrowser(
                     (if (isSeries) recentlySeries.size else recentlyMovies.size).toString(),
                     selection == "recent") { selection = "recent" } }
                 items(categories, key = { it.id }) { cat ->
-                    val count = if (isSeries) scopedSeries.count { it.categoryId == cat.id }
-                        else scopedMovies.count { it.categoryId == cat.id }
+                    val count = if (isSeries) seriesCounts[cat.id] ?: 0
+                        else movieCounts[cat.id] ?: 0
                     SidebarItem(cat.name, count.toString(), selection == cat.id) { selection = cat.id }
                 }
             }
@@ -200,7 +204,7 @@ internal fun TvVodBrowser(
                     Text("Nothing to continue yet", color = Color.LightGray)
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(145.dp),
+                        columns = GridCells.Adaptive(128.dp),
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -216,7 +220,7 @@ internal fun TvVodBrowser(
                 }
             } else if (isSeries) {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(145.dp),
+                    columns = GridCells.Adaptive(128.dp),
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(9.dp),
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -231,7 +235,7 @@ internal fun TvVodBrowser(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(145.dp),
+                    columns = GridCells.Adaptive(128.dp),
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(9.dp),
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
