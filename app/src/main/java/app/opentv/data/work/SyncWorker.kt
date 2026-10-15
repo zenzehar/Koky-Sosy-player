@@ -53,15 +53,19 @@ class SyncWorker(
             }
             CatalogueGate.liveDone()
             StatusBus.set("Updating Movies…", 1f / 3f)
-            for (source in sources) {
-                if (!graph.catalogRepository.syncMoviesPhase(source)) {
+            sources.forEachIndexed { index, source ->
+                if (!graph.catalogRepository.syncMoviesPhase(source) { progress ->
+                    CatalogueGate.moviesImportProgress((index + progress) / sources.size)
+                }) {
                     throw IllegalStateException("Movie catalogue unavailable; previous library retained")
                 }
             }
             CatalogueGate.moviesDone()
             StatusBus.set("Updating Series…", 2f / 3f)
-            for (source in sources) {
-                if (!graph.catalogRepository.syncSeriesPhase(source)) {
+            sources.forEachIndexed { index, source ->
+                if (!graph.catalogRepository.syncSeriesPhase(source) { progress ->
+                    CatalogueGate.seriesImportProgress((index + progress) / sources.size)
+                }) {
                     throw IllegalStateException("Series catalogue unavailable; previous library retained")
                 }
             }
