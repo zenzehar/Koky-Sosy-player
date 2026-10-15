@@ -202,6 +202,9 @@ class CatalogRepository(
     suspend fun episodeByStreamUrl(url: String): Episode? = episodeDao.byStreamUrl(url)
 
     suspend fun series(id: Long): app.opentv.data.model.Series? = seriesDao.byId(id)
+    suspend fun seriesByProviderId(sourceId: Long, seriesId: String): Series? =
+        seriesDao.byProviderId(sourceId, seriesId)
+
 
     // ---- Netflix-style home feeds ---------------------------------------------------------------
     // All local: derived from the catalogue already on disk plus the active profile's watch history.
