@@ -158,7 +158,12 @@ fun VlcFallbackScreen(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown || controlsVisible) return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (controlsVisible) {
+                    // Every remote interaction resets the idle-hiding timer.
+                    if (event.key != Key.Back && event.key != Key.Escape) interaction++
+                    return@onPreviewKeyEvent false
+                }
                 when (event.key) {
                     Key.DirectionLeft -> { seekTo(positionMs - 10_000L); true }
                     Key.DirectionRight -> { seekTo(positionMs + 10_000L); true }
