@@ -168,6 +168,18 @@ class CatalogRepository(
 
     fun observeMovies(categoryId: String? = null): Flow<List<Movie>> = movieDao.observe(categoryId)
 
+    /** Disk-backed bounded pages. Never bring all posters/metadata into the TV screen. */
+    suspend fun moviePage(sourceId: Long?, categoryId: String?, favs: Boolean,
+                          query: String, size: Int, offset: Int): List<Movie> =
+        withContext(Dispatchers.IO) { movieDao.page(sourceId, categoryId, favs, query, size, offset) }
+    suspend fun seriesPage(sourceId: Long?, categoryId: String?, favs: Boolean,
+                           query: String, size: Int, offset: Int): List<Series> =
+        withContext(Dispatchers.IO) { seriesDao.page(sourceId, categoryId, favs, query, size, offset) }
+    suspend fun vodCounts(sourceId: Long?, series: Boolean): List<app.opentv.data.db.VodCategoryCount> =
+        withContext(Dispatchers.IO) { if (series) seriesDao.counts(sourceId) else movieDao.counts(sourceId) }
+    suspend fun vodFavouriteCount(sourceId: Long?, series: Boolean): Int =
+        withContext(Dispatchers.IO) { if (series) seriesDao.favouriteCount(sourceId) else movieDao.favouriteCount(sourceId) }
+
     fun observeSeries(categoryId: String? = null): Flow<List<Series>> = seriesDao.observe(categoryId)
 
     fun observeEpisodes(sourceId: Long, seriesId: String): Flow<List<Episode>> =

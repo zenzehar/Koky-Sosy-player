@@ -418,8 +418,27 @@ interface ProgrammeDao {
     suspend fun deleteForFeed(feedId: Long)
 }
 
+data class VodCategoryCount(val categoryId: String?, val count: Int)
+
 @Dao
 interface MovieDao {
+    @Query("""SELECT * FROM movies
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:onlyFavourites = 0 OR favourite = 1)
+        AND (:query = '' OR name LIKE '%' || :query || '%')
+        ORDER BY addedMillis DESC, name LIMIT :pageSize OFFSET :offset""")
+    suspend fun page(
+        sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
+        query: String, pageSize: Int, offset: Int
+    ): List<Movie>
+
+    @Query("""SELECT categoryId, COUNT(*) AS count FROM movies
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId) GROUP BY categoryId""")
+    suspend fun counts(sourceId: Long?): List<VodCategoryCount>
+
+    @Query("SELECT COUNT(*) FROM movies WHERE (:sourceId IS NULL OR sourceId = :sourceId) AND favourite = 1")
+    suspend fun favouriteCount(sourceId: Long?): Int
     @Query(
         """
         SELECT * FROM movies
@@ -520,6 +539,23 @@ interface MovieDao {
 
 @Dao
 interface SeriesDao {
+    @Query("""SELECT * FROM series
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:onlyFavourites = 0 OR favourite = 1)
+        AND (:query = '' OR name LIKE '%' || :query || '%')
+        ORDER BY addedMillis DESC, name LIMIT :pageSize OFFSET :offset""")
+    suspend fun page(
+        sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
+        query: String, pageSize: Int, offset: Int
+    ): List<Series>
+
+    @Query("""SELECT categoryId, COUNT(*) AS count FROM series
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId) GROUP BY categoryId""")
+    suspend fun counts(sourceId: Long?): List<VodCategoryCount>
+
+    @Query("SELECT COUNT(*) FROM series WHERE (:sourceId IS NULL OR sourceId = :sourceId) AND favourite = 1")
+    suspend fun favouriteCount(sourceId: Long?): Int
     @Query(
         """
         SELECT * FROM series

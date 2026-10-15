@@ -932,16 +932,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
      *  bottom — declared after `init`, this mutex would still be null when the first collect runs. */
     private val homeFeedsMutex = Mutex()
 
-    init {
-        // The home feeds are per profile (Recommended) and per catalogue (the genre rows). Rebuild
-        // them when the active profile changes — and once at start. Routed through the guarded
-        // [loadHomeFeeds] so a profile switch triggers exactly one library scan, and re-opening the
-        // tab with the same profile and an unchanged catalogue triggers none. Reads an empty result
-        // until a VOD sync has populated the catalogue; [ensureVodLoaded] re-runs it once one has.
-        viewModelScope.launch {
-            settings.activeProfileId.collect { loadHomeFeeds() }
-        }
-    }
+    // Recommendations are computed on explicit demand, not on every app startup.
+    // The new paged TV browser never needs thousands of genre records in memory.
 
     /**
      * Recomputes the computed home rows (Recommended + by-genre) from a SINGLE scan of the library.
