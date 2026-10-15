@@ -215,6 +215,7 @@ fun MainScreen(
                     onOpenMovie = onOpenMovie,
                     onResume = onResume,
                     onOpenSearch = onOpenSearch,
+                    onBack = { showDashboard = true },
                     hasSources = hasSources,
                     isSyncing = isSyncing,
                 )
@@ -222,6 +223,7 @@ fun MainScreen(
                     onOpenSeries = onOpenSeries,
                     onResume = onResume,
                     onOpenSearch = onOpenSearch,
+                    onBack = { showDashboard = true },
                     hasSources = hasSources,
                     isSyncing = isSyncing,
                 )
