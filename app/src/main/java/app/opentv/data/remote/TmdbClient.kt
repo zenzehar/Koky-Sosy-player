@@ -60,14 +60,21 @@ class TmdbClient(
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
 ) {
 
+    /** Look up movie cast portraits using the same credentials as series. */
+    fun movieCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> =
+        castPortraits(true, title, year, tmdbId)
+
     /** Read at most 20 cast portraits on opening the Cast tab, never during catalogue sync. */
-    fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
+    fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> =
+        castPortraits(false, title, year, tmdbId)
+
+    private fun castPortraits(movie: Boolean, title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
         val key = settings.tmdbApiKey.value.trim()
         if (key.isEmpty() && settings.tmdbReadToken.value.isBlank()) return emptyList()
         val id = tmdbId?.takeIf { it.isNotBlank() }
-            ?: searchId(false, searchTitle(title), year, key)
+            ?: searchId(movie, searchTitle(title), year, key)
             ?: return emptyList()
-        val url = TMDB_BASE.newBuilder().addPathSegment("tv").addPathSegment(id)
+        val url = TMDB_BASE.newBuilder().addPathSegment(if (movie) "movie" else "tv").addPathSegment(id)
             .addPathSegment("credits").withKey(key).build()
         val people = get(url)?.jsonObject?.get("cast")?.jsonArray ?: return emptyList()
         return people.take(20).mapNotNull { value ->

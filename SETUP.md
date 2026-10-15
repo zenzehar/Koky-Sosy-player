@@ -1,102 +1,29 @@
-# Getting this onto GitHub and onto your TV
+# Install and configure Koky & Sosy Player
 
-One-time setup. After this, every tagged release builds itself and appears on the install page
-automatically.
+Repository: https://github.com/zenzehar/Koky-Sosy-player
 
----
+## Install
 
-## 1. Create the repository
+1. Open the [Android build workflow](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml), select a **successful** branch run and download its APK artifact.
+2. Enable TV sideloading and install the APK. Preserve the same signing identity for upgrade installs.
+3. Enter your own Xtream/M3U/Stalker details on TV, or use the login-from-phone QR on the same network.
 
-On [github.com/new](https://github.com/new):
+## Cast photographs and TMDB setup by phone
 
-- **Name:** `opentv`
-- **Visibility:** Public — GitHub Pages and Actions are free on public repos, and the whole
-  point of the project is that people can read it
-- **Do not** tick "Add a README", ".gitignore" or "Choose a license" — this repo already has
-  all three, and an initialised repo makes the first push awkward
+Open the app's **TV Manager / Manage from phone** screen and scan the temporary QR with a phone on the same trusted LAN. Expand **Cast photos and TMDB metadata** on the phone page. Enter a TMDB API key or API Read Access Token and tap Save. The phone receives confirmation, never the previously saved credential. On movie or series detail screens, cast photos appear when available from TMDB; otherwise named placeholders appear.
 
-## 2. Push it
+## Remote-control actions
 
-From the unzipped `opentv` folder:
+Use brief OK to open/play, hold OK about 600 ms (or use Menu/visible options icon) for title and episode actions. After fullscreen Live, Back restores the same channel in its guide category. Up/Down browses without switching the small preview until another channel is selected.
 
-```bash
-cd opentv
-git remote add origin https://github.com/opentvproject/opentv.git
-git push -u origin main
-```
-
-The repo already has an initial commit, so there is nothing to stage.
-
-If git asks for a password, it wants a **personal access token**, not your account password —
-GitHub stopped accepting passwords over HTTPS. Generate one at
-**Settings → Developer settings → Personal access tokens → Tokens (classic)** with the `repo`
-scope, and paste that when prompted.
-
-## 3. Funding links (optional)
-
-The "Sponsor" button on the repo comes from `.github/FUNDING.yml` — it points at GitHub Sponsors
-and a PayPal donate link. Edit that file to change them. Everything else already points at
-`opentvproject/opentv`.
-
-## 4. Turn on Pages
-
-**Settings → Pages → Build and deployment → Source: GitHub Actions.**
-
-That's the only setting. Don't pick "Deploy from a branch" — the workflow in
-`.github/workflows/pages.yml` handles it.
-
-Your install page will be at:
-
-```
-https://opentvproject.github.io/opentv/
-```
-
-It goes live a minute or two after the first push.
-
-## 5. Cut the first release
-
-This is what actually produces an installable APK:
+## Source development
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Watch it under the **Actions** tab. It runs the tests, builds the APK, and attaches it to a
-GitHub release. The install page picks it up on its own — nothing to edit.
+Generated APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-**Expect the first run to fail.** This code has never been compiled; there was no Android SDK
-available where it was written. The build log will name the file and line of anything that
-needs fixing. Fix, commit, delete and re-push the tag:
+Approved checkpoint: `milestone/v0.1.9-tv-approved`. Current preview: `feat/v0.1.10-cast-menu-live-epg`. Do not merge until real TV testing and explicit approval.
 
-```bash
-git tag -d v0.1.0 && git push origin :refs/tags/v0.1.0
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-## 6. Install it on the TV
-
-Open the install page and follow the steps there. The short address to type into the
-**Downloader** app is:
-
-```
-opentvproject.github.io/opentv/apk
-```
-
-That link always redirects to the newest APK, so it never needs changing between releases.
-
----
-
-## Before you tell anyone about it
-
-Two things worth doing first:
-
-1. **Set up real signing.** See `docs/RELEASING.md`. Right now the APK is signed with the
-   Android debug key so it can be installed at all. Once you switch to a real keystore, anyone
-   running a debug-signed build has to uninstall and reinstall — trivial while it's just you,
-   genuinely annoying once it's a few hundred people.
-
-2. **Test it yourself for a week.** The thing that damaged Viewella's reputation was not bugs;
-   every new app has those. It was people paying, then finding nobody was home. You are not
-   charging anyone, which removes most of that risk — but arriving on r/Viewella with something
-   that falls over on first run still spends goodwill you only get to spend once.
+Licensed GPL-3.0-or-later. Derived from [OpenTV](https://github.com/opentvproject/opentv) with attribution preserved.

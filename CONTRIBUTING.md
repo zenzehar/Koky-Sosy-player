@@ -1,4 +1,4 @@
-# Contributing to OpenTV
+# Contributing to Koky & Sosy Player
 
 Everyone is welcome here, including — especially — people who have never contributed to an
 open-source project before. If you are fixing the bug that has been annoying you, you are
@@ -94,3 +94,14 @@ a person is not.
 Maintainers are volunteers. Nobody here owes anyone a fix by a deadline. Equally, if a
 maintainer goes quiet, that is what forking is for — the licence guarantees you that option,
 permanently, and using it is not a betrayal. It is the design working.
+
+
+## Additional Android TV acceptance criteria
+
+- Branch from the last approved `main`. Keep new features in draft PRs until real-device verification.
+- Test OK/Select hold, Menu and visible options on Fire TV plus Android TV, along with normal touch.
+- Playback updates must handle Media3/VLC, background lifecycle, screensaver and intentional picture-in-picture.
+- Keep provider credentials and TMDB tokens out of patches, logs, docs, images and tests.
+- Phone-manager endpoints require the existing LAN address check and short-lived QR authentication; never echo saved secrets.
+- Include screenshots and a redacted `adb logcat` trace for UI crashes.
+- Preserve source attribution and GPL; do not copy proprietary IPTV app code/artwork.

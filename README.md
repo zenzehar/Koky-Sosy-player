@@ -1,164 +1,65 @@
-# OpenTV
+# Koky & Sosy Player
 
-**A free, open-source IPTV player for Android TV, Fire TV, phones and tablets.**
+**Android TV • Google TV • Amazon Fire TV** | GPL-3.0-or-later | Independent, TV-focused IPTV player
 
-No account. No subscription. No server of ours between you and your provider.
+[![Android build](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml/badge.svg)](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml)
+[![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-[![Build](https://github.com/opentvproject/opentv/actions/workflows/build.yml/badge.svg)](https://github.com/opentvproject/opentv/actions/workflows/build.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-ea4aaa.svg)](https://github.com/sponsors/legionnaireneyland)
+Koky & Sosy Player is a TV-remote-first IPTV client with **Live TV**, **Movies** and **Series**. It plays media you provide; it **does not include streams, subscriptions, credentials or channel lists**. The core comes from the open-source [OpenTV](https://github.com/opentvproject/opentv) project, with the copyright and GPL license preserved.
 
----
+## Install / test
 
-> **Support OpenTV** — it's free and always will be. If it saved you from a dead "lifetime"
-> app, you can chip in via **[GitHub Sponsors](https://github.com/sponsors/legionnaireneyland)**
-> or **[PayPal](https://www.paypal.com/donate/?business=leetobin1982@gmail.com&item_name=Support+OpenTV&no_recurring=0&currency_code=GBP)**.
-> Entirely optional; the app is never paywalled.
+1. Open [Actions](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml), select the latest successful run for the chosen branch, and download its **debug APK** artifact.
+2. Install the APK on a TV device that permits sideloading. For an in-place upgrade, keep the same signing identity and use a higher Android `versionCode`.
+3. Add your own Xtream/M3U/Stalker source, either on the TV or using the **phone setup/management QR** on the same local network.
+4. Confirm streams, Live EPG, audio, D-pad navigation, subtitles and VOD resume with your own legally accessible provider.
 
-## Why this exists
+**Release policy:** `main` represents the **most recently approved milestone**. New development uses a dedicated `feat/` branch and a draft pull request until tested on TV. Compilation is not real-device verification.
 
-There is a recurring pattern in this corner of the app world. A promising IPTV player appears.
-It looks good. It sells a "lifetime" subscription. The lifetime turns out to be shorter than
-the buyer's — the developer burns out, or moves on, or simply stops replying, and everyone who
-paid is left with an app that no longer works and no way to fix it.
+## TV controls
 
-The people affected are not helpless. They are often technical. What they lack is not skill
-but *access*: the code is closed, so nobody else can pick it up.
+| Control | Result |
+|---|---|
+| D-pad | Move focus. The selected TV channel and the browsing highlight are deliberately separate |
+| OK / Select (brief) | Activate the focused button or title |
+| Hold OK / Select (~600 ms) | Open the options menu on movie, series, episode and Continue Watching cards |
+| Menu button | Also opens those options where supported; not required |
+| Visible `⋮` | Alternative for remotes without long-press or Menu support |
+| Back from fullscreen Live | Return to the same category/channel in the guide, with that channel's video/audio preview |
+| Up / Down in the guide | Browse channels without switching the preview until another channel is chosen |
+| Back from VOD | Restore the previous title/season/category context |
 
-OpenTV is the same category of app built so that cannot happen. The source is public and
-GPL-licensed. If the current maintainers vanish tomorrow, anyone can fork it, build it and
-keep it alive. That is the entire point.
+Some remotes do not deliver repeat or hold key events consistently. Long-press has a **time-on-release fallback** plus a visible options control. The latest TV behaviour must be verified on Fire TV and an Android TV box.
 
-**OpenTV is not a fork or a decompilation of any existing app.** It is written from scratch.
+## Major features
 
-## What it does
+- **Live TV:** channel/group browser, EPG grid or list mode, guide preview, quality variants, favourites, catch-up when supported, recording and optional NAS.
+- **Movies & Series:** cached/paged catalogue, six-up TV poster grid, in-place search, detail artwork, seasons, episode thumbnails, audio/subtitles, progress and resume.
+- **Continue Watching:** one logical latest point per title, episode label/progress, click-to-resume, hold for Resume / Open title / Reset.
+- **Series autoplay:** optional next-episode continuation, including the next season, with correctly updated viewing history.
+- **Cast:** portrait tiles from TMDB for **movies and series** (where credits/photos exist). Select an actor to browse the person's matching **movies and series** within your catalogue.
+- **Phone setup:** local QR-paired browser pages let you type provider details and configure TMDB API key/read-access token without a TV keyboard.
+- **Metadata:** provider artwork first, optional TMDB backfill and cast. Missing TMDB data shows a named placeholder, not a fake photo.
+- **Privacy:** provider logins and TMDB credentials are device settings, not stored in the GitHub repository. A local pairing token is required for the phone manager. Build-time defaults remain extractable from an APK.
 
-- **Live TV** from Xtream Codes logins and plain M3U/M3U8 playlists
-- **A guide that stays put** — XMLTV EPG that survives restarts, refreshes incrementally, and
-  never wipes itself
-- **Recording (DVR)** — record to the box, a USB drive or your NAS (SMB); schedule from the
-  guide; series-link a whole show; play back in-app with full seeking
-- **Catch-up / archive** where your provider offers it, plus **programme reminders**
-- **Movies and series** with resume and per-profile watch history
-- **Favourites, categories, hide channels, search**, picture-in-picture, aspect control, and
-  hand-off to an external player
-- **Free sync between your own devices** — favourites, watch history and NAS recordings, over
-  your wifi or Tailscale, with no server of ours
-- **Multiple languages** (fully translated to Spanish), a parental PIN, profiles, and self-updates
-- **D-pad first** — designed for a remote, works with a touchscreen
-- **One APK** for Android TV, Fire TV, phones and tablets
+## Build
 
-## Screenshots
-
-The live TV guide — programme grid, favourites, and a live preview:
-
-![OpenTV live TV guide](docs/screenshots/01-guide.png)
-
-| Recordings &amp; reminders | Free cloud sync — your own NAS, no server |
-| :---: | :---: |
-| ![Recordings and reminders](docs/screenshots/02-recordings.png) | ![NAS cloud sync](docs/screenshots/03-cloud-sync.png) |
-| Movies &amp; series | Settings |
-| ![Movies](docs/screenshots/04-movies.png) | ![Settings](docs/screenshots/05-settings.png) |
-
-Open-source through and through — the About screen carries the licence, the links, and a donation QR:
-
-![About](docs/screenshots/06-about.png)
-
-## What it deliberately does not do
-
-- **No servers of ours, no web dashboard, no account.** Your provider credentials never leave
-  your device, and syncing happens directly between your devices — or through your own NAS —
-  never through a machine we run. This is a feature, not a gap — see
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the reasoning, and note that "sync your
-  channel list to *our* servers" is precisely the feature whose hosting bill makes a one-off
-  payment unsustainable.
-- **No content.** OpenTV is a player. You bring a service you already pay for. The project has
-  no affiliation with any provider and does not help you find one.
-
-## Install
-
-**→ [Install page](https://opentvproject.github.io/opentv/)** — step-by-step for Chromecast with
-Google TV, Android TV boxes, Fire TV Sticks, and phones.
-
-On a TV, the quickest route is the **[Downloader app](https://www.aftvnews.com/downloader/)** —
-enter the code:
-
-```
-6398449
-```
-
-That code (or `aftv.news/6398449` in a browser) always points at the newest APK, so it never
-goes stale. On a phone, the [install page](https://opentvproject.github.io/opentv/) is a
-one-tap download. Or grab the APK straight from [Releases](../../releases).
-
-Every release is built by GitHub Actions from a tagged commit, and the workflow that built it
-is public — you can check the APK against the source, or rebuild it yourself, rather than
-trusting anyone's word.
-
-New to this? [SETUP.md](SETUP.md) walks through getting the repo, the install page and the
-first build running.
-
-## Build it yourself
+Requires the Android SDK and Java toolchain documented in `gradle/` and the GitHub Actions workflow.
 
 ```bash
-git clone https://github.com/opentvproject/opentv.git
-cd opentv
-./gradlew assembleDebug
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-You need JDK 17+ and the Android SDK (API 35). Android Studio will fetch it for you. The debug
-APK lands in `app/build/outputs/apk/debug/`.
+Built APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Run the tests:
+Optional GitHub Actions **repository secrets**: `TMDB_API_KEY` and `TMDB_READ_TOKEN`. These enable defaults in the APK only when explicitly configured. **Never commit actual secrets, provider credentials, pairing tokens or real playlist URLs.** Compiled defaults are **not confidential**: anyone with the APK can extract them.
 
-```bash
-./gradlew test
-```
+## Versions and documentation
 
-## How it was built
+- Approved checkpoints: `milestone/v0.1.7-tv-approved`, `milestone/v0.1.8-tv-approved`, `milestone/v0.1.9-tv-approved`. Older checkpoints remain available in GitHub.
+- Work in progress: `feat/v0.1.10-cast-menu-live-epg`. Android `versionName` uses `0.1.10-tv-alpha` in this branch; it is not approved until tested.
+- See [requirements](docs/KOKY_SOSY_REQUIREMENTS.md), [architecture](docs/ARCHITECTURE.md), [TV regression tests](docs/TESTING.md), [releasing](docs/RELEASING.md), [roadmap](docs/ROADMAP.md), and [changelog](CHANGELOG.md).
 
-OpenTV was written with **Claude**, Anthropic's AI assistant, working from a human's
-direction — the design decisions, the priorities, the "no server, ever" rule, and every
-review of what shipped were the maintainer's; Claude did the bulk of the drafting, wiring and
-debugging against that direction.
+## Legal and attribution
 
-That is relevant here for one specific reason: **it kept the project genuinely clean-room.**
-Nothing was decompiled or copied from any existing IPTV app. The code was written from public
-specifications (the Xtream Codes request format, the XMLTV and M3U formats, the Kodi catch-up
-tags) and from describing how other apps *behave* as a user — never from their source. That is
-the legal footing that lets anyone fork this and keep it alive, which is the whole point.
-
-## Contributing
-
-Please do. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-The project is explicitly looking for people who own devices the maintainers do not. Most
-"works for me" bugs in this category are device-specific — an Ugoos box, a first-gen ONN, a
-Fire Stick Lite — and a bug report from someone who owns one is worth more than a week of
-guessing. If a channel fails on your setup, [open an issue](../../issues/new/choose).
-
-## Supporting the project
-
-OpenTV is free and always will be. There is nothing to buy, no premium tier, and no lifetime
-subscription — the failure mode this project was built in response to is a promise nobody
-could keep, so we are not making one.
-
-If it saves you money or annoyance and you want to say thanks, you can sponsor the project via
-[GitHub Sponsors](https://github.com/sponsors/legionnaireneyland) or
-[PayPal](https://www.paypal.com/donate/?business=leetobin1982@gmail.com&item_name=Support+OpenTV&no_recurring=0&currency_code=GBP)
-— see [.github/FUNDING.yml](.github/FUNDING.yml). Tips fund nothing except spare-evening development;
-nobody is owed a feature for one, and nothing is gated behind one.
-
-## Licence
-
-[GPL-3.0-or-later](LICENSE).
-
-Chosen deliberately. GPL means anyone can take this code, but if they ship it they must ship
-their source too. Nobody gets to close it, rebrand it, and sell a lifetime subscription on top
-of work the community did for free.
-
-## Legal
-
-OpenTV is a media player, comparable to VLC. It ships with no channels, no playlists, and no
-links to any. What you point it at, and whether you are entitled to, is between you and your
-provider.
+Licensed under **GNU GPL-3.0-or-later**, derived from OpenTV. This project does not supply media or authorize access to any stream. Use it only with content you are entitled to view. Original contributors and license notices remain in source files and in [LICENSE](LICENSE).

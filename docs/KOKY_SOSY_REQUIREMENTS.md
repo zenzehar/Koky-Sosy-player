@@ -41,3 +41,14 @@ Compilation is not device testing. Model seek-policy tests do not prove real see
 Use a small verified test matrix on actual Android TV-capable environments.
 Never claim APK exists before GitHub Actions produces an artifact.
 Do not merge the feature branch without user request.
+
+
+## v0.1.10 TV acceptance additions (2026-10-16)
+
+- Movies and Series must both display TMDB cast photographs when available; missing images become legible placeholders. Actor entries open one cross-catalogue Person screen.
+- TV Settings and the authenticated same-LAN phone manager must both accept replacement TMDB API key/read-access token. The phone manager must never return saved secret values.
+- A short Select/OK press opens or plays. A hold of about 600 ms, native Menu and a visible options affordance expose actions on movie/series/episode/Continue Watching entries. Do not depend on a remote having a Menu key.
+- Fire TV screensaver, screen-off or app stop must pause fullscreen Live audio/video, excluding intentional picture-in-picture as configured.
+- EPG channel and category labels must remain readable on TV at sensible viewing distance; reserve enough width for channel names and compact the timeline.
+- After leaving full-screen Live, restore exact channel, focus the channel row, and keep its video/audio preview running while other channels are merely highlighted. Tune a new preview only when a different channel is deliberately selected.
+- Keep approved v0.1.9 immutable while v0.1.10 is reviewed. Document changes and testing honestly; publish direct APK links only after verified GitHub artifacts exist.

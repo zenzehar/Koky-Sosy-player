@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -74,6 +75,7 @@ internal fun TvSeriesDetailLayout(
     onPlayEpisode: (String, String, String) -> Unit,
     onBack: () -> Unit,
     viewModel: VodViewModel,
+    onOpenPerson: (String) -> Unit = {},
 ) {
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var expandedPlot by rememberSaveable(seriesId) { mutableStateOf(false) }
@@ -82,6 +84,7 @@ internal fun TvSeriesDetailLayout(
     var lastPlayedEpisode by rememberSaveable(seriesId) { mutableStateOf(0L) }
     var seasonMenuOpen by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    var selectedEpisodeOptions by remember { mutableStateOf<Episode?>(null) }
     var playFocused by remember { mutableStateOf(false) }
     var seasonFocused by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
@@ -234,7 +237,16 @@ internal fun TvSeriesDetailLayout(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     gridItems(cast, key = { it.name }) { actor ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        var actorFocused by remember { mutableStateOf(false) }
+                        Column(
+                            modifier = Modifier
+                                .onFocusChanged { actorFocused = it.isFocused }
+                                .border(if (actorFocused) 2.dp else 0.dp, Color(0xFF79ECF7),
+                                    RoundedCornerShape(5.dp))
+                                .tvRemoteActions({ onOpenPerson(actor.name) }, { onOpenPerson(actor.name) })
+                                .padding(3.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Box(Modifier.width(95.dp).height(128.dp)
                                 .background(Color(0xFF222A42), RoundedCornerShape(6.dp)),
                                 contentAlignment = Alignment.Center) {
@@ -264,16 +276,38 @@ internal fun TvSeriesDetailLayout(
                             EpisodePreviewRow(
                                 ep, s.posterUrl,
                                 if (lastPlayedEpisode == ep.id) Modifier.focusRequester(playedFocus) else Modifier,
-                            ) {
-                                lastPlayedEpisode = ep.id
-                                onPlayEpisode("ep:${ep.id}", ep.streamUrl,
-                                    "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
-                            }
+                                onPlay = {
+                                    lastPlayedEpisode = ep.id
+                                    onPlayEpisode("ep:${ep.id}", ep.streamUrl,
+                                        "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
+                                },
+                                onOptions = { selectedEpisodeOptions = ep },
+                            )
                         }
                     }
                 }
             }
         }
+    }
+    selectedEpisodeOptions?.let { ep ->
+        AlertDialog(
+            onDismissRequest = { selectedEpisodeOptions = null },
+            title = { Text("S%02dE%02d · %s".format(ep.season, ep.episodeNumber, ep.title),
+                maxLines = 2) },
+            text = { Text("Episode actions. Hold OK/Select or press Menu to open this anywhere in the episode list.") },
+            confirmButton = { Button(onClick = {
+                selectedEpisodeOptions = null
+                lastPlayedEpisode = ep.id
+                onPlayEpisode("ep:${ep.id}", ep.streamUrl,
+                    "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
+            }) { Text("Play episode") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    selectedEpisodeOptions = null
+                    viewModel.resetEpisodeProgress(ep.id)
+                }) { Text("Reset episode progress") }
+            }
+        )
     }
     if (showResetConfirm) {
         AlertDialog(
@@ -323,6 +357,7 @@ private fun EpisodePreviewRow(
     fallbackArt: String?,
     modifier: Modifier = Modifier,
     onPlay: () -> Unit,
+    onOptions: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var lastPlayAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -330,14 +365,16 @@ private fun EpisodePreviewRow(
         modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
             .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
-            .clickable {
-                // Remote key repeats must not open several identical players.
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastPlayAt >= 650L) {
-                    lastPlayAt = now
-                    onPlay()
-                }
-            }
+            .tvRemoteActions(
+                onClick = {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastPlayAt >= 650L) {
+                        lastPlayAt = now
+                        onPlay()
+                    }
+                },
+                onLongPress = onOptions,
+            )
             .padding(horizontal = 4.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -351,12 +388,16 @@ private fun EpisodePreviewRow(
             Icon(Icons.Default.PlayArrow, contentDescription = "Play",
                 tint = Color.White, modifier = Modifier.align(Alignment.Center))
         }
-        Column {
+        Column(Modifier.weight(1f)) {
             Text("S%02dE%02d - %s".format(episode.season, episode.episodeNumber, episode.title),
                 color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
             Text(episode.durationSeconds?.takeIf { it > 0 }?.let { "${it / 60}m" } ?: "Duration unavailable",
                 color = Color.LightGray)
+        }
+        if (focused) IconButton(onClick = onOptions) {
+            Icon(Icons.Default.MoreVert, contentDescription = "Episode options",
+                tint = Color(0xFF89E6F5))
         }
     }
 }

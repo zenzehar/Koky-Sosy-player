@@ -210,6 +210,9 @@ class CatalogRepository(
     suspend fun episode(id: Long): Episode? = episodeDao.byId(id)
 
     /** The next episode may belong to the next season; source and series must match. */
+    suspend fun movieCastPortraits(movie: Movie): List<app.opentv.data.remote.TmdbCastPortrait> =
+        withContext(Dispatchers.IO) { tmdb.movieCastPortraits(movie.name, movie.year, movie.tmdbId) }
+
     suspend fun seriesCastPortraits(series: Series): List<app.opentv.data.remote.TmdbCastPortrait> =
         withContext(Dispatchers.IO) { tmdb.seriesCastPortraits(series.name, series.year, series.tmdbId) }
 
