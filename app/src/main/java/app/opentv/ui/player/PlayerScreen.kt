@@ -375,6 +375,7 @@ fun PlayerScreen(
             panel != Panel.NONE -> panel = Panel.NONE
             controlsVisible -> controlsVisible = false
             else -> {
+                app.opentv.ui.channels.LiveReturnState.handOff(currentId)
                 controller.stop()
                 onBack()
             }
