@@ -56,6 +56,7 @@ fun TvNativeTextField(
 ) {
     var editing by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
+    var hasReceivedEditFocus by remember { mutableStateOf(false) }
     val idleRequester = remember { FocusRequester() }
     val editRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -109,7 +110,12 @@ fun TvNativeTextField(
                 modifier = Modifier.fillMaxWidth().height(height)
                     .focusRequester(editRequester)
                     .onFocusChanged {
-                        if (editing && !it.hasFocus) editing = false
+                        if (it.isFocused) {
+                            hasReceivedEditFocus = true
+                        } else if (editing && hasReceivedEditFocus && !it.hasFocus) {
+                            hasReceivedEditFocus = false
+                            editing = false
+                        }
                     },
             )
         } else {
@@ -120,7 +126,10 @@ fun TvNativeTextField(
                     .onFocusChanged { focused = it.isFocused }
                     .border(if (focused) 3.dp else 1.dp,
                         if (focused) frameColor else foreground.copy(alpha = 0.32f), shape)
-                    .clickable { editing = true }
+                    .clickable {
+                        hasReceivedEditFocus = false
+                        editing = true
+                    }
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
