@@ -479,8 +479,10 @@ private fun DetailInfo(
             Spacer(Modifier.height(16.dp))
         }
         plot?.takeIf { it.isNotBlank() }?.let { LabeledBlock(stringResource(R.string.vod_synopsis), it) }
-        val people = if (castPortraits.isNotEmpty()) castPortraits else
-            castList.map { app.opentv.data.remote.TmdbCastPortrait(it, null) }
+        val people = (castPortraits + castList
+            .filter { name -> castPortraits.none { it.name.equals(name, ignoreCase = true) } }
+            .map { app.opentv.data.remote.TmdbCastPortrait(it, null) })
+            .distinctBy { it.name.trim().lowercase() }
         if (people.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
             SectionLabel(stringResource(R.string.vod_cast))
