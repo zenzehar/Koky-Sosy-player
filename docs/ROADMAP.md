@@ -1,4 +1,18 @@
-# OpenTV roadmap — feature gap analysis
+# Koky & Sosy Player — TV roadmap
+
+## Current approved baseline and v0.1.10 review
+
+- **Approved:** v0.1.9. **Development:** v0.1.10 (draft PR; no merge before real TV verification).
+- Movie/series TMDB cast-photo parity, clickable cast names into one movies-and-series person library.
+- Token-authenticated phone browser entry for TMDB key/read token.
+- Native Fire TV/Android TV hold-OK, Menu and visible title/episode actions.
+- Screensaver-suspends audio/video for Live and VOD; separate intentional PiP behaviour.
+- Legible EPG channel column and category names; Back restores same channel, focus and preview.
+
+**Acceptance:** [TV test matrix](TESTING.md) on Fire TV and Android TV hardware. Remaining post-review priorities: crash-log-driven fixes, UI focus/accessibility regression tests, secure APK signing and optional EPG-density control.
+
+---
+## Historical OpenTV product research
 
 This is an evidence-based plan for what to build next, benchmarked against the apps people
 actually compare us to (TiviMate, IPTV Smarters Pro, Sparkle/OTT Navigator, Televizo) and
