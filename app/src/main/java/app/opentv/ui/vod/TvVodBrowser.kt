@@ -114,6 +114,8 @@ internal fun TvVodBrowser(
     }
     var sourceMenu by remember { mutableStateOf(false) }
     var resetTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
+    var movieOptions by remember { mutableStateOf<Movie?>(null) }
+    var seriesOptions by remember { mutableStateOf<Series?>(null) }
     var optionsTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
     var moviePage by remember(isSeries) { mutableStateOf<List<Movie>>(emptyList()) }
     var seriesPage by remember(isSeries) { mutableStateOf<List<Series>>(emptyList()) }
@@ -288,10 +290,14 @@ internal fun TvVodBrowser(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     if (isSeries) gridItems(seriesPage, key = { "s:${it.id}" }) { item ->
-                        TvPoster(item.displayTitle, item.posterUrl) { onOpenSeries(item) }
+                        TvPoster(item.displayTitle, item.posterUrl,
+                            onClick = { onOpenSeries(item) },
+                            onOptions = { seriesOptions = item })
                     }
                     else gridItems(moviePage, key = { "m:${it.id}" }) { item ->
-                        TvPoster(item.displayTitle, item.posterUrl) { onOpenMovie(item) }
+                        TvPoster(item.displayTitle, item.posterUrl,
+                            onClick = { onOpenMovie(item) },
+                            onOptions = { movieOptions = item })
                     }
                     if (loading) item(key = "loading") {
                         Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
@@ -305,6 +311,41 @@ internal fun TvVodBrowser(
                     color = Color.LightGray)
             }
         }
+    }
+    movieOptions?.let { movie ->
+        AlertDialog(
+            onDismissRequest = { movieOptions = null },
+            title = { Text(movie.displayTitle, maxLines = 2) },
+            text = { Text("Choose an action for this movie") },
+            confirmButton = { Button(onClick = {
+                movieOptions = null
+                onResume("movie:${movie.id}", movie.streamUrl, movie.displayTitle)
+            }) { Text("Play movie") } },
+            dismissButton = {
+                Column {
+                    TextButton(onClick = { movieOptions = null; onOpenMovie(movie) }) {
+                        Text("Open title")
+                    }
+                    TextButton(onClick = {
+                        movieOptions = null
+                        viewModel.resetMovieProgress(movie.id)
+                    }) { Text("Reset progress") }
+                }
+            }
+        )
+    }
+    seriesOptions?.let { series ->
+        AlertDialog(
+            onDismissRequest = { seriesOptions = null },
+            title = { Text(series.displayTitle, maxLines = 2) },
+            text = { Text("Choose an action for this series") },
+            confirmButton = { Button(onClick = {
+                seriesOptions = null; onOpenSeries(series)
+            }) { Text("Open episodes") } },
+            dismissButton = { TextButton(onClick = {
+                seriesOptions = null; viewModel.resetSeriesProgress(series)
+            }) { Text("Reset series progress") } },
+        )
     }
     optionsTarget?.let { item ->
         AlertDialog(
@@ -386,24 +427,36 @@ private fun CategoryOption(label: String, count: String, selected: Boolean, onCl
 
 
 @Composable
-private fun TvPoster(title: String, poster: String?, onClick: () -> Unit) {
+private fun TvPoster(
+    title: String,
+    poster: String?,
+    onClick: () -> Unit,
+    onOptions: () -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
     var lastPosterClick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     Box(
         Modifier.fillMaxWidth().aspectRatio(.66f)
             .onFocusChanged { focused = it.isFocused }
             .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
-            .clickable(onClick = {
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastPosterClick >= 500L) {
-                    lastPosterClick = now
-                    onClick()
-                }
-            })
+            .tvRemoteActions(
+                onClick = {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastPosterClick >= 500L) {
+                        lastPosterClick = now
+                        onClick()
+                    }
+                }, onLongPress = onOptions,
+            )
             .background(Color(0xFF151B2B)),
     ) {
         AsyncImage(model = poster, contentDescription = title,
             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (focused) {
+            IconButton(
+                onClick = onOptions, modifier = Modifier.align(Alignment.TopEnd),
+            ) { Icon(Icons.Default.MoreVert, contentDescription = "Title options", tint = Color.White) }
+        }
         if (focused || poster == null) {
             Box(
                 Modifier.fillMaxWidth().align(Alignment.BottomCenter)
@@ -429,11 +482,14 @@ private fun ResumePoster(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
             .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(4.dp))
-            .combinedClickable(onClick = onPlay, onLongClick = onOptions),
+            .tvRemoteActions(onPlay, onOptions),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(.66f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (focused) IconButton(onClick = onOptions, modifier = Modifier.align(Alignment.TopEnd)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Continue watching options", tint = Color.White)
+            }
             Box(Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(
