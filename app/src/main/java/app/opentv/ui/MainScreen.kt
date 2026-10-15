@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import app.opentv.core.AppSettings
+import app.opentv.data.work.SyncWorker
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -176,12 +177,13 @@ fun MainScreen(
                   onSearch = onOpenSearch,
                   onProfiles = onOpenProfiles,
                   onSettings = onOpenSettings,
-                  onRefresh = onRefresh,
+                  onRefresh = { SyncWorker.refreshNow(context) },
               )
           }
       } else {
       Row(Modifier.weight(1f).fillMaxWidth()) {
-        NavRail(
+        // Movies/Series have their own category rail; remove the global rail.
+        if (tab == Tab.LIVE || tab == Tab.RECORDINGS) NavRail(
             tabs = visibleTabs,
             current = tab,
             onSelect = { tab = it },
