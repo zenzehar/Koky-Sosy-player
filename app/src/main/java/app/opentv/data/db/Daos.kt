@@ -253,7 +253,10 @@ interface ChannelDao {
      * freshly parsed rows.
      */
     @Transaction
-    suspend fun replaceCatalogue(sourceId: Long, incoming: List<Channel>, syncStamp: Long) {
+    suspend fun replaceCatalogue(
+        sourceId: Long, incoming: List<Channel>, syncStamp: Long,
+        onImportProgress: (Float) -> Unit = {},
+    ) {
         if (incoming.isEmpty()) return
 
         val existing = userStateForSource(sourceId).associateBy { it.streamId }
@@ -279,7 +282,11 @@ interface ChannelDao {
             }
         }
         // Chunked so a 40,000-channel playlist does not build one enormous statement.
-        merged.chunked(UPSERT_CHUNK).forEach { upsertAll(it) }
+        val batches = merged.chunked(UPSERT_CHUNK)
+        batches.forEachIndexed { i, batch ->
+            upsertAll(batch)
+            onImportProgress((i + 1f) / batches.size)
+        }
         deleteStale(sourceId, syncStamp)
     }
 

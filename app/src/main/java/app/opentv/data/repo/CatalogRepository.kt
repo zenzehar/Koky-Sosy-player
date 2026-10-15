@@ -692,12 +692,14 @@ class CatalogRepository(
     }
 
     /** Live channels only — the fast path so the guide can show before VOD and the guide load. */
-    suspend fun syncLive(source: Source, nowUtcMillis: Long): SyncResult = withContext(Dispatchers.IO) {
+    suspend fun syncLive(
+        source: Source, nowUtcMillis: Long, onProgress: (Float) -> Unit = {},
+    ): SyncResult = withContext(Dispatchers.IO) {
         try {
             when (source.kind) {
-                SourceKind.XTREAM -> syncXtreamLive(source, nowUtcMillis)
-                SourceKind.M3U -> syncM3u(source, nowUtcMillis)
-                SourceKind.STALKER -> syncStalkerLive(source, nowUtcMillis)
+                SourceKind.XTREAM -> syncXtreamLive(source, nowUtcMillis, onProgress)
+                SourceKind.M3U -> syncM3u(source, nowUtcMillis).also { onProgress(1f) }
+                SourceKind.STALKER -> syncStalkerLive(source, nowUtcMillis, onProgress)
             }
         } catch (e: CancellationException) {
             throw e
@@ -714,13 +716,18 @@ class CatalogRepository(
             .onFailure { Log.w(TAG, "VOD sync failed for source ${source.id}", it) }
     }
 
-    private suspend fun syncXtreamLive(source: Source, nowUtcMillis: Long): SyncResult {
+    private suspend fun syncXtreamLive(
+        source: Source, nowUtcMillis: Long, onProgress: (Float) -> Unit = {},
+    ): SyncResult {
         // Authenticate first so a wrong password produces a clear message rather than
         // four separate confusing failures further down.
         api.authenticate(source)
+        onProgress(0.08f)
 
         val liveCategories = api.liveCategories(source)
+        onProgress(0.15f)
         val channels = api.liveStreams(source)
+        onProgress(0.25f)
         if (channels.isEmpty()) {
             return SyncResult.Failed(
                 "The server returned no channels. The account may have no package assigned.",
@@ -730,7 +737,9 @@ class CatalogRepository(
 
         categoryDao.upsertAll(liveCategories)
         val categoryNames = liveCategories.associate { it.id to it.name }
-        channelDao.replaceCatalogue(source.id, normalized(channels, categoryNames), nowUtcMillis)
+        channelDao.replaceCatalogue(
+            source.id, normalized(channels, categoryNames), nowUtcMillis,
+        ) { fraction -> onProgress(0.25f + 0.74f * fraction) }
         sourceDao.markCatalogSynced(source.id, nowUtcMillis)
         return SyncResult.Success(channels.size, 0, 0)
     }
@@ -741,9 +750,13 @@ class CatalogRepository(
      * play time. The handshake happens inside [StalkerApi] on first call; a bad MAC or URL throws
      * here with a clear message, caught by [syncLive].
      */
-    private suspend fun syncStalkerLive(source: Source, nowUtcMillis: Long): SyncResult {
+    private suspend fun syncStalkerLive(
+        source: Source, nowUtcMillis: Long, onProgress: (Float) -> Unit = {},
+    ): SyncResult {
         val liveCategories = stalkerApi.liveCategories(source)
+        onProgress(0.12f)
         val channels = stalkerApi.liveChannels(source)
+        onProgress(0.25f)
         if (channels.isEmpty()) {
             return SyncResult.Failed(
                 "The portal returned no channels. The MAC may not be authorised, or its package is empty.",
@@ -752,7 +765,9 @@ class CatalogRepository(
         }
         categoryDao.upsertAll(liveCategories)
         val categoryNames = liveCategories.associate { it.id to it.name }
-        channelDao.replaceCatalogue(source.id, normalized(channels, categoryNames), nowUtcMillis)
+        channelDao.replaceCatalogue(
+            source.id, normalized(channels, categoryNames), nowUtcMillis,
+        ) { fraction -> onProgress(0.25f + 0.74f * fraction) }
         sourceDao.markCatalogSynced(source.id, nowUtcMillis)
         return SyncResult.Success(channels.size, 0, 0)
     }

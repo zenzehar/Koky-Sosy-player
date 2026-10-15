@@ -88,11 +88,12 @@ fun KokyDashboardScreen(
     val userSettings = remember(context) { app.opentv.core.AppSettings.get(context) }
     val due = CatalogueGate.due(userSettings)
     val waiting = update.phase in setOf(CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
-        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES, CatalogueGate.Phase.FAILED)
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
+        CatalogueGate.Phase.BUILDING, CatalogueGate.Phase.FAILED)
     val gated = hasSources && (due || waiting)
     val liveReady = !gated || update.completed >= 1
-    val moviesReady = !gated || update.completed >= 2
-    val seriesReady = !gated || update.completed >= 3
+    val moviesReady = !gated || update.phase == CatalogueGate.Phase.COMPLETE
+    val seriesReady = !gated || update.phase == CatalogueGate.Phase.COMPLETE
     val visualProgress by animateFloatAsState(
         targetValue = if (gated) update.completed / 3f else 1f,
         animationSpec = tween(durationMillis = 1300), label = "catalogueProgress",
@@ -145,7 +146,7 @@ fun KokyDashboardScreen(
             DashboardTile(
                 label = "LIVE TV", icon = Icons.Filled.LiveTv,
                 locked = !liveReady, loading = gated && update.phase == CatalogueGate.Phase.LIVE,
-                ready = gated && liveReady, progress = if (liveReady) 1f else 0f,
+                ready = gated && liveReady, progress = if (liveReady) 1f else update.liveFraction,
                 shades = listOf(Color(0xFF31CEA1), Color(0xFF3442C8)),
                 modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(initialFocus),
                 onClick = if (hasSources) onLive else onAddProvider,
@@ -201,6 +202,9 @@ fun KokyDashboardScreen(
         }
         // Section progress is drawn INSIDE each coloured tile, never as a
         // detached Home-bottom progress bar.
+        if (gated && update.phase == CatalogueGate.Phase.BUILDING) {
+            Text("Finalising guide and catalogue…", color = Color.White, fontSize = 13.sp)
+        }
         if (gated && update.phase == CatalogueGate.Phase.FAILED) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(update.message, color = Color(0xFFFFC6B8), modifier = Modifier.weight(1f),

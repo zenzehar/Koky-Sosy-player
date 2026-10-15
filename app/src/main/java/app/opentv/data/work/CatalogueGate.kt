@@ -10,11 +10,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 object CatalogueGate {
-    enum class Phase { IDLE, WAITING, LIVE, MOVIES, SERIES, COMPLETE, FAILED }
+    enum class Phase { IDLE, WAITING, LIVE, MOVIES, SERIES, BUILDING, COMPLETE, FAILED }
     data class Snapshot(
         val phase: Phase = Phase.IDLE,
         val completed: Int = 0,
         val message: String = "",
+        val liveFraction: Float = 0f,
         val movieFraction: Float = 0f,
         val seriesFraction: Float = 0f,
     )
@@ -31,11 +32,19 @@ object CatalogueGate {
     fun pending() { mutable.value = Snapshot(Phase.WAITING, 0, "Waiting for catalogue update…") }
     fun started() { mutable.value = Snapshot(Phase.LIVE, 0, "Updating Live TV…") }
     fun liveDone() { mutable.value = mutable.value.copy(phase = Phase.MOVIES,
-        completed = 1, message = "Updating Movies…") }
+        completed = 1, message = "Updating Movies…", liveFraction = 1f) }
     fun moviesDone() { mutable.value = mutable.value.copy(phase = Phase.SERIES, completed = 2,
         message = "Updating Series…", movieFraction = 1f) }
+    fun finalizing() {
+        mutable.value = mutable.value.copy(phase = Phase.BUILDING, completed = 2,
+            seriesFraction = 1f, message = "Preparing guide and catalogue…")
+    }
+    fun liveImportProgress(fraction: Float) {
+        mutable.value = mutable.value.copy(liveFraction = fraction.coerceIn(0f, 0.99f))
+    }
     fun done() { mutable.value = mutable.value.copy(phase = Phase.COMPLETE, completed = 3,
-        message = "Catalogue is ready", movieFraction = 1f, seriesFraction = 1f) }
+        message = "Catalogue is ready", liveFraction = 1f,
+        movieFraction = 1f, seriesFraction = 1f) }
     // These values represent confirmed titles written to the local Room database.
     // Download bytes are not measurable here, so the UI says "Fetching" until
     // the provider returns the catalogue and importing begins.
