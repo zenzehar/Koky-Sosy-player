@@ -1,3 +1,21 @@
+# v0.1.10.1 alpha: focused regression checklist
+
+- [ ] Phone QR manager loads; TMDB section shows existing configured/not-set status (no secret).
+- [ ] Enter TMDB key or read token from phone; Save updates status to **Saved and verified on your TV**; check TV Settings fields.
+- [ ] Test saving only key, only token, both; test blank input, disconnected TV and stale QR.
+- [ ] From Settings → Display & Playback → Metadata, select **Enter TMDB credentials from phone** and verify QR screen opens.
+- [ ] In Movies, Series, Episodes and Continue Watching, **brief OK** opens title/plays, **hold OK ~600ms** opens anchored dropdown. Releasing must **not** select a menu item.
+- [ ] D-pad Up/Down through the open dropdown, OK selects intended action, Back dismisses.
+- [ ] Check visible ⋮ action on remotes without Menu/hold, without unexpected navigation.
+- [ ] Play mid-season episode, leave playback, reopen series; season selector and main Play/Resume target should show latest unfinished episode. Selecting a different season deliberately starts that season.
+- [ ] Verify movie and series poster grids always show non-clipped titles below artwork at TV resolution.
+- [ ] On v0.1.9, Check Updates does **not** detect unpublished builds: after v0.1.10.1 the About screen links to GitHub Actions; publishing an APK-bearing GitHub Release is required for prior installations.
+- [ ] Cast lookup still finds indexed Movie and Series titles across all configured providers/categories, subject to stored cast metadata and result limits.
+- [ ] **Firestick screensaver playback is NOT TESTED; carry forward to later hardware testing.**
+
+Build-verified is not hardware-verified. Never include provider credentials or tokens in logs.
+
+---
 # TV test and release checklist
 
 This document covers the **Koky & Sosy Player** branch, not only the original OpenTV app. Passing Gradle tests is necessary but insufficient: UI focus, Fire TV screensaver handling and provider-specific playback require physical-device testing.

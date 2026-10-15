@@ -76,7 +76,7 @@ fun AboutScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(20.dp))
 
         Section(stringResource(R.string.about_version)) {
-            Text("OpenTV ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
+            Text("Koky & Sosy Player ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(
@@ -91,7 +91,7 @@ fun AboutScreen(onBack: () -> Unit) {
                             }.getOrNull()
                             updateLine = when {
                                 update != null -> context.getString(R.string.about_update_available, update.versionName)
-                                else -> context.getString(R.string.about_up_to_date)
+                                else -> "No newer published release found. Test APKs may be available on GitHub Actions."
                             }
                             // Raise the shared update prompt right here — UpdateGate overlays every
                             // screen, so the install dialog appears over About immediately.
@@ -103,6 +103,11 @@ fun AboutScreen(onBack: () -> Unit) {
                         }
                     },
                 ) { Text(if (checking) stringResource(R.string.about_checking) else stringResource(R.string.about_check_updates)) }
+                OutlinedButton(onClick = {
+                    val url = "https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml"
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(url)))
+                }) { Text("View test APK builds") }
                 updateLine?.let {
                     Spacer(Modifier.width(16.dp))
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)

@@ -1,3 +1,16 @@
+# v0.1.10.1 TV alpha hotfix — unapproved
+
+- Phone Web Manager TMDB API entry: corrected undefined JavaScript helper that stopped event-handler installation; reliable POST-body reading and confirmed saved-status read-back; explicit phone-page success/error output.
+- Added an **Enter TMDB from phone** button inside TV Settings → Metadata, linking directly to the Web Manager QR screen.
+- Made native remote long holds open action menus **on key release**, preventing the released OK key from also activating a menu item.
+- Replaced modal movie/series/episode/Continue Watching action dialogs with anchored TV dropdown menus. Reset confirmation remains available for Continue Watching.
+- Movie and Series posters now **always show a readable title** below the image.
+- Series details choose the newest unfinished episode as the default season and Play/Resume target; manual season selection still works.
+- About now says whether a newer **published release** was found and links to GitHub Actions for alpha builds. Previously-installed versions cannot discover unpublished CI artifacts retrospectively.
+- Fire TV screensaver behaviour: **deferred hardware test**, no claim of verification.
+- Android versionCode 12, name 0.1.10.1-tv-alpha. v0.1.9 remains the approved checkpoint.
+
+---
 # Koky & Sosy Player — changelog
 
 Version names below are Android TV application versions. The earlier **OpenTV upstream changelog** is retained under the historical section for licensing/provenance context; its numbering does **not** mean a newer Koky & Sosy APK is available.
