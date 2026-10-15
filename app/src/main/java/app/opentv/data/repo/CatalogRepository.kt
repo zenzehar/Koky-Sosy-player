@@ -210,6 +210,9 @@ class CatalogRepository(
     suspend fun episode(id: Long): Episode? = episodeDao.byId(id)
 
     /** The next episode may belong to the next season; source and series must match. */
+    suspend fun seriesCastPortraits(series: Series): List<app.opentv.data.remote.TmdbCastPortrait> =
+        withContext(Dispatchers.IO) { tmdb.seriesCastPortraits(series.name, series.year, series.tmdbId) }
+
     suspend fun nextEpisode(id: Long): Episode? = withContext(Dispatchers.IO) {
         val current = episodeDao.byId(id) ?: return@withContext null
         episodeDao.nextAfter(current.sourceId, current.seriesId, current.season, current.episodeNumber)

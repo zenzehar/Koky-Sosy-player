@@ -51,11 +51,32 @@ data class TmdbMeta(
  * detail back-fill) is already inside `withContext(Dispatchers.IO)`, matching how the Xtream client
  * is used, so there is no value in another coroutine hop here.
  */
+/** Read-only optional performer portrait supplied by TMDB with a user-provided key. */
+data class TmdbCastPortrait(val name: String, val imageUrl: String?)
+
 class TmdbClient(
     private val http: OkHttpClient,
     private val settings: AppSettings,
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
 ) {
+
+    /** Read at most 20 cast portraits on opening the Cast tab, never during catalogue sync. */
+    fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
+        val key = settings.tmdbApiKey.value.trim()
+        if (key.isEmpty()) return emptyList()
+        val id = tmdbId?.takeIf { it.isNotBlank() }
+            ?: searchId(false, searchTitle(title), year, key)
+            ?: return emptyList()
+        val url = TMDB_BASE.newBuilder().addPathSegment("tv").addPathSegment(id)
+            .addPathSegment("credits").addQueryParameter("api_key", key).build()
+        val people = get(url)?.jsonObject?.get("cast")?.jsonArray ?: return emptyList()
+        return people.take(20).mapNotNull { value ->
+            val row = value.jsonObject
+            val name = row["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val path = row["profile_path"]?.jsonPrimitive?.contentOrNull
+            TmdbCastPortrait(name, path?.let { "https://image.tmdb.org/t/p/w185" + it })
+        }
+    }
 
     /** True once the user has saved a key. Callers gate on this so nothing runs without one. */
     fun isConfigured(): Boolean = settings.tmdbApiKey.value.isNotBlank()
