@@ -645,6 +645,35 @@ class CatalogRepository(
         live
     }
 
+    /** Phase-specific update: a category becomes available only after it has finished. */
+    suspend fun syncMoviesPhase(source: Source): Boolean = withContext(Dispatchers.IO) {
+        if (source.kind != SourceKind.XTREAM || !settings.moviesEnabled.value) return@withContext true
+        runCatching {
+            val categories = api.movieCategories(source)
+            val movies = api.movies(source)
+            if (categories.isNotEmpty()) categoryDao.upsertAll(categories)
+            movies.chunked(300).forEach { movieDao.upsertAll(it) }
+            true
+        }.getOrElse {
+            Log.w(TAG, "Movie update failed", it)
+            false
+        }
+    }
+
+    suspend fun syncSeriesPhase(source: Source): Boolean = withContext(Dispatchers.IO) {
+        if (source.kind != SourceKind.XTREAM || !settings.seriesEnabled.value) return@withContext true
+        runCatching {
+            val categories = api.seriesCategories(source)
+            val series = api.series(source)
+            if (categories.isNotEmpty()) categoryDao.upsertAll(categories)
+            series.chunked(300).forEach { seriesDao.upsertAll(it) }
+            true
+        }.getOrElse {
+            Log.w(TAG, "Series update failed", it)
+            false
+        }
+    }
+
     /** Live channels only — the fast path so the guide can show before VOD and the guide load. */
     suspend fun syncLive(source: Source, nowUtcMillis: Long): SyncResult = withContext(Dispatchers.IO) {
         try {
