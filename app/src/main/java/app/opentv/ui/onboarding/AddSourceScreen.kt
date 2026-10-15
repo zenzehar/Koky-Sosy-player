@@ -6,6 +6,7 @@
 package app.opentv.ui.onboarding
 
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +38,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -109,6 +114,7 @@ fun AddSourceScreen(
     var mac by remember(existing?.id) { mutableStateOf(existing?.macAddress ?: "") }
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
@@ -133,29 +139,47 @@ fun AddSourceScreen(
         SourceKind.STALKER -> mac.isNotBlank()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Row(
+        modifier = Modifier.fillMaxSize()
+            .background(Brush.horizontalGradient(listOf(
+                Color(0xFF4C22C4), Color(0xFF9744BA), Color(0xFFE36C93),
+            )))
+            .padding(26.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        Column(Modifier.widthIn(max = 640.dp)) {
+        Column(
+            modifier = Modifier.weight(0.70f).fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text("KOKY & SOSY", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            Text("PLAYER", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(22.dp))
+            Text("Enter Your Login Details", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
             Text(
-                stringResource(
-                    if (existing != null) R.string.settings_edit_provider_title
-                    else R.string.onboarding_add_provider_title,
-                ),
-                style = MaterialTheme.typography.displaySmall,
+                "Use the remote to highlight a field. Press OK to open your selected Android keyboard.",
+                color = Color.White.copy(alpha = 0.92f),
+                style = MaterialTheme.typography.bodyMedium,
             )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.onboarding_add_provider_desc),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
             Spacer(Modifier.height(24.dp))
+            if (isTelevision) {
+                OutlinedButton(onClick = { usePhone = true }) {
+                    Text("Log in from phone (QR)", color = Color.White)
+                }
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1.35f).fillMaxSize()
+                .background(Color(0xD2151638), androidx.compose.foundation.shape.RoundedCornerShape(18.dp))
+                .verticalScroll(rememberScrollState()).padding(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    if (existing != null) "Edit Login Details" else "Enter Your Login Details",
+                    color = Color.White, style = MaterialTheme.typography.headlineMedium,
+                )
+                Spacer(Modifier.height(14.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilterChip(
@@ -214,10 +238,14 @@ fun AddSourceScreen(
                     onValueChange = { password = it },
                     label = stringResource(R.string.recset_field_password),
                     trailingIcon = { PasteButton { password += it } },
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None
+                        else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                OutlinedButton(onClick = { showPassword = !showPassword }) {
+                    Text(if (showPassword) "Hide password" else "Show password", color = Color.White)
+                }
             }
 
             if (kind == SourceKind.STALKER) {
@@ -302,20 +330,11 @@ fun AddSourceScreen(
                 }
             }
 
-            // "Set up from your phone" (the QR pairing flow) is offered only on a TV — see the
-            // isTelevision note above. On a phone it would just show a QR to nowhere.
-            if (isTelevision) {
-                Spacer(Modifier.height(20.dp))
-                OutlinedButton(onClick = { usePhone = true }) {
-                    Text(stringResource(R.string.onboarding_use_phone))
-                }
-            }
-
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(12.dp))
             Text(
-                stringResource(R.string.onboarding_privacy_note),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "Login details are saved on this device. They are sent to the provider for authentication.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.78f),
             )
         }
     }
