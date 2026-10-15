@@ -646,13 +646,22 @@ class CatalogRepository(
     }
 
     /** Phase-specific update: a category becomes available only after it has finished. */
-    suspend fun syncMoviesPhase(source: Source): Boolean = withContext(Dispatchers.IO) {
+    suspend fun syncMoviesPhase(
+        source: Source,
+        onProgress: (Float) -> Unit = {},
+    ): Boolean = withContext(Dispatchers.IO) {
         if (source.kind != SourceKind.XTREAM || !settings.moviesEnabled.value) return@withContext true
         runCatching {
             val categories = api.movieCategories(source)
             val movies = api.movies(source)
             if (categories.isNotEmpty()) categoryDao.upsertAll(categories)
-            movies.chunked(300).forEach { movieDao.upsertAll(it) }
+            val chunks = movies.chunked(100)
+            if (chunks.isEmpty()) onProgress(1f)
+            chunks.forEachIndexed { index, batch ->
+                movieDao.upsertAll(batch)
+                // Last 1% is reserved for the fully completed phase.
+                onProgress((index + 1f) / chunks.size * 0.99f)
+            }
             true
         }.getOrElse {
             Log.w(TAG, "Movie update failed", it)
@@ -660,13 +669,21 @@ class CatalogRepository(
         }
     }
 
-    suspend fun syncSeriesPhase(source: Source): Boolean = withContext(Dispatchers.IO) {
+    suspend fun syncSeriesPhase(
+        source: Source,
+        onProgress: (Float) -> Unit = {},
+    ): Boolean = withContext(Dispatchers.IO) {
         if (source.kind != SourceKind.XTREAM || !settings.seriesEnabled.value) return@withContext true
         runCatching {
             val categories = api.seriesCategories(source)
             val series = api.series(source)
             if (categories.isNotEmpty()) categoryDao.upsertAll(categories)
-            series.chunked(300).forEach { seriesDao.upsertAll(it) }
+            val chunks = series.chunked(100)
+            if (chunks.isEmpty()) onProgress(1f)
+            chunks.forEachIndexed { index, batch ->
+                seriesDao.upsertAll(batch)
+                onProgress((index + 1f) / chunks.size * 0.99f)
+            }
             true
         }.getOrElse {
             Log.w(TAG, "Series update failed", it)

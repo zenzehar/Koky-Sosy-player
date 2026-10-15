@@ -73,6 +73,7 @@ fun MoviesScreen(
     onOpenMovie: (Movie) -> Unit,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenSearch: () -> Unit,
+    onBack: () -> Unit,
     hasSources: Boolean,
     isSyncing: Boolean,
     viewModel: VodViewModel = viewModel(),
@@ -84,6 +85,7 @@ fun MoviesScreen(
         onOpenSeries = {},
         onResume = onResume,
         onOpenSearch = onOpenSearch,
+        onExit = onBack,
         hasSources = hasSources,
         isSyncing = isSyncing,
     )
@@ -94,6 +96,7 @@ fun SeriesScreen(
     onOpenSeries: (Series) -> Unit,
     onResume: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenSearch: () -> Unit,
+    onBack: () -> Unit,
     hasSources: Boolean,
     isSyncing: Boolean,
     viewModel: VodViewModel = viewModel(),
@@ -105,6 +108,7 @@ fun SeriesScreen(
         onOpenSeries = onOpenSeries,
         onResume = onResume,
         onOpenSearch = onOpenSearch,
+        onExit = onBack,
         hasSources = hasSources,
         isSyncing = isSyncing,
     )

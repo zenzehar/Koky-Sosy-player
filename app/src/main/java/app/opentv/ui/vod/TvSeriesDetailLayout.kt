@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -101,18 +102,18 @@ internal fun TvSeriesDetailLayout(
         if (showCast) return@LaunchedEffect
         val index = currentEpisodes.indexOfFirst { it.id == lastPlayedEpisode }
         if (index >= 0) {
-            episodeListState.scrollToItem(index)
-            delay(100)
+            runCatching { episodeListState.scrollToItem(index) }
+            withFrameNanos { }
             runCatching { playedFocus.requestFocus() }
         } else if (episodes.isNotEmpty()) {
-            delay(80)
+            withFrameNanos { }
             runCatching { playFocus.requestFocus() }
         }
     }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF080C24))) {
         Row(
-            Modifier.fillMaxWidth().height(70.dp).padding(horizontal = 22.dp),
+            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 22.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(22.dp),
         ) {
@@ -121,7 +122,7 @@ internal fun TvSeriesDetailLayout(
                 fontSize = 17.sp)
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Text(s.displayTitle, color = Color.White, fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    fontSize = 21.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onClick = {
                 viewModel.toggleSeriesFavourite(s)
@@ -131,14 +132,14 @@ internal fun TvSeriesDetailLayout(
                     contentDescription = "Favourite", tint = Color.White)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 26.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp)) {
             AsyncImage(
                 model = s.posterUrl, contentDescription = s.displayTitle,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.width(170.dp).height(225.dp),
+                modifier = Modifier.width(145.dp).height(220.dp),
             )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 DetailAttribute("Directed By:", "N/A")
                 DetailAttribute("Release Date:", s.year?.toString() ?: "N/A")
                 DetailAttribute("Genre:", s.genre ?: "N/A")
@@ -205,7 +206,7 @@ internal fun TvSeriesDetailLayout(
                 } else {
                     LazyColumn(
                         state = episodeListState,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         items(currentEpisodes, key = { it.id }) { ep ->
                             EpisodePreviewRow(
@@ -249,15 +250,17 @@ private fun DetailAttribute(label: String, value: String) {
 private fun TvDetailTab(label: String, selected: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
-        Modifier.width(205.dp).height(53.dp)
-            .background(if (selected || focused) Color(0xFF252842) else Color(0xFF181D35))
+        Modifier.width(182.dp).height(47.dp)
+            .background(if (selected) Color(0xFF202641) else Color.Transparent)
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 0.dp, Color.White)
             .clickable(onClick = onClick), contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 19.sp, color = Color.White)
-            if (selected) Box(Modifier.fillMaxWidth().height(3.dp).background(Color(0xFFDB8AD2)))
+            Text(label, fontSize = 17.sp, color = Color.White)
+            if (selected || focused) Box(
+                Modifier.fillMaxWidth().height(if (focused) 3.dp else 2.dp)
+                    .background(if (focused) Color(0xFF7AE4F0) else Color(0xFFDB8AD2))
+            )
         }
     }
 }
@@ -273,14 +276,13 @@ private fun EpisodePreviewRow(
     Row(
         modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 3.dp else 0.dp, Color.White, RoundedCornerShape(7.dp))
-            .background(if (focused) Color(0xFF1D2D53) else Color(0xFF080C24))
+            .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
             .clickable(onClick = onPlay)
-            .padding(8.dp),
+            .padding(horizontal = 5.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Box(Modifier.width(218.dp).height(120.dp)) {
+        Box(Modifier.width(196.dp).height(110.dp)) {
             AsyncImage(
                 model = episode.stillUrl ?: fallbackArt,
                 contentDescription = episode.title,
@@ -291,7 +293,7 @@ private fun EpisodePreviewRow(
         }
         Column {
             Text("S%02dE%02d - %s".format(episode.season, episode.episodeNumber, episode.title),
-                color = Color.White, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                color = Color.White, fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(9.dp))
             Text(episode.durationSeconds?.takeIf { it > 0 }?.let { "${it / 60}m" } ?: "Duration unavailable",
                 color = Color.LightGray)
