@@ -74,6 +74,7 @@ internal fun TvSeriesDetailLayout(
     onPlayEpisode: (String, String, String) -> Unit,
     onBack: () -> Unit,
     viewModel: VodViewModel,
+    onOpenPerson: (String) -> Unit = {},
 ) {
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var expandedPlot by rememberSaveable(seriesId) { mutableStateOf(false) }
@@ -234,7 +235,16 @@ internal fun TvSeriesDetailLayout(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     gridItems(cast, key = { it.name }) { actor ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        var actorFocused by remember { mutableStateOf(false) }
+                        Column(
+                            modifier = Modifier
+                                .onFocusChanged { actorFocused = it.isFocused }
+                                .border(if (actorFocused) 2.dp else 0.dp, Color(0xFF79ECF7),
+                                    RoundedCornerShape(5.dp))
+                                .tvRemoteActions({ onOpenPerson(actor.name) }, { onOpenPerson(actor.name) })
+                                .padding(3.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
                             Box(Modifier.width(95.dp).height(128.dp)
                                 .background(Color(0xFF222A42), RoundedCornerShape(6.dp)),
                                 contentAlignment = Alignment.Center) {
