@@ -836,6 +836,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun resetEpisodeProgress(episodeId: Long) {
+        viewModelScope.launch {
+            graph.playbackPositions.deleteKeys(
+                settings.activeProfileId.value, listOf("ep:${episodeId}")
+            )
+        }
+    }
+
     fun resetMovieProgress(movieId: Long) {
         viewModelScope.launch { resetLogicalMovie(movieId, settings.activeProfileId.value) }
     }
