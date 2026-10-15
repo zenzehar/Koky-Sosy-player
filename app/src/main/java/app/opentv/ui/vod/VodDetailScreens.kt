@@ -36,6 +36,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.opentv.data.model.PlaybackPosition
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,7 +95,17 @@ fun MovieDetailScreen(
     var castPhotos by remember(movieId) {
         mutableStateOf<List<app.opentv.data.remote.TmdbCastPortrait>>(emptyList())
     }
-    var resumeExists by remember(movieId) { mutableStateOf(false) }
+    var resumeProgress by remember(movieId) { mutableStateOf<PlaybackPosition?>(null) }
+    val resumeExists = resumeProgress?.let { !it.isFinished } == true
+    var foregroundEpoch by remember(movieId) { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) foregroundEpoch++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var confirmMovieReset by remember(movieId) { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
     val hasAddons by viewModel.hasAddons.collectAsState()
@@ -102,13 +118,21 @@ fun MovieDetailScreen(
         val loaded = viewModel.movieDetail(movieId)
         movie = loaded
         if (loaded != null) {
-            resumeExists = viewModel.resumePosition("movie:${loaded.id}")?.let { !it.isFinished } == true
             moreLike = viewModel.moreLikeThis(loaded)
             castPhotos = runCatching { viewModel.movieCastPortraits(loaded) }.getOrDefault(emptyList())
         }
     }
 
     val m = movie ?: run { LoadingDetail(); return }
+    LaunchedEffect(movieId, foregroundEpoch) {
+        resumeProgress = viewModel.resumePosition("movie:${m.id}")?.takeUnless { it.isFinished }
+    }
+    val resumeText = resumeProgress?.let { position ->
+        val pct = if (position.durationMillis > 0L)
+            (100L * position.positionMillis / position.durationMillis).coerceIn(0L, 100L)
+        else null
+        " · ${position.positionMillis / 60_000L}m" + (pct?.let { " (${it}%)" } ?: "")
+    }.orEmpty()
 
     // Land focus on the primary action once the page is up, so a d-pad has somewhere to be.
     LaunchedEffect(m.id) {
@@ -121,7 +145,8 @@ fun MovieDetailScreen(
             DetailBackdrop(title = m.displayTitle, backdropUrl = m.backdropUrl, posterUrl = m.posterUrl, meta = movieMeta(m)) {
                 DetailButton(
                     icon = Icons.Filled.PlayArrow,
-                    label = stringResource(if (resumeExists) R.string.vod_resume else R.string.vod_watch_now),
+                    label = stringResource(if (resumeExists) R.string.vod_resume else R.string.vod_watch_now) +
+                        (if (resumeExists) resumeText else ""),
                     primary = true,
                     modifier = Modifier.focusRequester(playFocus),
                 ) { onPlay(m) }
@@ -177,7 +202,7 @@ fun MovieDetailScreen(
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     viewModel.resetMovieProgress(movieId)
-                    resumeExists = false
+                    resumeProgress = null
                     confirmMovieReset = false
                 }) { Text("Reset") }
             },
