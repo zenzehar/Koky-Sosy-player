@@ -64,11 +64,20 @@ class TmdbClient(
     fun movieCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> =
         castPortraits(true, title, year, tmdbId)
 
-    /** Read at most 20 cast portraits on opening the Cast tab, never during catalogue sync. */
+    /** Portraits and full searchable cast are fetched on demand, not on a whole-library crawl. */
     fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> =
         castPortraits(false, title, year, tmdbId)
 
+    // In-memory metadata cache; Coil independently caches network thumbnails to disk.
+    // Bound entries to prevent large VOD libraries from growing the heap.
+    private val portraitCache = object : LinkedHashMap<String, List<TmdbCastPortrait>>(96, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<TmdbCastPortrait>>?): Boolean =
+            size > 96
+    }
+
     private fun castPortraits(movie: Boolean, title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
+        val cacheKey = "${movie}:${tmdbId.orEmpty()}:${title.lowercase()}:${year ?: 0}"
+        synchronized(portraitCache) { portraitCache[cacheKey]?.let { return it } }
         val key = settings.tmdbApiKey.value.trim()
         if (key.isEmpty() && settings.tmdbReadToken.value.isBlank()) return emptyList()
         val id = tmdbId?.takeIf { it.isNotBlank() }
@@ -77,16 +86,19 @@ class TmdbClient(
         val url = TMDB_BASE.newBuilder().addPathSegment(if (movie) "movie" else "tv").addPathSegment(id)
             .addPathSegment("credits").withKey(key).build()
         val people = get(url)?.jsonObject?.get("cast")?.jsonArray ?: return emptyList()
-        return people.take(20).mapNotNull { value ->
+        val result = people.take(60).mapNotNull { value ->
             val row = value.jsonObject
             val name = row["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
             val path = row["profile_path"]?.jsonPrimitive?.contentOrNull
             TmdbCastPortrait(name, path?.let { "https://image.tmdb.org/t/p/w185" + it })
-        }
+        }.distinctBy { it.name.lowercase() }
+        synchronized(portraitCache) { portraitCache[cacheKey] = result }
+        return result
     }
 
     /** True once the user has saved a key. Callers gate on this so nothing runs without one. */
-    fun isConfigured(): Boolean = settings.tmdbApiKey.value.isNotBlank()
+    fun isConfigured(): Boolean =
+        settings.tmdbApiKey.value.isNotBlank() || settings.tmdbReadToken.value.isNotBlank()
 
     /** Metadata for a film: by [tmdbId] when the provider already gave one, else a title(+year) search. */
     fun movieMeta(title: String, year: Int?, tmdbId: String?): TmdbMeta? =
@@ -217,6 +229,6 @@ class TmdbClient(
         val TMDB_BASE: HttpUrl = "https://api.themoviedb.org/3".toHttpUrl()
         const val IMG_POSTER = "https://image.tmdb.org/t/p/w500"
         const val IMG_BACKDROP = "https://image.tmdb.org/t/p/w1280"
-        const val TOP_CAST = 12
+        const val TOP_CAST = 60
     }
 }
