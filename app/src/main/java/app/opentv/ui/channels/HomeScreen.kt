@@ -66,6 +66,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.ui.window.Dialog
@@ -254,6 +258,30 @@ fun HomeScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Some Fire TV screensavers do not emit Activity ON_PAUSE. Stop the preview
+    // decoder explicitly on screen-off/dreaming start to avoid audible background TV.
+    DisposableEffect(context, previewController) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                if (intent?.action == Intent.ACTION_SCREEN_OFF ||
+                    intent?.action == Intent.ACTION_DREAMING_STARTED) {
+                    screenResumed = false
+                    previewController.stop()
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
 
     // Hold the screen awake while the guide's live preview is playing — otherwise the box's
