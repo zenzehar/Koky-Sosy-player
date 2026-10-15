@@ -34,6 +34,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import app.opentv.core.ServiceLocator
+import app.opentv.data.model.Source
+import app.opentv.data.model.SourceKind
+import java.text.DateFormat
+import java.util.Date
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +64,7 @@ private val background = Color(0xFF070D25)
 @Composable
 fun KokyDashboardScreen(
     hasSources: Boolean,
+    sourceForFooter: Source?,
     onAddProvider: () -> Unit,
     onLive: () -> Unit,
     onMovies: () -> Unit,
@@ -69,6 +76,32 @@ fun KokyDashboardScreen(
     onRefresh: () -> Unit,
 ) {
     val initialFocus = remember { FocusRequester() }
+    val context = LocalContext.current
+    val cache = remember(context) { context.getSharedPreferences("koky_provider_expiry", 0) }
+    var expiryText by remember(sourceForFooter?.id) { mutableStateOf("Checking…") }
+    LaunchedEffect(sourceForFooter?.id, sourceForFooter?.url, sourceForFooter?.username) {
+        val provider = sourceForFooter
+        if (provider == null) {
+            expiryText = "No provider"
+        } else if (provider.kind != SourceKind.XTREAM) {
+            expiryText = "Not provided"
+        } else {
+            val key = "expiry_${provider.id}"
+            val cached = cache.getLong(key, 0L)
+            expiryText = if (cached > 0L) DateFormat.getDateInstance(DateFormat.MEDIUM)
+                .format(Date(cached)) else "Checking…"
+            val result = ServiceLocator.get(context).sourceRepository.expiryMillis(provider)
+            if (result.isSuccess) {
+                val expiry = result.getOrNull()
+                expiryText = if (expiry != null && expiry > 0L) {
+                    cache.edit().putLong(key, expiry).apply()
+                    DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(expiry))
+                } else "Not supplied"
+            } else if (cached == 0L) {
+                expiryText = "Unavailable, retry later"
+            }
+        }
+    }
     LaunchedEffect(Unit) { initialFocus.requestFocus() }
     Column(
         Modifier.fillMaxSize().background(background).padding(horizontal = 28.dp, vertical = 20.dp),
@@ -139,13 +172,13 @@ fun KokyDashboardScreen(
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
-                if (hasSources) "Provider configured" else "Select a tile to add your IPTV provider",
+                sourceForFooter?.name?.let { "Playlist: $it" } ?: "Select a tile to add your IPTV provider",
                 color = Color.White.copy(alpha = 0.80f),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "Subscription expiry: —",
+                "Subscription expiry: $expiryText",
                 color = Color.White.copy(alpha = 0.80f),
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
