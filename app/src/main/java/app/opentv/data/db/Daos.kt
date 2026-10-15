@@ -534,6 +534,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Movie?
 
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamId IN (:streamIds)")
+    suspend fun bySourceStreamIds(sourceId: Long, streamIds: List<String>): List<Movie>
+
     @Query("UPDATE movies SET favourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)
 
@@ -629,6 +632,9 @@ interface SeriesDao {
 
     @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
     suspend fun byProviderId(sourceId: Long, seriesId: String): Series?
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId IN (:seriesIds)")
+    suspend fun bySourceSeriesIds(sourceId: Long, seriesIds: List<String>): List<Series>
 
     @Query("UPDATE series SET favourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)
