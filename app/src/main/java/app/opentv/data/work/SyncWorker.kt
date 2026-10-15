@@ -18,6 +18,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.opentv.core.ServiceLocator
 import app.opentv.core.AppSettings
+import app.opentv.core.StatusBus
 import app.opentv.data.repo.CatalogRepository
 import java.util.concurrent.TimeUnit
 
@@ -39,39 +40,47 @@ class SyncWorker(
         val sources = graph.sourceRepository.enabled()
         if (sources.isEmpty()) return Result.success()
 
-        var anyFailed = false
-
-        for (source in sources) {
-            when (val result = graph.catalogRepository.sync(source, now)) {
-                is CatalogRepository.SyncResult.Success ->
-                    Log.i(TAG, "Catalogue for ${source.name}: ${result.channelCount} channels")
-                is CatalogRepository.SyncResult.Failed -> {
-                    anyFailed = true
-                    Log.w(TAG, "Catalogue for ${source.name} failed: ${result.reason}")
+        CatalogueGate.started()
+        StatusBus.set("Updating Live TV…", 0f)
+        try {
+            for (source in sources) {
+                when (val result = graph.catalogRepository.syncLive(source, now)) {
+                    is CatalogRepository.SyncResult.Success ->
+                        Log.i(TAG, "Live: ${result.channelCount} channels")
+                    is CatalogRepository.SyncResult.Failed ->
+                        throw IllegalStateException("Live TV: ${result.reason}")
                 }
             }
-
-        }
-
-        // Guides sync as one pass across every enabled feed — provider guides, built-in
-        // free sources and user URLs merge into a single guide, then the matcher runs.
-        val summary = graph.epgRepository.syncAll(now)
-        if (summary.feedsFailed > 0) anyFailed = true
-        Log.i(
-            TAG,
-            "Guide: ${summary.programmesWritten} programmes from ${summary.feedsSucceeded} " +
-                "feed(s), ${summary.channelsMatched}/${summary.channelsTotal} channels matched",
-        )
-
-        // Book any newly-revealed series-link airings from this fresh guide.
-        runCatching { graph.recordingEngine.rescanSeriesRules() }
-
-        // A partial failure is still a retry — but the user keeps everything already on disk.
-        if (!anyFailed) {
-            graph.settings.catalogueSyncedAtMillis = now
+            CatalogueGate.liveDone()
+            StatusBus.set("Updating Movies…", 1f / 3f)
+            for (source in sources) {
+                if (!graph.catalogRepository.syncMoviesPhase(source)) {
+                    throw IllegalStateException("Movie catalogue unavailable; previous library retained")
+                }
+            }
+            CatalogueGate.moviesDone()
+            StatusBus.set("Updating Series…", 2f / 3f)
+            for (source in sources) {
+                if (!graph.catalogRepository.syncSeriesPhase(source)) {
+                    throw IllegalStateException("Series catalogue unavailable; previous library retained")
+                }
+            }
+            // Catalogue is complete. Guide refresh is ancillary and cannot prevent
+            // access to an otherwise valid finished VOD library.
+            graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
             graph.settings.vodSyncedAtMillis = now
+            CatalogueGate.done()
+            StatusBus.set(null)
+            runCatching { graph.epgRepository.syncAll(now) }
+                .onFailure { Log.w(TAG, "Optional EPG update failed", it) }
+            runCatching { graph.recordingEngine.rescanSeriesRules() }
+            return Result.success()
+        } catch (e: Exception) {
+            Log.w(TAG, "Update failed", e)
+            CatalogueGate.failed(e.message ?: "Update failed; retry")
+            StatusBus.set(null)
+            return Result.failure()
         }
-        return if (anyFailed) Result.failure() else Result.success()
     }
 
     companion object {
@@ -86,6 +95,7 @@ class SyncWorker(
          * tied to a screen's ViewModel scope). REPLACE so repeated taps coalesce into one run.
          */
         fun refreshNow(context: Context) {
+            CatalogueGate.pending()
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(
                     Constraints.Builder()
@@ -106,8 +116,8 @@ class SyncWorker(
             val hours = settings.catalogueRefreshHours.value
             if (hours == 0) return
             val now = System.currentTimeMillis()
-            val last = settings.catalogueSyncedAtMillis
-            if (last > 0L && now >= last && now - last < hours * 3_600_000L) return
+            if (!CatalogueGate.due(settings, now)) return
+            CatalogueGate.pending()
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
