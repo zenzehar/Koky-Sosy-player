@@ -68,6 +68,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
+    val refreshHours by settings.catalogueRefreshHours.collectAsState()
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -113,6 +114,18 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_content)) {
+            Text("Catalogue refresh: at app launch, only when due",
+                style = MaterialTheme.typography.titleMedium)
+            Text("Opening Movies or Series uses saved titles; manual Update is always available.",
+                style = MaterialTheme.typography.bodySmall)
+            for (hours in listOf(0, 1, 3, 6, 12, 24)) {
+                ThemeOption(
+                    if (hours == 0) "Off — manual update only"
+                    else "Every " + hours + (if (hours == 1) " hour" else " hours"),
+                    refreshHours == hours,
+                ) { settings.setCatalogueRefreshHours(hours) }
+            }
+            Spacer(Modifier.height(16.dp))
             Text(
                 stringResource(R.string.settings_content_note),
                 style = MaterialTheme.typography.bodyMedium,
