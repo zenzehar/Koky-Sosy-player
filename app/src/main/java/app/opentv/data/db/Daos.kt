@@ -593,6 +593,9 @@ interface SeriesDao {
 
 @Dao
 interface EpisodeDao {
+    @Query("SELECT COUNT(*) FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId")
+    suspend fun countForSeries(sourceId: Long, seriesId: String): Int
+
     @Query("SELECT * FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId ORDER BY season, episodeNumber")
     fun observeForSeries(sourceId: Long, seriesId: String): Flow<List<Episode>>
 
