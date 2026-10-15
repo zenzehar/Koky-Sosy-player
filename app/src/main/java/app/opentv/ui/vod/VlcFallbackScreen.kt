@@ -75,6 +75,7 @@ fun VlcFallbackScreen(
     onBack: () -> Unit,
     onTryMedia3: () -> Unit = {},
     onProgress: (Long, Long) -> Unit = { _, _ -> },
+    onEnded: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -115,7 +116,14 @@ fun VlcFallbackScreen(
             when (event.type) {
                 MediaPlayer.Event.Playing -> scope.launch { ready = true; failed = false; paused = false }
                 MediaPlayer.Event.EncounteredError -> scope.launch { failed = true; ready = false; showControls() }
-                MediaPlayer.Event.EndReached -> scope.launch { ended = true; showControls() }
+                MediaPlayer.Event.EndReached -> scope.launch {
+                    if (!ended) {
+                        ended = true
+                        onProgress(durationMs, durationMs)
+                        onEnded()
+                    }
+                    showControls()
+                }
             }
         }
         onDispose {

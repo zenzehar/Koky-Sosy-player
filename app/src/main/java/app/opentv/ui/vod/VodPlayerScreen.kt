@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -117,11 +118,14 @@ fun VodPlayerScreen(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    onNextEpisode: (app.opentv.data.model.Episode) -> Unit = {},
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    val autoplay by settings.seriesAutoplay.collectAsState()
+    val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
     // little differently in the transport: the "length" is how much has been recorded so far, which
@@ -172,6 +176,7 @@ fun VodPlayerScreen(
     fun reveal() { controlsVisible = true; interaction++ }
 
     suspend fun savePosition() {
+        if (advanced.get()) return
         val player = controller.player
         val pos = if (usingVlc) positionMs else player.currentPosition
         val dur = if (usingVlc) durationMs else player.duration.takeIf { it > 0 } ?: 0L
@@ -186,6 +191,52 @@ fun VodPlayerScreen(
                     updatedAtMillis = System.currentTimeMillis(),
                 ),
             )
+        }
+    }
+
+    fun naturalEnd() {
+        // VLC and Media3 may report end more than once. Also suppress stale
+        // disposal progress so the completed episode never reappears at 98%.
+        if (!advanced.compareAndSet(false, true)) return
+        scope.launch {
+            val currentEpisode = if (mediaKey.startsWith("ep:"))
+                mediaKey.removePrefix("ep:").toLongOrNull()
+                    ?.let { graph.catalogRepository.episode(it) }
+            else null
+            val next = if (autoplay && currentEpisode != null)
+                graph.catalogRepository.nextEpisode(currentEpisode.id) else null
+            val duration = if (usingVlc) durationMs else controller.player.duration
+            if (duration > 0L) {
+                graph.playbackPositions.upsert(
+                    app.opentv.data.model.PlaybackPosition(
+                        settings.activeProfileId.value, mediaKey, duration, duration,
+                        System.currentTimeMillis(),
+                    ),
+                )
+            }
+            if (next != null) {
+                // Store a single newest resume pointer to the next episode,
+                // including when the current episode was the season finale.
+                graph.playbackPositions.upsert(
+                    app.opentv.data.model.PlaybackPosition(
+                        settings.activeProfileId.value, "ep:${next.id}", 1_000L, 0L,
+                        System.currentTimeMillis() + 1L,
+                    ),
+                )
+                onNextEpisode(next)
+            }
+        }
+    }
+
+    // Media3 is used for local/recorded content and certain fallback streams.
+    LaunchedEffect(mediaKey, usingVlc) {
+        if (usingVlc) return@LaunchedEffect
+        while (isActive && !advanced.get()) {
+            if (controller.player.playbackState == Player.STATE_ENDED) {
+                naturalEnd()
+                break
+            }
+            delay(450L)
         }
     }
 
@@ -304,10 +355,11 @@ fun VodPlayerScreen(
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
             onBack = onBack,
             onTryMedia3 = { usingVlc = false },
+            onEnded = { naturalEnd() },
             onProgress = { pos, dur ->
                 positionMs = pos
                 durationMs = dur
-                if (pos > 5_000L && dur > 0L) {
+                if (!advanced.get() && pos > 5_000L && dur > 0L) {
                     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                         graph.playbackPositions.upsert(
                             app.opentv.data.model.PlaybackPosition(
