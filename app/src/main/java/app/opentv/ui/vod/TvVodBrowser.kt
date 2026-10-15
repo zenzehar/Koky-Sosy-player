@@ -69,7 +69,7 @@ import app.opentv.ui.onboarding.TvNativeTextField
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.snapshotFlow
+import androidx.compose.runtime.snapshotFlow
 
 private val background = Color(0xFF080D20)
 private val sideBackground = Color(0xFF030408)
