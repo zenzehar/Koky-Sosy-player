@@ -14,8 +14,8 @@ android {
         applicationId = "tv.kokysosy.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.1.7-tv-alpha"
+        versionCode = 9
+        versionName = "0.1.8-tv-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
