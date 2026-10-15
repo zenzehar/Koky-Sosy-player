@@ -204,8 +204,8 @@ fun VlcFallbackScreen(
             ) {
                 Text("VLC could not decode or open this stream.", color = Color.White, textAlign = TextAlign.Center)
                 TvVlcButton("Retry VLC") { failed = false; ended = false; player.play() }
-                TvVlcButton("Try Media3 instead", onTryMedia3)
-                TvVlcButton("Back to title", onBack)
+                TvVlcButton("Try Media3 instead", onClick = onTryMedia3)
+                TvVlcButton("Back to title", onClick = onBack)
             }
         }
         if (controlsVisible) {
