@@ -571,6 +571,9 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun byId(id: Long): Series?
 
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
+    suspend fun byProviderId(sourceId: Long, seriesId: String): Series?
+
     @Query("UPDATE series SET favourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)
 
@@ -615,7 +618,7 @@ interface PlaybackPositionDao {
         "SELECT * FROM playback_positions WHERE profileId = :profileId " +
             "ORDER BY updatedAtMillis DESC LIMIT :limit",
     )
-    fun observeRecent(profileId: Long, limit: Int = 30): Flow<List<PlaybackPosition>>
+    fun observeRecent(profileId: Long, limit: Int = 1000): Flow<List<PlaybackPosition>>
 
     @Query("SELECT * FROM playback_positions")
     suspend fun all(): List<PlaybackPosition>
@@ -629,6 +632,15 @@ interface PlaybackPositionDao {
 
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)
+
+    @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey IN (:keys)")
+    suspend fun deleteKeys(profileId: Long, keys: List<String>)
+
+    @Query(
+        "DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey IN " +
+            "(SELECT 'ep:' || id FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId)"
+    )
+    suspend fun deleteSeries(profileId: Long, sourceId: Long, seriesId: String)
 }
 
 @Dao
