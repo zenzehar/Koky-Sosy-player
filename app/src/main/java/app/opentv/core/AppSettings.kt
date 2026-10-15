@@ -373,6 +373,19 @@ class AppSettings private constructor(context: Context) {
      * warm launch and show the already-stored rows instantly — the fetch only runs on first load
      * or once this goes stale. Not a flow: it is read once when Movies/Shows is first opened.
      */
+    /** Update catalogue on launch only. 0 disables automatic refresh. */
+    private val _catalogueRefreshHours = MutableStateFlow(prefs.getInt("catalogue_refresh_hours", 12))
+    val catalogueRefreshHours: StateFlow<Int> = _catalogueRefreshHours.asStateFlow()
+    fun setCatalogueRefreshHours(hours: Int) {
+        require(hours in setOf(0, 1, 3, 6, 12, 24))
+        prefs.edit().putInt("catalogue_refresh_hours", hours).apply()
+        _catalogueRefreshHours.value = hours
+    }
+
+    var catalogueSyncedAtMillis: Long
+        get() = prefs.getLong("catalogue_synced_at_millis", 0L)
+        set(value) { prefs.edit().putLong("catalogue_synced_at_millis", value).apply() }
+
     var vodSyncedAtMillis: Long
         get() = prefs.getLong(KEY_VOD_SYNCED_AT, 0L)
         set(value) { prefs.edit().putLong(KEY_VOD_SYNCED_AT, value).apply() }
