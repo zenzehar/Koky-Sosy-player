@@ -222,8 +222,11 @@ internal fun TvVodBrowser(
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     gridItems(visibleSeries, key = { it.id }) { item ->
-                        PosterCard(item.displayTitle, item.posterUrl, item.year?.toString(),
-                            item.rating, onClick = { onOpenSeries(item) })
+                        PosterCard(
+                            title = item.displayTitle, posterUrl = item.posterUrl,
+                            subtitle = item.year?.toString(), rating = item.rating,
+                            onClick = { onOpenSeries(item) },
+                        )
                     }
                 }
             } else {
@@ -234,8 +237,11 @@ internal fun TvVodBrowser(
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     gridItems(visibleMovies, key = { it.id }) { item ->
-                        PosterCard(item.displayTitle, item.posterUrl, item.year?.toString(),
-                            item.rating, onClick = { onOpenMovie(item) })
+                        PosterCard(
+                            title = item.displayTitle, posterUrl = item.posterUrl,
+                            subtitle = item.year?.toString(), rating = item.rating,
+                            onClick = { onOpenMovie(item) },
+                        )
                     }
                 }
             }
