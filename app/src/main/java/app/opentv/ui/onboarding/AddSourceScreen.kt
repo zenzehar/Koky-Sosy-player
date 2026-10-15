@@ -9,6 +9,9 @@ import android.widget.Toast
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -132,6 +135,7 @@ fun AddSourceScreen(
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
+    var focusedLeft by remember { mutableStateOf("") }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
@@ -204,14 +208,20 @@ fun AddSourceScreen(
                     }
                 },
                 colors = whiteButtonColors,
-                modifier = Modifier.width(200.dp).height(49.dp),
+                modifier = Modifier.width(200.dp).height(49.dp)
+                    .onFocusChanged { if (it.isFocused) focusedLeft = "vpn" }
+                    .border(if (focusedLeft == "vpn") 3.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) { Text("CONNECT VPN") }
             Spacer(Modifier.height(10.dp))
             Button(
                 onClick = { usePhone = true },
                 enabled = isTelevision,
                 colors = whiteButtonColors,
-                modifier = Modifier.width(200.dp).height(49.dp),
+                modifier = Modifier.width(200.dp).height(49.dp)
+                    .onFocusChanged { if (it.isFocused) focusedLeft = "phone" }
+                    .border(if (focusedLeft == "phone") 3.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
                 Icon(Icons.Filled.PhoneAndroid, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -222,6 +232,10 @@ fun AddSourceScreen(
                 for (choice in SourceKind.entries) {
                     OutlinedButton(
                         onClick = { kind = choice },
+                        modifier = Modifier
+                            .onFocusChanged { if (it.isFocused) focusedLeft = choice.name }
+                            .border(if (focusedLeft == choice.name) 3.dp else 0.dp,
+                                Color(0xFFFFE177), RoundedCornerShape(8.dp)),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = if (kind == choice) Color.White else Color.Transparent,
                             contentColor = if (kind == choice) Color(0xFF40277E) else Color.White,
@@ -236,7 +250,13 @@ fun AddSourceScreen(
                     }
                 }
             }
-            TextButton(onClick = { showAdvanced = !showAdvanced }) {
+            TextButton(
+                onClick = { showAdvanced = !showAdvanced },
+                modifier = Modifier
+                    .onFocusChanged { if (it.isFocused) focusedLeft = "advanced" }
+                    .border(if (focusedLeft == "advanced") 3.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+            ) {
                 Text(if (showAdvanced) "HIDE ADVANCED SETTINGS" else "ADVANCED SETTINGS", color = Color.White)
             }
         }
