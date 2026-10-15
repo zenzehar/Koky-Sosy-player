@@ -76,6 +76,7 @@ fun VlcFallbackScreen(
     onTryMedia3: () -> Unit = {},
     onProgress: (Long, Long) -> Unit = { _, _ -> },
     onEnded: () -> Unit = {},
+    suspendPlayback: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -134,6 +135,15 @@ fun VlcFallbackScreen(
             runCatching { player.detachViews() }
             runCatching { player.release() }
             runCatching { libvlc.release() }
+        }
+    }
+
+    // Unlike pausing an Android view, pause() also stops the VLC audio decoder.
+    LaunchedEffect(suspendPlayback) {
+        if (suspendPlayback) {
+            runCatching { player.pause() }
+            paused = true
+            controlsVisible = true
         }
     }
 
