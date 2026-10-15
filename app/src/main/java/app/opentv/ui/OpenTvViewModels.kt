@@ -727,42 +727,89 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
     private val settings = graph.settings
 
-    /** One card in the Continue Watching shelf — a movie or episode with somewhere left to go. */
+    /** Exactly one resume card per logical movie or series, newest position wins. */
     data class ResumeItem(
         val mediaKey: String,
         val title: String,
         val posterUrl: String?,
         val streamUrl: String,
         val progress: Float,
+        val logicalKey: String,
+        val resetKeys: List<String> = emptyList(),
+        val finished: Boolean = false,
+        val sourceId: Long = 0L,
+        val seriesProviderId: String? = null,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val continueWatching: StateFlow<List<ResumeItem>> =
         settings.activeProfileId
-            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid) }
-            .mapLatest { positions -> positions.filter { !it.isFinished }.mapNotNull { resolveResume(it) } }
+            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 300) }
+            .mapLatest { positions ->
+                // The DAO sorts newest first. Group BEFORE discarding completed entries;
+                // otherwise an old incomplete episode resurfaces after a newer completion.
+                val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
+                for (position in positions) {
+                    val resolved = resolveResume(position) ?: continue
+                    groups.getOrPut(resolved.logicalKey) { mutableListOf() }.add(resolved)
+                }
+                groups.values.mapNotNull { versions ->
+                    val latest = versions.first()
+                    if (latest.finished) null else latest.copy(resetKeys = versions.map { it.mediaKey })
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
         val parts = pos.mediaKey.split(":", limit = 2)
         if (parts.size != 2) return null
         val id = parts[1].toLongOrNull() ?: return null
-        val progress =
-            if (pos.durationMillis > 0) (pos.positionMillis.toFloat() / pos.durationMillis).coerceIn(0f, 1f) else 0f
+        val progress = if (pos.durationMillis > 0L)
+            (pos.positionMillis.toFloat() / pos.durationMillis).coerceIn(0f, 1f) else 0f
         return when (parts[0]) {
             "movie" -> graph.catalogRepository.movie(id)?.let {
-                ResumeItem(pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl, progress)
+                ResumeItem(
+                    pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl, progress,
+                    logicalKey = "movie:${it.sourceId}:${it.displayTitle.trim().lowercase()}:${it.year ?: 0}",
+                    finished = pos.isFinished, sourceId = it.sourceId,
+                )
             }
-            "ep" -> graph.catalogRepository.episode(id)?.let {
+            "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
+                val parent = graph.catalogRepository.seriesByProviderId(episode.sourceId, episode.seriesId)
                 ResumeItem(
                     pos.mediaKey,
-                    it.title.ifBlank { "S${it.season} E${it.episodeNumber}" },
-                    it.stillUrl,
-                    it.streamUrl,
-                    progress,
+                    parent?.displayTitle ?: episode.title.ifBlank { "Season ${episode.season}" },
+                    parent?.posterUrl ?: episode.stillUrl,
+                    episode.streamUrl, progress,
+                    logicalKey = "series:${episode.sourceId}:${episode.seriesId}",
+                    finished = pos.isFinished, sourceId = episode.sourceId,
+                    seriesProviderId = episode.seriesId,
                 )
             }
             else -> null
+        }
+    }
+
+    fun resetResumeItem(item: ResumeItem) {
+        viewModelScope.launch {
+            val profileId = settings.activeProfileId.value
+            if (item.seriesProviderId != null) {
+                graph.playbackPositions.deleteSeries(profileId, item.sourceId, item.seriesProviderId)
+            } else {
+                graph.playbackPositions.deleteKeys(profileId, item.resetKeys.ifEmpty { listOf(item.mediaKey) })
+            }
+        }
+    }
+
+    fun resetMovieProgress(movieId: Long) {
+        viewModelScope.launch {
+            graph.playbackPositions.delete(settings.activeProfileId.value, "movie:$movieId")
+        }
+    }
+
+    fun resetSeriesProgress(series: Series) {
+        viewModelScope.launch {
+            graph.playbackPositions.deleteSeries(settings.activeProfileId.value, series.sourceId, series.seriesId)
         }
     }
 
