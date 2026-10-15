@@ -64,6 +64,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val previewSound by settings.guidePreviewSound.collectAsState()
     val captions by settings.subtitlesEnabled.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
+    val autoNext by settings.seriesAutoplay.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -114,6 +115,12 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_content)) {
+            Text("Series automatic next episode", style = MaterialTheme.typography.titleMedium)
+            Text("Automatically continue to the next episode, including across seasons.",
+                style = MaterialTheme.typography.bodySmall)
+            ThemeOption("Autoplay next episode: On", autoNext) { settings.setSeriesAutoplay(true) }
+            ThemeOption("Autoplay next episode: Off", !autoNext) { settings.setSeriesAutoplay(false) }
+            Spacer(Modifier.height(16.dp))
             Text("Catalogue refresh: at app launch, only when due",
                 style = MaterialTheme.typography.titleMedium)
             Text("Opening Movies or Series uses saved titles; manual Update is always available.",

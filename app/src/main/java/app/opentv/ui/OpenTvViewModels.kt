@@ -143,7 +143,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             // Load live channels first and get the user watching straight away. Movies, series and
             // the guide are what make a big provider take minutes — they load in the background so
             // "loading channels" is a few seconds, not a twenty-minute blank screen.
-            when (val result = graph.catalogRepository.syncLive(saved, now)) {
+            when (val result = graph.catalogRepository.syncLive(saved, now, CatalogueGate::liveImportProgress)) {
                 is CatalogRepository.SyncResult.Failed -> {
                     CatalogueGate.failed(result.reason)
                     _ui.value = _ui.value.copy(syncing = false, syncMessage = result.reason)
@@ -171,9 +171,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 if (!graph.catalogRepository.syncSeriesPhase(saved, CatalogueGate::seriesImportProgress)) {
                     throw IllegalStateException("Series update failed")
                 }
-                graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
-                graph.settings.vodSyncedAtMillis = System.currentTimeMillis()
-                CatalogueGate.done()
+                CatalogueGate.finalizing()
                 val summary = StatusBus.during("Building the TV guide…") {
                     graph.epgRepository.syncAll(now)
                 }
@@ -187,8 +185,11 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                                 "under Guide settings."
                     },
                 )
-                // Book any new series-link airings the fresh guide just revealed.
+                // Hold the VOD gate until the last guide/index work completes.
                 runCatching { graph.recordingEngine.rescanSeriesRules() }
+                graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
+                graph.settings.vodSyncedAtMillis = System.currentTimeMillis()
+                CatalogueGate.done()
             }.onFailure {
                 CatalogueGate.failed(it.message ?: "Catalogue update failed")
                 Log.w("OpenTV", "Background VOD/guide load failed", it)
@@ -1119,6 +1120,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Loads a series, lazily enriching backdrop/cast/genre on first open. See CatalogRepository.seriesDetail. */
     suspend fun seriesDetail(id: Long): Series? = graph.catalogRepository.seriesDetail(id)
+    suspend fun seriesCastPortraits(series: Series): List<app.opentv.data.remote.TmdbCastPortrait> =
+        graph.catalogRepository.seriesCastPortraits(series)
 
     /** "More like this" for the movie detail screen. */
     suspend fun moreLikeThis(movie: Movie): List<Movie> = graph.catalogRepository.moreLikeThis(movie)

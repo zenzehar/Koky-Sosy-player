@@ -43,8 +43,10 @@ class SyncWorker(
         CatalogueGate.started()
         StatusBus.set("Updating Live TV…", 0f)
         try {
-            for (source in sources) {
-                when (val result = graph.catalogRepository.syncLive(source, now)) {
+            sources.forEachIndexed { index, source ->
+                when (val result = graph.catalogRepository.syncLive(source, now) { fraction ->
+                    CatalogueGate.liveImportProgress((index + fraction) / sources.size)
+                }) {
                     is CatalogRepository.SyncResult.Success ->
                         Log.i(TAG, "Live: ${result.channelCount} channels")
                     is CatalogRepository.SyncResult.Failed ->
@@ -69,15 +71,17 @@ class SyncWorker(
                     throw IllegalStateException("Series catalogue unavailable; previous library retained")
                 }
             }
-            // Catalogue is complete. Guide refresh is ancillary and cannot prevent
-            // access to an otherwise valid finished VOD library.
+            // Keep VOD locked through the final EPG/index-build stage.
+            CatalogueGate.finalizing()
+            StatusBus.set("Finalising guide and catalogue…", 0.95f)
+            runCatching { graph.epgRepository.syncAll(now) }
+                .onFailure { Log.w(TAG, "Optional EPG update failed", it) }
+            runCatching { graph.recordingEngine.rescanSeriesRules() }
+                .onFailure { Log.w(TAG, "Recording preparation failed", it) }
             graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
             graph.settings.vodSyncedAtMillis = now
             CatalogueGate.done()
             StatusBus.set(null)
-            runCatching { graph.epgRepository.syncAll(now) }
-                .onFailure { Log.w(TAG, "Optional EPG update failed", it) }
-            runCatching { graph.recordingEngine.rescanSeriesRules() }
             return Result.success()
         } catch (e: Exception) {
             Log.w(TAG, "Update failed", e)

@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +58,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import app.opentv.core.AppSettings
 import androidx.compose.ui.unit.sp
 import app.opentv.data.model.Episode
 import app.opentv.data.model.Series
@@ -77,9 +82,22 @@ internal fun TvSeriesDetailLayout(
     var lastPlayedEpisode by rememberSaveable(seriesId) { mutableStateOf(0L) }
     var seasonMenuOpen by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    var playFocused by remember { mutableStateOf(false) }
+    var seasonFocused by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
     val playedFocus = remember { FocusRequester() }
     val episodeListState = rememberLazyListState()
+    val preferences = remember { AppSettings.get(viewModel.getApplication()) }
+    val autoNext by preferences.seriesAutoplay.collectAsState()
+    var portraits by remember(seriesId) {
+        mutableStateOf<List<app.opentv.data.remote.TmdbCastPortrait>>(emptyList())
+    }
+    LaunchedEffect(seriesId, showCast, series) {
+        val item = series
+        if (showCast && item != null) {
+            portraits = runCatching { viewModel.seriesCastPortraits(item) }.getOrDefault(emptyList())
+        }
+    }
     val episodes by (series?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes)
         .collectAsState(initial = emptyList())
 
@@ -113,7 +131,7 @@ internal fun TvSeriesDetailLayout(
 
     Column(Modifier.fillMaxSize().background(Color(0xFF080C24))) {
         Row(
-            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 22.dp),
+            Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 19.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(22.dp),
         ) {
@@ -132,14 +150,14 @@ internal fun TvSeriesDetailLayout(
                     contentDescription = "Favourite", tint = Color.White)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             AsyncImage(
                 model = s.posterUrl, contentDescription = s.displayTitle,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.width(145.dp).height(220.dp),
+                modifier = Modifier.width(114.dp).height(165.dp),
             )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 DetailAttribute("Directed By:", "N/A")
                 DetailAttribute("Release Date:", s.year?.toString() ?: "N/A")
                 DetailAttribute("Genre:", s.genre ?: "N/A")
@@ -157,7 +175,7 @@ internal fun TvSeriesDetailLayout(
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         onClick = { firstEpisode?.let { ep ->
                             lastPlayedEpisode = ep.id
@@ -165,10 +183,18 @@ internal fun TvSeriesDetailLayout(
                                 "S${ep.season}E${ep.episodeNumber} - ${ep.title}")
                         } },
                         enabled = firstEpisode != null,
-                        modifier = Modifier.focusRequester(playFocus),
+                        modifier = Modifier.focusRequester(playFocus)
+                            .onFocusChanged { playFocused = it.isFocused }
+                            .border(if (playFocused) 2.dp else 0.dp,
+                                Color(0xFF6FE5F5), RoundedCornerShape(6.dp)),
                     ) { Icon(Icons.Default.PlayArrow, null); Text("Play - S$activeSeason:E${firstEpisode?.episodeNumber ?: 1}") }
                     Box {
-                        Button(onClick = { seasonMenuOpen = true }, enabled = bySeason.isNotEmpty()) {
+                        Button(
+                            onClick = { seasonMenuOpen = true }, enabled = bySeason.isNotEmpty(),
+                            modifier = Modifier.onFocusChanged { seasonFocused = it.isFocused }
+                                .border(if (seasonFocused) 2.dp else 0.dp,
+                                    Color(0xFF6FE5F5), RoundedCornerShape(6.dp)),
+                        ) {
                             Text("Season - $activeSeason")
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                         }
@@ -180,6 +206,9 @@ internal fun TvSeriesDetailLayout(
                             }
                         }
                     }
+                    TextButton(onClick = {
+                        preferences.setSeriesAutoplay(!autoNext)
+                    }) { Text(if (autoNext) "Autoplay: On" else "Autoplay: Off") }
                     TextButton(onClick = { showResetConfirm = true }) {
                         Icon(Icons.Default.RestartAlt, contentDescription = null)
                         Text("Reset Progress")
@@ -193,20 +222,43 @@ internal fun TvSeriesDetailLayout(
         }
         Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             if (showCast) {
-                val people = s.cast.orEmpty().split(',', '|').map { it.trim() }.filter { it.isNotBlank() }
-                LazyColumn {
-                    if (people.isEmpty()) item { Text("Cast information unavailable", color = Color.LightGray) }
-                    items(people) { name -> Text(name, color = Color.White, fontSize = 19.sp,
-                        modifier = Modifier.padding(14.dp)) }
+                val names = s.cast.orEmpty().split(',', '|').map { it.trim() }.filter { it.isNotBlank() }
+                val cast = if (portraits.isNotEmpty()) portraits else
+                    names.map { app.opentv.data.remote.TmdbCastPortrait(it, null) }
+                if (cast.isEmpty()) Text(
+                    "Cast not provided. Optional photos use your TMDB API key in Settings.",
+                    color = Color.LightGray, modifier = Modifier.padding(12.dp),
+                ) else LazyVerticalGrid(
+                    columns = GridCells.Adaptive(115.dp),
+                    horizontalArrangement = Arrangement.spacedBy(13.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    gridItems(cast, key = { it.name }) { actor ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.width(95.dp).height(128.dp)
+                                .background(Color(0xFF222A42), RoundedCornerShape(6.dp)),
+                                contentAlignment = Alignment.Center) {
+                                if (actor.imageUrl != null) {
+                                    AsyncImage(actor.imageUrl, contentDescription = actor.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop)
+                                } else {
+                                    Text(actor.name.take(1), color = Color.White, fontSize = 36.sp)
+                                }
+                            }
+                            Text(actor.name, color = Color.White, fontSize = 14.sp,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             } else {
                 if (currentEpisodes.isEmpty()) {
                     Text("Loading episodes, or none supplied by the provider", color = Color.LightGray,
-                        modifier = Modifier.padding(20.dp))
+                        modifier = Modifier.padding(12.dp))
                 } else {
                     LazyColumn(
                         state = episodeListState,
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         items(currentEpisodes, key = { it.id }) { ep ->
                             EpisodePreviewRow(
@@ -273,16 +325,24 @@ private fun EpisodePreviewRow(
     onPlay: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    var lastPlayAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     Row(
         modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
             .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
-            .clickable(onClick = onPlay)
-            .padding(horizontal = 5.dp, vertical = 7.dp),
+            .clickable {
+                // Remote key repeats must not open several identical players.
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastPlayAt >= 650L) {
+                    lastPlayAt = now
+                    onPlay()
+                }
+            }
+            .padding(horizontal = 4.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Box(Modifier.width(196.dp).height(110.dp)) {
+        Box(Modifier.width(140.dp).height(79.dp)) {
             AsyncImage(
                 model = episode.stillUrl ?: fallbackArt,
                 contentDescription = episode.title,
@@ -293,8 +353,8 @@ private fun EpisodePreviewRow(
         }
         Column {
             Text("S%02dE%02d - %s".format(episode.season, episode.episodeNumber, episode.title),
-                color = Color.White, fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(9.dp))
+                color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
             Text(episode.durationSeconds?.takeIf { it > 0 }?.let { "${it / 60}m" } ?: "Duration unavailable",
                 color = Color.LightGray)
         }

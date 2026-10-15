@@ -563,6 +563,16 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "OpenTV/0.1 (Android)" },
                     onBack = { navController.popBackStack() },
+                    onNextEpisode = { next ->
+                        val label = "S%02dE%02d - %s".format(next.season, next.episodeNumber, next.title)
+                        navController.navigate(
+                            Routes.vodPlayer("ep:${next.id}", next.streamUrl,
+                                label, "OpenTV/0.1 (Android)"),
+                        ) {
+                            popUpTo(Routes.VOD_PLAYER) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
         }

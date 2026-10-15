@@ -135,10 +135,11 @@ fun MainScreen(
     val catalogueStatus by CatalogueGate.state.collectAsState()
     val catalogueGated = CatalogueGate.due(settings) || catalogueStatus.phase in setOf(
         CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
-        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES, CatalogueGate.Phase.FAILED)
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
+        CatalogueGate.Phase.BUILDING, CatalogueGate.Phase.FAILED)
     fun allowTab(candidate: Tab): Boolean = !catalogueGated || when (candidate) {
-        Tab.MOVIES -> catalogueStatus.completed >= 2
-        Tab.SHOWS -> catalogueStatus.completed >= 3
+        Tab.MOVIES -> catalogueStatus.phase == CatalogueGate.Phase.COMPLETE
+        Tab.SHOWS -> catalogueStatus.phase == CatalogueGate.Phase.COMPLETE
         Tab.LIVE -> catalogueStatus.completed >= 1
         Tab.RECORDINGS -> true
     }
