@@ -57,6 +57,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import app.opentv.core.AppSettings
 import app.opentv.data.work.SyncWorker
+import app.opentv.data.work.CatalogueGate
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -129,6 +130,16 @@ fun MainScreen(
 
     var tab by remember { mutableStateOf(homeTab) }
     var showDashboard by rememberSaveable { mutableStateOf(true) }
+    val catalogueStatus by CatalogueGate.state.collectAsState()
+    val catalogueGated = CatalogueGate.due(settings) || catalogueStatus.phase in setOf(
+        CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES, CatalogueGate.Phase.FAILED)
+    fun allowTab(candidate: Tab): Boolean = !catalogueGated || when (candidate) {
+        Tab.MOVIES -> catalogueStatus.completed >= 2
+        Tab.SHOWS -> catalogueStatus.completed >= 3
+        Tab.LIVE -> catalogueStatus.completed >= 1
+        Tab.RECORDINGS -> true
+    }
 
     // If the selected tab gets hidden (its type toggled off while it's open), drop back to the
     // home tab so the content area never tries to show a tab that's no longer there.
@@ -186,7 +197,7 @@ fun MainScreen(
         if (tab == Tab.LIVE || tab == Tab.RECORDINGS) NavRail(
             tabs = visibleTabs,
             current = tab,
-            onSelect = { tab = it },
+            onSelect = { desired -> if (allowTab(desired)) tab = desired },
             onOpenSearch = onOpenSearch,
             onOpenSettings = onOpenSettings,
             onOpenProfiles = onOpenProfiles,

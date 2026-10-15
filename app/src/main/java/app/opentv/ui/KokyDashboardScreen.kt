@@ -133,7 +133,8 @@ fun KokyDashboardScreen(
                 fontWeight = FontWeight.Bold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
-            HeaderAction(Icons.Filled.Search, "Master Search", onSearch)
+            HeaderAction(Icons.Filled.Search, "Master Search",
+                onClick = { if (!gated) onSearch() })
             HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
             HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
         }

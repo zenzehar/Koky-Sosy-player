@@ -31,6 +31,7 @@ import app.opentv.data.repo.PersonTitle
 import app.opentv.data.repo.distinctByQuality
 import app.opentv.R
 import app.opentv.pairing.ManagerServer
+import app.opentv.data.work.CatalogueGate
 import app.opentv.sync.NasSync
 import app.opentv.sync.SyncBundle
 import app.opentv.sync.SyncClient
@@ -138,11 +139,13 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
 
             _ui.value = _ui.value.copy(syncMessage = "Loading channels…")
             val now = System.currentTimeMillis()
+            CatalogueGate.started()
             // Load live channels first and get the user watching straight away. Movies, series and
             // the guide are what make a big provider take minutes — they load in the background so
             // "loading channels" is a few seconds, not a twenty-minute blank screen.
             when (val result = graph.catalogRepository.syncLive(saved, now)) {
                 is CatalogRepository.SyncResult.Failed -> {
+                    CatalogueGate.failed(result.reason)
                     _ui.value = _ui.value.copy(syncing = false, syncMessage = result.reason)
                     onDone(false)
                     return@launch
@@ -153,340 +156,29 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                         syncMessage = "Loaded ${result.channelCount} channels. The guide is " +
                             "loading in the background; Movies and Shows load when you open them.",
                     )
-                    graph.settings.catalogueSyncedAtMillis = now
+                    CatalogueGate.liveDone()
                     onDone(true)
                 }
             }
 
-            // Background: the guide. Movies/series are pulled on demand from their own tabs, so
-            // nothing the user hasn't asked for ever blocks the channels they can already watch.
-            runCatching {
-                graph.catalogRepository.syncVod(saved, now)
-                graph.settings.vodSyncedAtMillis = now
-                val summary = StatusBus.during("Building the TV guide…") {
-                    graph.epgRepository.syncAll(now)
-                }
-                _ui.value = _ui.value.copy(
-                    syncMessage = when {
-                        summary.channelsMatched > 0 ->
-                            "Guide ready — matched ${summary.channelsMatched} of " +
-                                "${summary.channelsTotal} channels."
-                        else ->
-                            "Channels ready. No guide data matched yet — add a free guide " +
-                                "under Guide settings."
-                    },
-                )
-                // Book any new series-link airings the fresh guide just revealed.
+            // The provider is validated and Live is usable. Do NOT mark the
+            // full catalogue fresh before Movies and Series actually finish.
+            try {
+                val movieOk = graph.catalogRepository.syncMoviesPhase(saved)
+                if (!movieOk) throw IllegalStateException("Movie update failed")
+                CatalogueGate.moviesDone()
+                val seriesOk = graph.catalogRepository.syncSeriesPhase(saved)
+                if (!seriesOk) throw IllegalStateException("Series update failed")
+                graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
+                graph.settings.vodSyncedAtMillis = System.currentTimeMillis()
+                CatalogueGate.done()
+                _ui.value = _ui.value.copy(syncMessage = "All sections ready")
+                runCatching { graph.epgRepository.syncAll(now) }
                 runCatching { graph.recordingEngine.rescanSeriesRules() }
-            }.onFailure { Log.w("OpenTV", "Background VOD/guide load failed", it) }
-        }
-    }
-
-    fun delete(source: Source) {
-        viewModelScope.launch { graph.catalogRepository.deleteSource(source.id) }
-    }
-
-    /**
-     * Change an Xtream source's live-stream container. The repository rewrites the source's live
-     * channel URLs in place, so the switch takes effect without a re-sync; the observed source list
-     * then re-emits with the new [Source.liveFormat]. A no-op for M3U sources and unchanged values.
-     */
-    fun setLiveFormat(source: Source, format: LiveStreamFormat) {
-        if (source.kind != SourceKind.XTREAM || source.liveFormat == format) return
-        viewModelScope.launch { graph.catalogRepository.setLiveFormat(source.id, format) }
-    }
-
-    fun refreshAll() {
-        viewModelScope.launch {
-            _ui.value = _ui.value.copy(syncing = true, syncMessage = "Refreshing…")
-            val now = System.currentTimeMillis()
-            var channels = 0
-            var problems = 0
-            for (source in graph.sourceRepository.enabled()) {
-                when (val result = graph.catalogRepository.sync(source, now)) {
-                    is CatalogRepository.SyncResult.Success -> channels += result.channelCount
-                    is CatalogRepository.SyncResult.Failed -> problems++
-                }
+            } catch (e: Exception) {
+                CatalogueGate.failed(e.message ?: "Catalogue update failed")
+                _ui.value = _ui.value.copy(testError = e.message, syncMessage = "Retry update from Home")
             }
-            val summary = graph.epgRepository.syncAll(now, force = true)
-            problems += summary.feedsFailed
-            if (problems == 0) {
-                graph.settings.catalogueSyncedAtMillis = now
-                graph.settings.vodSyncedAtMillis = now
-            }
-            runCatching { graph.recordingEngine.rescanSeriesRules() }
-            _ui.value = _ui.value.copy(
-                syncing = false,
-                syncMessage = if (problems == 0) {
-                    "Refreshed $channels channels, guide matched " +
-                        "${summary.channelsMatched} of ${summary.channelsTotal}."
-                } else {
-                    "Refreshed $channels channels, $problems problem(s) — see Guide settings."
-                },
-            )
-        }
-    }
-
-    fun blankDraft() = Source(name = "", kind = SourceKind.XTREAM, url = "")
-}
-
-class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
-    private val graph = ServiceLocator.get(app)
-    private val settings = graph.settings
-
-    /** null = All. Exposed so the sidebar can highlight the active entry. */
-    val selectedCategory = MutableStateFlow<String?>(null)
-    val favouritesOnly = MutableStateFlow(false)
-    /** Provider filter for the live guide. null = every source. Only surfaced when there's >1 source. */
-    val selectedSource = MutableStateFlow<Long?>(null)
-    private val query = MutableStateFlow("")
-    private val nowTick = MutableStateFlow(System.currentTimeMillis())
-
-    /**
-     * One rail entry = one *logical* category.
-     *
-     * Providers split categories by codec — 'UK| GENERAL HD/RAW' and 'UK| GENERAL hevc'
-     * are the same shelf twice. Fold them by normalised name, show the clean label, and
-     * filter across every underlying id at once. This is the on-device version of what
-     * Viewella did on a server it had to pay for.
-     */
-    data class CategoryGroup(val key: String, val label: String, val ids: List<String>)
-
-    val categoryGroups: StateFlow<List<CategoryGroup>> =
-        combine(
-            graph.catalogRepository.observeCategories(StreamKind.LIVE),
-            selectedSource,
-        ) { raw, sourceId ->
-            // Scope the category rail to the chosen provider, so a second playlist's categories show
-            // on their own (cardiodoc's "keep sources separate"); null folds across every provider.
-            val scoped = if (sourceId == null) raw else raw.filter { it.sourceId == sourceId }
-            foldCategories(scoped)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * Folds codec-split provider categories into one logical [CategoryGroup] each — 'UK| GENERAL
-     * HD/RAW' and 'UK| GENERAL hevc' become a single "General" entry that filters across every
-     * underlying id at once. Shared by the guide's [categoryGroups] and the manager's
-     * [managerCategoryGroups] so both group the rail identically.
-     */
-    private fun foldCategories(raw: List<Category>): List<CategoryGroup> {
-        val groups = LinkedHashMap<String, Pair<String, MutableList<String>>>()
-        for (category in raw) {
-            val n = ChannelNameNormalizer.normalize(category.name)
-            val key = n.groupKey.ifEmpty { category.id }
-            val entry = groups.getOrPut(key) { n.baseName to mutableListOf() }
-            entry.second += category.id
-        }
-        return groups.map { (key, value) -> CategoryGroup(key, value.first, value.second) }
-    }
-
-    /**
-     * The category ids to hide from the guide *right now*: the ids behind every group the user
-     * marked adult — unless the session is unlocked, in which case nothing is hidden.
-     */
-    private val hiddenCategoryIds: StateFlow<Set<String>> =
-        combine(categoryGroups, settings.hiddenCategories, settings.hiddenUnlocked) { groups, hidden, unlocked ->
-            if (unlocked) emptySet()
-            else groups.filter { it.key in hidden }.flatMap { it.ids }.toSet()
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
-    /** The rail's view of categories: hidden ones drop out until the session is unlocked. */
-    val visibleCategoryGroups: StateFlow<List<CategoryGroup>> =
-        combine(categoryGroups, settings.hiddenCategories, settings.hiddenUnlocked) { groups, hidden, unlocked ->
-            if (unlocked) groups else groups.filter { it.key !in hidden }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * One row on screen = one *logical* channel.
-     *
-     * [primary] is the best-quality variant and what plays on click; [variants] is every
-     * quality of the same channel, for the in-player switch. `UK| BBC ONE SD/HD/FHD/RAW`
-     * is one row, not four — the guide has one BBC One, and so should we.
-     */
-    @androidx.compose.runtime.Immutable
-    data class Row(
-        val primary: Channel,
-        val variants: List<Channel>,
-        val now: Programme?,
-        val next: Programme?,
-        /** Every programme for this channel inside the guide window, start-ordered. */
-        val programmes: List<Programme>,
-    ) {
-        val key: Any get() = if (primary.groupKey.isEmpty()) primary.id else primary.groupKey
-    }
-
-    /**
-     * The guide's left edge: the current half-hour, rounded down. Programme block positions
-     * are measured from here. Recomputed on each tick so the grid drifts with real time.
-     */
-    /** Which day the guide is browsing: 0 = today, 1 = tomorrow… so it pages forward like Sky Q. */
-    private val _guideDayOffset = MutableStateFlow(0)
-    val guideDayOffset: StateFlow<Int> = _guideDayOffset.asStateFlow()
-
-    /** Page the guide a day forward/back (clamped to today…+[GUIDE_MAX_DAYS]), or jump back to now. */
-    fun nudgeGuideDay(delta: Int) {
-        _guideDayOffset.value = (_guideDayOffset.value + delta).coerceIn(0, GUIDE_MAX_DAYS)
-    }
-
-    fun guideToNow() { _guideDayOffset.value = 0 }
-
-    val windowStartMillis: StateFlow<Long> =
-        combine(nowTick.map { it - it % HALF_HOUR_MILLIS }, _guideDayOffset) { base, day ->
-            // Today tracks the current half-hour so live is always on screen; a future day starts
-            // at that day's local midnight, so the whole day's schedule is browsable and drifts
-            // with real time only on the "today" page.
-            if (day <= 0) base else startOfLocalDay(base) + day * DAY_MILLIS
-        }.stateIn(
-            viewModelScope, SharingStarted.WhileSubscribed(5_000),
-            System.currentTimeMillis().let { it - it % HALF_HOUR_MILLIS },
-        )
-
-    private fun startOfLocalDay(millis: Long): Long {
-        val cal = java.util.Calendar.getInstance()
-        cal.timeInMillis = millis
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
-    private data class RowsKey(
-        val categoryIds: List<String>?,
-        val favs: Boolean,
-        val query: String,
-        val hiddenIds: Set<String>,
-    )
-
-    /**
-     * The whole guide window's programmes, grouped by their EPG channel id once — the single
-     * expensive step. Grouping the entire catalogue's programmes (hundreds of thousands of rows
-     * on a big provider) is what made every category tap slow, because it used to run inside the
-     * per-category flow and rebuild from scratch each time. Built here once, shared across every
-     * category switch, so a tap only has to regroup that category's channels — quick.
-     *
-     * Keyed on the half-hour bucket (not the raw minute tick) so it holds steady while you flick
-     * between categories and refreshes at most twice an hour; the underlying Room flow also
-     * re-emits on its own when an EPG sync lands new programmes.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val programmeIndex: StateFlow<Map<String, List<Programme>>> =
-        // windowStartMillis is a StateFlow, which already conflates equal values — an explicit
-        // distinctUntilChanged() on it is a no-op (and a build error under our warnings-as-errors).
-        windowStartMillis
-            .flatMapLatest { windowStart ->
-                graph.epgRepository
-                    .observeWindow(windowStart, windowStart + GUIDE_LOOKAHEAD_MILLIS)
-                    .map { programmes -> programmes.groupBy { it.epgChannelId } }
-            }
-            .flowOn(Dispatchers.Default)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    /** Guards the start-up loading bar so it shows once, on the first build, not on every tap. */
-    @Volatile
-    private var guideBuilt = false
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val rows: StateFlow<List<Row>> =
-        combine(selectedCategory, favouritesOnly, query, categoryGroups, hiddenCategoryIds) {
-                category, favs, q, groups, hidden ->
-            val ids = category?.let { key -> groups.firstOrNull { it.key == key }?.ids }
-            RowsKey(ids, favs, q, hidden)
-        }
-            .combine(selectedSource) { key, source -> key to source }
-            .flatMapLatest { (key, source) ->
-                val channelFlow = when {
-                    key.query.isNotBlank() -> graph.catalogRepository.searchChannels(key.query)
-                    key.favs -> graph.catalogRepository.observeFavouriteChannels()
-                    key.categoryIds != null -> graph.catalogRepository.observeChannelsIn(key.categoryIds)
-                    else -> graph.catalogRepository.observeChannels(source)
-                }
-                // Combine the (per-category) channel list with the shared, already-grouped
-                // programme index. Switching category rebuilds only the channel→row grouping;
-                // the heavy programme grouping happened once and is reused, so a tap is quick.
-                // Deliberately NOT combined with the minute tick: building "All channels" (20k
-                // rows) can take longer than 60s, and a tick landing mid-build would cancel and
-                // restart it via flatMapLatest so it would never finish. "Now" is captured per
-                // build instead; the guide's live progress bars advance off the screen's clock.
-                combine(channelFlow, programmeIndex) { channels, byEpgChannel ->
-                    val now = System.currentTimeMillis()
-                    // Scope to the chosen provider. The "All" branch already fetched only this source
-                    // in SQL, so this is a no-op there; for favourites/search/category (which don't
-                    // take a sourceId) it's what actually keeps a second playlist separate.
-                    val scoped = if (source == null) channels else channels.filter { it.sourceId == source }
-                    // Adult/hidden channels drop out everywhere they could otherwise leak —
-                    // All, search and favourites — until the session is unlocked.
-                    val visible =
-                        if (key.hiddenIds.isEmpty()) scoped
-                        else scoped.filter { it.categoryId !in key.hiddenIds }
-                    // Show the size-aware loading bar for the FIRST guide build only (start-up).
-                    // After that the guide is built and flicking between categories is cheap, so
-                    // don't flash a loading line on every tap — that bar was only ever meant for
-                    // the one-time heavy load, and leaking it per-category read as a stuck "100%".
-                    val firstBuild = !guideBuilt
-                    if (firstBuild) StatusBus.set(sizeMessage(visible.size), 0f)
-                    buildRows(visible, byEpgChannel, now, reportProgress = firstBuild)
-                }
-            }
-            // Grouping thousands of channels against a 12-hour, all-feeds programme window is heavy
-            // enough to freeze the UI for a big provider — a category tap that took minutes. Run the
-            // whole pipeline off the main thread so the list just appears when it's ready.
-            .flowOn(Dispatchers.Default)
-            // Once the first guide is on screen, clear the start-up bar — and never show it for a
-            // plain category switch again.
-            .onEach { if (!guideBuilt) { guideBuilt = true; StatusBus.set(null) } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private fun buildRows(
-        channels: List<Channel>,
-        byEpgChannel: Map<String, List<Programme>>,
-        now: Long,
-        reportProgress: Boolean = false,
-    ): List<Row> {
-        // The programme→channel grouping is done once upstream (see [programmeIndex]) and passed
-        // in ready-made, rather than regrouping the whole EPG on every category tap. Grouping is
-        // kept out of SQL because the programme query cannot take a channel-id list without
-        // hitting SQLite's bound-variable cap, and quality-variant folding is pure list work.
-        val groups = LinkedHashMap<Any, MutableList<Channel>>()
-        for (channel in channels) {
-            val key: Any = channel.groupKey.ifEmpty { channel.id }
-            groups.getOrPut(key) { mutableListOf() } += channel
-        }
-
-        val total = groups.size.coerceAtLeast(1)
-        var built = 0
-        return groups.values.map { group ->
-            group.sortByDescending { it.qualityRank }
-            // Only genuinely different qualities are switchable; identical-quality dupes
-            // (same stream in two categories) collapse to one, so no false "2 qualities".
-            val variants = distinctByQuality(group)
-            val primary = variants.first()
-
-            // Walk every variant's guide-id candidates (override → provider → matched)
-            // and use the first that actually has programmes. An id that never lights up
-            // must not shadow a sibling variant whose id does.
-            val list = variants
-                .flatMap { it.epgCandidates }
-                .firstNotNullOfOrNull { id -> byEpgChannel[id] }
-                ?.sortedBy { it.startUtcMillis }
-                .orEmpty()
-
-            // Feed the progress bar as rows come together — this is the slow part on a big
-            // provider, so it's what the percentage should actually track.
-            if (reportProgress) {
-                built++
-                if (built % 400 == 0 || built == total) {
-                    StatusBus.setProgress(built.toFloat() / total)
-                }
-            }
-
-            Row(
-                primary = primary,
-                variants = variants,
-                now = list.firstOrNull { it.isLiveAt(now) },
-                next = list.firstOrNull { it.startUtcMillis > now },
-                programmes = list,
-            )
         }
     }
 
