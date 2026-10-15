@@ -790,21 +790,33 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Reset all quality variants of the SAME logical movie, not just one stream id. */
+    private suspend fun resetLogicalMovie(movieId: Long, profileId: Long) {
+        val original = graph.catalogRepository.movie(movieId) ?: return
+        val title = original.displayTitle.trim().lowercase()
+        val keys = graph.catalogRepository.allMovies()
+            .filter {
+                it.sourceId == original.sourceId && it.year == original.year &&
+                    it.displayTitle.trim().lowercase() == title
+            }
+            .map { "movie:${it.id}" }
+        graph.playbackPositions.deleteKeys(profileId, keys.ifEmpty { listOf("movie:$movieId") })
+    }
+
     fun resetResumeItem(item: ResumeItem) {
         viewModelScope.launch {
             val profileId = settings.activeProfileId.value
             if (item.seriesProviderId != null) {
                 graph.playbackPositions.deleteSeries(profileId, item.sourceId, item.seriesProviderId)
             } else {
-                graph.playbackPositions.deleteKeys(profileId, item.resetKeys.ifEmpty { listOf(item.mediaKey) })
+                val id = item.mediaKey.removePrefix("movie:").toLongOrNull()
+                if (id != null) resetLogicalMovie(id, profileId)
             }
         }
     }
 
     fun resetMovieProgress(movieId: Long) {
-        viewModelScope.launch {
-            graph.playbackPositions.delete(settings.activeProfileId.value, "movie:$movieId")
-        }
+        viewModelScope.launch { resetLogicalMovie(movieId, settings.activeProfileId.value) }
     }
 
     fun resetSeriesProgress(series: Series) {
