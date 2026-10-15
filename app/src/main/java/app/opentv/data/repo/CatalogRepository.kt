@@ -605,6 +605,9 @@ class CatalogRepository(
     /** Series episodes are fetched lazily — panels are slow and most series are never opened. */
     suspend fun ensureEpisodes(source: Source, seriesId: String) {
         if (source.kind != SourceKind.XTREAM) return
+        // Existing episodes are already indexed in Room. Navigation to this title
+        // must never trigger a redundant server refresh.
+        if (episodeDao.countForSeries(source.id, seriesId) > 0) return
         runCatching { api.episodes(source, seriesId) }
             .onSuccess { if (it.isNotEmpty()) episodeDao.upsertAll(it) }
             .onFailure { Log.w(TAG, "Episode fetch failed for series $seriesId", it) }
