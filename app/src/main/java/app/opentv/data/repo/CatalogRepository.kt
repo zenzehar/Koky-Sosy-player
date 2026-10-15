@@ -420,6 +420,71 @@ class CatalogRepository(
             for (m in movieDao.moviesWithActor(query, perKind)) movies[m.id] = m
             for (m in movieDao.moviesByDirector(query, perKind)) movies.putIfAbsent(m.id, m)
 
+            // Provider credits can be incomplete or transliterated. TMDB person filmography
+            // supplies candidate IDs/names, then we match ONLY titles already in the user's
+            // local library. This does not import external or unavailable titles.
+            if (tmdb.isConfigured()) {
+                val credits = runCatching { tmdb.personCredits(query) }.getOrNull()
+                if (credits != null) {
+                    val filmIds = credits.movies.map { it.id }.toSet()
+                    val showIds = credits.series.map { it.id }.toSet()
+                    val movieYear = credits.movies.associate { it.title.trim().lowercase() to it.year }
+                    val seriesYear = credits.series.associate { it.title.trim().lowercase() to it.year }
+
+                    // A few small SQL batches, no eager full-catalogue materialization.
+                    val matchedMovies = LinkedHashMap<Long, Movie>()
+                    for (batch in filmIds.toList().chunked(80)) {
+                        movieDao.byTmdbIds(batch).forEach { matchedMovies[it.id] = it }
+                    }
+                    for (batch in movieYear.keys.toList().chunked(80)) {
+                        movieDao.byExactNames(batch).forEach { candidate ->
+                            val tmdbYear = movieYear[candidate.name.trim().lowercase()]
+                            if (tmdbYear == null || candidate.year == null ||
+                                kotlin.math.abs(candidate.year - tmdbYear) <= 1) {
+                                matchedMovies[candidate.id] = candidate
+                            }
+                        }
+                    }
+                    for (candidate in matchedMovies.values) {
+                        movies.putIfAbsent(candidate.id, candidate)
+                        // Cache membership on the title so next visit works without an API call.
+                        if (candidate.cast.orEmpty().split(',').none { it.trim().equals(query, ignoreCase = true) }) {
+                            movieDao.upsertAll(listOf(candidate.copy(cast = mergedCast(candidate.cast, listOf(query)))))
+                        }
+                    }
+
+                    val matchedSeries = LinkedHashMap<Long, Series>()
+                    for (batch in showIds.toList().chunked(80)) {
+                        seriesDao.byTmdbIds(batch).forEach { matchedSeries[it.id] = it }
+                    }
+                    for (batch in seriesYear.keys.toList().chunked(80)) {
+                        seriesDao.byExactNames(batch).forEach { candidate ->
+                            val tmdbYear = seriesYear[candidate.name.trim().lowercase()]
+                            if (tmdbYear == null || candidate.year == null ||
+                                kotlin.math.abs(candidate.year - tmdbYear) <= 1) {
+                                matchedSeries[candidate.id] = candidate
+                            }
+                        }
+                    }
+                    matchedSeries.values.forEach { candidate ->
+                        if (candidate.cast.orEmpty().split(',').none { it.trim().equals(query, ignoreCase = true) }) {
+                            seriesDao.upsertAll(listOf(candidate.copy(cast = mergedCast(candidate.cast, listOf(query)))))
+                        }
+                    }
+                    // Continue below with updated film/series collections, avoiding duplicates.
+                    val orderedMovies = movies.values.sortedWith(
+                        compareByDescending<Movie> { it.rating ?: -1.0 }.thenByDescending { it.addedMillis },
+                    )
+                    val allSeries = LinkedHashMap<Long, Series>()
+                    for (item in seriesDao.seriesWithActor(query, perKind)) allSeries[item.id] = item
+                    for (item in matchedSeries.values) allSeries.putIfAbsent(item.id, item)
+                    return@withContext buildList(orderedMovies.size + allSeries.size) {
+                        orderedMovies.forEach { add(PersonTitle.MovieItem(it)) }
+                        allSeries.values.forEach { add(PersonTitle.SeriesItem(it)) }
+                    }
+                }
+            }
+
             val orderedMovies = movies.values.sortedWith(
                 compareByDescending<Movie> { it.rating ?: -1.0 }.thenByDescending { it.addedMillis },
             )
