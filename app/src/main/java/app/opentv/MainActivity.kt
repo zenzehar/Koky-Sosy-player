@@ -56,6 +56,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import app.opentv.ui.BrandSplash
 import app.opentv.core.AppSettings
 import app.opentv.data.work.SyncWorker
 import app.opentv.core.ServiceLocator
@@ -101,6 +103,11 @@ class MainActivity : ComponentActivity() {
         val isTelevision = isRunningOnTelevision(this)
 
         setContent {
+            var brandSplashVisible by remember { mutableStateOf(true) }
+            LaunchedEffect(Unit) {
+                delay(850)
+                brandSplashVisible = false
+            }
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
             val darkTheme = when (themeMode) {
@@ -114,7 +121,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    OpenTvApp(isTelevision = isTelevision)
+                    if (brandSplashVisible) BrandSplash()
+                    else OpenTvApp(isTelevision = isTelevision)
                 }
             }
         }
