@@ -248,9 +248,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // First run goes straight to setup — an empty channel list with no explanation is the
     // worst possible first impression.
     val start = if (sourcesUi.sources.isEmpty()) Routes.ADD_SOURCE else Routes.HOME
+    val launchContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(sourcesUi.loaded) {
         if (sourcesUi.loaded && sourcesUi.sources.any { it.enabled }) {
-            SyncWorker.refreshAtLaunch(context)
+            SyncWorker.refreshAtLaunch(launchContext)
         }
     }
 
