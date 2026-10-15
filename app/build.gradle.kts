@@ -17,6 +17,11 @@ android {
         versionCode = 10
         versionName = "0.1.9-tv-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
+        val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
+        val tmdbReadToken = providers.environmentVariable("TMDB_READ_TOKEN").orNull.orEmpty()
+        buildConfigField("String", "TMDB_DEFAULT_KEY", "\""+ tmdbKey + "\"")
+        buildConfigField("String", "TMDB_DEFAULT_READ_TOKEN", "\"" + tmdbReadToken + "\"")
     }
 
     signingConfigs {
