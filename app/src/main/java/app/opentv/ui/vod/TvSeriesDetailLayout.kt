@@ -267,8 +267,12 @@ internal fun TvSeriesDetailLayout(
         Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             if (showCast) {
                 val names = s.cast.orEmpty().split(',', '|').map { it.trim() }.filter { it.isNotBlank() }
-                val cast = if (portraits.isNotEmpty()) portraits else
-                    names.map { app.opentv.data.remote.TmdbCastPortrait(it, null) }
+                // Keep provider-only names alongside TMDB photos; some feeds credit leads
+                // whom TMDB omits, or supply alternative/transliterated actor names.
+                val cast = (portraits + names
+                    .filter { name -> portraits.none { it.name.equals(name, ignoreCase = true) } }
+                    .map { app.opentv.data.remote.TmdbCastPortrait(it, null) })
+                    .distinctBy { it.name.trim().lowercase() }
                 if (cast.isEmpty()) Text(
                     "Cast not provided. Optional photos use your TMDB API key in Settings.",
                     color = Color.LightGray, modifier = Modifier.padding(12.dp),
