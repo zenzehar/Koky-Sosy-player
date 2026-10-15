@@ -1154,6 +1154,23 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun resumePosition(mediaKey: String): PlaybackPosition? =
         graph.playbackPositions.get(settings.activeProfileId.value, mediaKey)
 
+    /** One latest incomplete episode per series, independent of selected VOD category. */
+    suspend fun latestResumeEpisode(series: Series): Episode? {
+        val positions = graph.playbackPositions.forProfile(settings.activeProfileId.value)
+            .asSequence()
+            .filter { it.mediaKey.startsWith("ep:") && !it.isFinished }
+            .sortedByDescending { it.updatedAtMillis }
+        for (entry in positions) {
+            val episodeId = entry.mediaKey.removePrefix("ep:").toLongOrNull() ?: continue
+            val episode = graph.catalogRepository.episode(episodeId) ?: continue
+            if (episode.sourceId == series.sourceId && episode.seriesId == series.seriesId) {
+                return episode
+            }
+        }
+        return null
+    }
+
+
     /** Collapses quality variants of a movie list for a browse grid. See CatalogRepository.collapseVariants. */
     fun collapseVariants(movies: List<Movie>): List<MovieVariantGroup> =
         graph.catalogRepository.collapseVariants(movies)
