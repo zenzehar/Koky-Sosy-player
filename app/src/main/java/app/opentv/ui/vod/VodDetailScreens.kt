@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,6 +87,7 @@ fun MovieDetailScreen(
     var movie by remember(movieId) { mutableStateOf<Movie?>(null) }
     var moreLike by remember(movieId) { mutableStateOf<List<Movie>>(emptyList()) }
     var resumeExists by remember(movieId) { mutableStateOf(false) }
+    var confirmMovieReset by remember(movieId) { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
     val hasAddons by viewModel.hasAddons.collectAsState()
     val scope = rememberCoroutineScope()
@@ -126,6 +128,10 @@ fun MovieDetailScreen(
                     viewModel.toggleMovieFavourite(m)
                     movie = m.copy(favourite = !m.favourite)
                 }
+                DetailButton(
+                    icon = Icons.Filled.RestartAlt,
+                    label = "Reset Progress",
+                ) { confirmMovieReset = true }
                 // Only when the user has add-ons set up — queries them for this film's streams.
                 if (hasAddons) {
                     DetailButton(
@@ -158,6 +164,23 @@ fun MovieDetailScreen(
         }
     }
 
+    if (confirmMovieReset) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmMovieReset = false },
+            title = { Text("Reset movie progress?") },
+            text = { Text("Reset your saved position for this movie only?") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    viewModel.resetMovieProgress(movieId)
+                    resumeExists = false
+                    confirmMovieReset = false
+                }) { Text("Reset") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { confirmMovieReset = false }) { Text("Cancel") }
+            },
+        )
+    }
     if (addonLoading || addonStreams != null) {
         AddonStreamPicker(
             loading = addonLoading,
@@ -262,91 +285,10 @@ fun SeriesDetailScreen(
     onPlayEpisode: (mediaKey: String, url: String, title: String) -> Unit,
     onOpenSeries: (Series) -> Unit,
     onOpenPerson: (String) -> Unit,
+    onBack: () -> Unit,
     viewModel: VodViewModel = viewModel(),
 ) {
-    var series by remember(seriesId) { mutableStateOf<Series?>(null) }
-    var moreLike by remember(seriesId) { mutableStateOf<List<Series>>(emptyList()) }
-    val favFocus = remember { FocusRequester() }
-
-    LaunchedEffect(seriesId) {
-        val loaded = viewModel.seriesDetail(seriesId)
-        series = loaded
-        if (loaded != null) {
-            viewModel.loadEpisodes(loaded)
-            moreLike = viewModel.moreLikeThisSeries(loaded)
-        }
-    }
-
-    val s = series
-    val episodes by (s?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes)
-        .collectAsState(initial = emptyList())
-
-    if (s == null) { LoadingDetail(); return }
-
-    LaunchedEffect(s.id) {
-        delay(60)
-        runCatching { favFocus.requestFocus() }
-    }
-
-    // Group episodes by season (seasons ascending, episodes ordered within each) — the classic
-    // "episode-by-season" list.
-    val seasons = remember(episodes) {
-        episodes.groupBy { it.season }
-            .mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber } }
-            .toSortedMap()
-    }
-
-    LazyColumn(Modifier.fillMaxSize()) {
-        item(key = "header") {
-            DetailBackdrop(title = s.displayTitle, backdropUrl = s.backdropUrl, posterUrl = s.posterUrl, meta = seriesMeta(s)) {
-                DetailButton(
-                    icon = if (s.favourite) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                    label = stringResource(if (s.favourite) R.string.common_remove_favourite else R.string.common_favourite),
-                    primary = true,
-                    modifier = Modifier.focusRequester(favFocus),
-                ) {
-                    viewModel.toggleSeriesFavourite(s)
-                    series = s.copy(favourite = !s.favourite)
-                }
-            }
-        }
-        item(key = "info") {
-            DetailInfo(
-                plot = s.plot,
-                cast = s.cast,
-                director = null,
-                genre = s.genre,
-                onOpenPerson = onOpenPerson,
-            )
-        }
-
-        if (episodes.isEmpty()) {
-            item(key = "eploading") {
-                Text(
-                    stringResource(R.string.vod_loading_episodes),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-            }
-        } else {
-            seasons.forEach { (season, eps) ->
-                item(key = "season:$season") {
-                    Spacer(Modifier.height(8.dp))
-                    SectionHeader(stringResource(R.string.vod_season, season))
-                }
-                items(eps, key = { it.id }) { ep ->
-                    EpisodeRow(ep, onPlayEpisode)
-                }
-            }
-        }
-
-        if (moreLike.isNotEmpty()) {
-            item(key = "more") {
-                Spacer(Modifier.height(12.dp))
-                SeriesPosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenSeries)
-            }
-        }
-    }
+    TvSeriesDetailLayout(seriesId, onPlayEpisode, onBack, viewModel)
 }
 
 // ---- Shared detail pieces ----------------------------------------------------------------------
