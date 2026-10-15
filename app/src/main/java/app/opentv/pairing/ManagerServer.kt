@@ -236,6 +236,15 @@ class ManagerServer(
 
             method == "POST" && path == "/source/test" -> handleTestSource(output, body)
 
+            // Same LAN-only, random-token authenticated manager session as provider setup.
+            method == "GET" && path == "/tmdb" ->
+                output.write(PairingHttp.httpResponse("200 OK", "application/json",
+                    json.encodeToString(TmdbSettingsStatus(
+                        hasApiKey = settings.tmdbApiKey.value.isNotBlank(),
+                        hasReadToken = settings.tmdbReadToken.value.isNotBlank(),
+                    ))))
+            method == "POST" && path == "/tmdb" -> handleTmdbSettings(output, body)
+
             else -> output.write(PairingHttp.httpResponse("404 Not Found", "text/plain", "Not found."))
         }
     }
@@ -250,6 +259,25 @@ class ManagerServer(
     }
 
     // ---- Routes --------------------------------------------------------------------------------
+
+    /** Store new credentials without ever returning, logging, or pre-filling their values. */
+    private fun handleTmdbSettings(output: OutputStream, body: String) {
+        val req = runCatching { json.decodeFromString<TmdbSettingsUpdate>(body) }.getOrNull()
+        if (req == null || (req.apiKey == null && req.readToken == null)) {
+            output.write(PairingHttp.httpResponse("400 Bad Request", "text/plain", "Invalid metadata settings."))
+            return
+        }
+        if ((req.apiKey?.length ?: 0) > 512 || (req.readToken?.length ?: 0) > 4096) {
+            output.write(PairingHttp.httpResponse("400 Bad Request", "text/plain", "Credential too long."))
+            return
+        }
+        req.apiKey?.let(settings::setTmdbApiKey)
+        req.readToken?.let(settings::setTmdbReadToken)
+        output.write(PairingHttp.httpResponse("200 OK", "application/json",
+            json.encodeToString(OkDto())))
+    }
+
+
 
     /** `{ sources:[{id,name}], categories:[{id,label,sourceId,count}] }` */
     private fun metaJson(): String = runBlocking {
@@ -512,6 +540,14 @@ class ManagerServer(
 )
 
 @Serializable private data class OkDto(val ok: Boolean = true)
+@Serializable private data class TmdbSettingsStatus(
+    val hasApiKey: Boolean,
+    val hasReadToken: Boolean,
+)
+@Serializable private data class TmdbSettingsUpdate(
+    val apiKey: String? = null,
+    val readToken: String? = null,
+)
 
 @Serializable private data class ChannelPatch(
     val id: Long,
