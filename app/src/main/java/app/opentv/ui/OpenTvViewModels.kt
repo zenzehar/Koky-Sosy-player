@@ -153,6 +153,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                         syncMessage = "Loaded ${result.channelCount} channels. The guide is " +
                             "loading in the background; Movies and Shows load when you open them.",
                     )
+                    graph.settings.catalogueSyncedAtMillis = now
                     onDone(true)
                 }
             }
@@ -160,6 +161,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             // Background: the guide. Movies/series are pulled on demand from their own tabs, so
             // nothing the user hasn't asked for ever blocks the channels they can already watch.
             runCatching {
+                graph.catalogRepository.syncVod(saved, now)
+                graph.settings.vodSyncedAtMillis = now
                 val summary = StatusBus.during("Building the TV guide…") {
                     graph.epgRepository.syncAll(now)
                 }
@@ -207,6 +210,10 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             }
             val summary = graph.epgRepository.syncAll(now, force = true)
             problems += summary.feedsFailed
+            if (problems == 0) {
+                graph.settings.catalogueSyncedAtMillis = now
+                graph.settings.vodSyncedAtMillis = now
+            }
             runCatching { graph.recordingEngine.rescanSeriesRules() }
             _ui.value = _ui.value.copy(
                 syncing = false,
@@ -934,9 +941,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000  // 12 hours
 
     fun ensureVodLoaded() {
-        if (vodRequested) return
-        vodRequested = true
-        viewModelScope.launch { syncVodIfStale(force = false) }
+        // Browsing VOD uses Room only. Startup and explicit Update own network fetches.
+        loadHomeFeeds()
     }
 
     /**
