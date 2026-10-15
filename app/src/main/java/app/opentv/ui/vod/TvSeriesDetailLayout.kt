@@ -42,6 +42,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.opentv.data.model.PlaybackPosition
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,6 +91,16 @@ internal fun TvSeriesDetailLayout(
     var seasonMenuOpen by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var resumeEpisode by remember(seriesId) { mutableStateOf<Episode?>(null) }
+    var resumeProgress by remember(seriesId) { mutableStateOf<PlaybackPosition?>(null) }
+    var foregroundEpoch by remember(seriesId) { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) foregroundEpoch++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var playFocused by remember { mutableStateOf(false) }
     var seasonFocused by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
@@ -101,8 +117,12 @@ internal fun TvSeriesDetailLayout(
             portraits = runCatching { viewModel.seriesCastPortraits(item) }.getOrDefault(emptyList())
         }
     }
-    val episodes by (series?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes)
-        .collectAsState(initial = emptyList())
+    // Retain the same Flow across recompositions. New Room Flow instances on every
+    // focus/navigation recomposition caused subscription churn when returning from player.
+    val episodeFlow = remember(series?.sourceId, series?.seriesId) {
+        series?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes
+    }
+    val episodes by episodeFlow.collectAsState(initial = emptyList())
 
     LaunchedEffect(seriesId) {
         series = viewModel.seriesDetail(seriesId)
@@ -121,27 +141,21 @@ internal fun TvSeriesDetailLayout(
     val firstEpisode = currentEpisodes.firstOrNull()
     val playEpisode = resumeEpisode?.takeIf { it.season == activeSeason && currentEpisodes.any { e -> e.id == it.id } }
         ?: firstEpisode
-    LaunchedEffect(seriesId, series, episodes) {
+    LaunchedEffect(seriesId, series?.id, episodes, foregroundEpoch) {
         val currentSeries = series ?: return@LaunchedEffect
         if (episodes.isEmpty()) return@LaunchedEffect
         val saved = viewModel.latestResumeEpisode(currentSeries)
-        resumeEpisode = saved?.takeIf { ep -> episodes.any { it.id == ep.id } }
-        if (selectedSeason == -1 && resumeEpisode != null) {
-            selectedSeason = resumeEpisode!!.season
-        }
-        if (resumeEpisode != null) lastPlayedEpisode = resumeEpisode!!.id
+            ?.takeIf { ep -> episodes.any { it.id == ep.id } }
+        resumeEpisode = saved
+        resumeProgress = saved?.let { viewModel.resumePosition("ep:${it.id}") }
+        if (selectedSeason == -1 && saved != null) selectedSeason = saved.season
+        if (saved != null) lastPlayedEpisode = saved.id
     }
-    LaunchedEffect(episodes, activeSeason, lastPlayedEpisode, showCast) {
-        if (showCast) return@LaunchedEffect
-        val index = currentEpisodes.indexOfFirst { it.id == lastPlayedEpisode }
-        if (index >= 0) {
-            runCatching { episodeListState.scrollToItem(index) }
-            withFrameNanos { }
-            runCatching { playedFocus.requestFocus() }
-        } else if (episodes.isNotEmpty()) {
-            withFrameNanos { }
-            runCatching { playFocus.requestFocus() }
-        }
+    // Avoid force-focusing lazy episode items during a player popBackStack transition.
+    // Requesters can detach while the LazyColumn is rebuilding, especially on Fire TV.
+    LaunchedEffect(seriesId) {
+        kotlinx.coroutines.delay(110L)
+        runCatching { playFocus.requestFocus() }
     }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF080C24))) {
@@ -204,7 +218,19 @@ internal fun TvSeriesDetailLayout(
                                 Color(0xFF6FE5F5), RoundedCornerShape(6.dp)),
                     ) {
                         Icon(Icons.Default.PlayArrow, null)
-                        Text("${if (playEpisode?.id == resumeEpisode?.id && resumeEpisode != null) "Resume" else "Play"} - S${playEpisode?.season ?: activeSeason}:E${playEpisode?.episodeNumber ?: 1}")
+                        val isResuming = playEpisode?.id == resumeEpisode?.id && resumeEpisode != null
+                        val pos = resumeProgress?.takeIf { isResuming }
+                        val progress = if (pos != null && pos.durationMillis > 0L)
+                            ((pos.positionMillis * 100L / pos.durationMillis).coerceIn(0L, 100L)) else null
+                        val resumeLabel = if (isResuming) "Resume" else "Play"
+                        Text(buildString {
+                            append(resumeLabel)
+                            append(" - S${playEpisode?.season ?: activeSeason}:E${playEpisode?.episodeNumber ?: 1}")
+                            if (pos != null) {
+                                append(" · ${pos.positionMillis / 60_000L}m")
+                                if (progress != null) append(" (${progress}%)")
+                            }
+                        }, maxLines = 1)
                     }
                     Box {
                         Button(
@@ -290,7 +316,7 @@ internal fun TvSeriesDetailLayout(
                         items(currentEpisodes, key = { it.id }) { ep ->
                             EpisodePreviewRow(
                                 ep, s.posterUrl,
-                                if (lastPlayedEpisode == ep.id) Modifier.focusRequester(playedFocus) else Modifier,
+                                Modifier,
                                 onPlay = {
                                     lastPlayedEpisode = ep.id
                                     onPlayEpisode("ep:${ep.id}", ep.streamUrl,
@@ -312,6 +338,8 @@ internal fun TvSeriesDetailLayout(
             confirmButton = { TextButton(onClick = {
                 viewModel.resetSeriesProgress(s)
                 lastPlayedEpisode = 0L
+                resumeEpisode = null
+                resumeProgress = null
                 showResetConfirm = false
             }) { Text("Reset Series") } },
             dismissButton = { TextButton(onClick = { showResetConfirm = false }) { Text("Cancel") } },
