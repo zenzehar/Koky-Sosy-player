@@ -5,6 +5,10 @@
 package app.opentv.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+import app.opentv.data.work.CatalogueGate
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -34,6 +38,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.platform.LocalContext
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.Source
@@ -77,6 +84,19 @@ fun KokyDashboardScreen(
 ) {
     val initialFocus = remember { FocusRequester() }
     val context = LocalContext.current
+    val update by CatalogueGate.state.collectAsState()
+    val userSettings = remember(context) { app.opentv.core.AppSettings.get(context) }
+    val due = CatalogueGate.due(userSettings)
+    val waiting = update.phase in setOf(CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES, CatalogueGate.Phase.FAILED)
+    val gated = hasSources && (due || waiting)
+    val liveReady = !gated || update.completed >= 1
+    val moviesReady = !gated || update.completed >= 2
+    val seriesReady = !gated || update.completed >= 3
+    val visualProgress by animateFloatAsState(
+        targetValue = if (gated) update.completed / 3f else 1f,
+        animationSpec = tween(durationMillis = 1300), label = "catalogueProgress",
+    )
     val cache = remember(context) { context.getSharedPreferences("koky_provider_expiry", 0) }
     var expiryText by remember(sourceForFooter?.id) { mutableStateOf("Checking…") }
     LaunchedEffect(sourceForFooter?.id, sourceForFooter?.url, sourceForFooter?.username) {
@@ -123,6 +143,8 @@ fun KokyDashboardScreen(
         ) {
             DashboardTile(
                 label = "LIVE TV", icon = Icons.Filled.LiveTv,
+                locked = !liveReady, loading = gated && update.phase == CatalogueGate.Phase.LIVE,
+                ready = gated && liveReady,
                 shades = listOf(Color(0xFF31CEA1), Color(0xFF3442C8)),
                 modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(initialFocus),
                 onClick = if (hasSources) onLive else onAddProvider,
@@ -134,12 +156,16 @@ fun KokyDashboardScreen(
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     DashboardTile(
                         label = "MOVIES", icon = Icons.Filled.Movie,
+                        locked = !moviesReady, loading = gated && update.phase == CatalogueGate.Phase.MOVIES,
+                        ready = gated && moviesReady,
                         shades = listOf(Color(0xFFDB2D53), Color(0xFFF49A3D)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = if (hasSources) onMovies else onAddProvider,
                     )
                     DashboardTile(
                         label = "SERIES", icon = Icons.Filled.Tv,
+                        locked = !seriesReady, loading = gated && update.phase == CatalogueGate.Phase.SERIES,
+                        ready = gated && seriesReady,
                         shades = listOf(Color(0xFF953FAF), Color(0xFF4B9EDD)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = if (hasSources) onSeries else onAddProvider,
@@ -170,6 +196,24 @@ fun KokyDashboardScreen(
                 }
             }
         }
+        if (gated) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    if (update.message.isNotBlank()) update.message else "Catalogue update due. Waiting for connection…",
+                    color = Color.White, fontSize = 14.sp, maxLines = 1,
+                )
+                LinearProgressIndicator(progress = { visualProgress },
+                    modifier = Modifier.fillMaxWidth().height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${(visualProgress * 100).toInt()}% · ${update.completed}/3 sections ready",
+                        color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp,
+                        modifier = Modifier.weight(1f))
+                    if (update.phase == CatalogueGate.Phase.FAILED) {
+                        HeaderAction(Icons.Filled.Refresh, "Retry update", onRefresh)
+                    }
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 sourceForFooter?.name?.let { "Playlist: $it" } ?: "Select a tile to add your IPTV provider",
@@ -196,7 +240,7 @@ private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) 
             .background(if (focused) Color(0xFF263968) else Color(0xFF131C3D))
             .border(if (focused) 3.dp else 0.dp, Color.White, shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
+             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(29.dp))
@@ -210,15 +254,19 @@ private fun DashboardTile(
     shades: List<Color>,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    locked: Boolean = false,
+    loading: Boolean = false,
+    ready: Boolean = false,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(16.dp)
     Column(
         modifier.clip(shape).background(Brush.verticalGradient(shades))
+            .alpha(if (locked) 0.26f else 1f)
             .border(if (focused) 4.dp else 0.dp, Color.White, shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
+            .clickable(enabled = !locked, onClick = onClick)
             .padding(if (compact) 8.dp else 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -233,5 +281,15 @@ private fun DashboardTile(
             fontSize = if (compact) 14.sp else 27.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
+        if (!compact && (locked || loading || ready)) {
+            Spacer(Modifier.height(9.dp))
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(19.dp),
+                color = Color.White, strokeWidth = 2.dp)
+            Text(when {
+                ready -> "READY"
+                loading -> "UPDATING"
+                else -> "WAITING"
+            }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
