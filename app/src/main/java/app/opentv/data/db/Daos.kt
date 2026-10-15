@@ -645,6 +645,11 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun byId(id: Long): Episode?
 
+    @Query("""SELECT * FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId
+        AND (season > :season OR (season = :season AND episodeNumber > :number))
+        ORDER BY season ASC, episodeNumber ASC LIMIT 1""")
+    suspend fun nextAfter(sourceId: Long, seriesId: String, season: Int, number: Int): Episode?
+
     @Query("SELECT * FROM episodes WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Episode?
 

@@ -140,6 +140,14 @@ class AppSettings private constructor(context: Context) {
     }
 
     /** Whether launching the app jumps straight back to the last channel you watched. */
+    /** Default on, independently toggleable from the Settings and series details. */
+    private val _seriesAutoplay = MutableStateFlow(prefs.getBoolean("series_auto_next", true))
+    val seriesAutoplay: StateFlow<Boolean> = _seriesAutoplay.asStateFlow()
+    fun setSeriesAutoplay(enabled: Boolean) {
+        prefs.edit().putBoolean("series_auto_next", enabled).apply()
+        _seriesAutoplay.value = enabled
+    }
+
     private val _resumeLastChannel = MutableStateFlow(prefs.getBoolean(KEY_RESUME_LAST, false))
     val resumeLastChannel: StateFlow<Boolean> = _resumeLastChannel.asStateFlow()
 
