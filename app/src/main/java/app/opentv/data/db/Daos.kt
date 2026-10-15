@@ -509,6 +509,13 @@ interface MovieDao {
     )
     suspend fun moviesWithActor(name: String, limit: Int): List<Movie>
 
+    /** Indexed-ish bounded matching against TMDB's person filmography. Chunk lists <= 100. */
+    @Query("SELECT * FROM movies WHERE tmdbId IN (:ids)")
+    suspend fun byTmdbIds(ids: List<String>): List<Movie>
+
+    @Query("SELECT * FROM movies WHERE LOWER(name) IN (:names)")
+    suspend fun byExactNames(names: List<String>): List<Movie>
+
     /** Movies a person directed. See [moviesWithActor]; same shape over the `director` field. */
     @Query(
         """
@@ -610,6 +617,12 @@ interface SeriesDao {
         """
     )
     suspend fun seriesWithActor(name: String, limit: Int): List<Series>
+
+    @Query("SELECT * FROM series WHERE tmdbId IN (:ids)")
+    suspend fun byTmdbIds(ids: List<String>): List<Series>
+
+    @Query("SELECT * FROM series WHERE LOWER(name) IN (:names)")
+    suspend fun byExactNames(names: List<String>): List<Series>
 
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun byId(id: Long): Series?
