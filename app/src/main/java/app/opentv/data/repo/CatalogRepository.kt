@@ -763,7 +763,20 @@ class CatalogRepository(
             val chunks = movies.chunked(100)
             if (chunks.isEmpty()) onProgress(1f)
             chunks.forEachIndexed { index, batch ->
-                movieDao.upsertAll(batch)
+                val existing = movieDao.bySourceStreamIds(source.id, batch.map { it.streamId })
+                    .associateBy { it.streamId }
+                movieDao.upsertAll(batch.map { fresh ->
+                    val previous = existing[fresh.streamId]
+                    if (previous == null) fresh else fresh.copy(
+                        id = previous.id, favourite = previous.favourite,
+                        cast = mergedCast(previous.cast, fresh.cast.orEmpty().split(',')),
+                        tmdbId = fresh.tmdbId ?: previous.tmdbId,
+                        backdropUrl = fresh.backdropUrl ?: previous.backdropUrl,
+                        plot = fresh.plot ?: previous.plot,
+                        director = fresh.director ?: previous.director,
+                        genre = fresh.genre ?: previous.genre,
+                    )
+                })
                 // Last 1% is reserved for the fully completed phase.
                 onProgress((index + 1f) / chunks.size * 0.99f)
             }
@@ -786,7 +799,19 @@ class CatalogRepository(
             val chunks = series.chunked(100)
             if (chunks.isEmpty()) onProgress(1f)
             chunks.forEachIndexed { index, batch ->
-                seriesDao.upsertAll(batch)
+                val existing = seriesDao.bySourceSeriesIds(source.id, batch.map { it.seriesId })
+                    .associateBy { it.seriesId }
+                seriesDao.upsertAll(batch.map { fresh ->
+                    val previous = existing[fresh.seriesId]
+                    if (previous == null) fresh else fresh.copy(
+                        id = previous.id, favourite = previous.favourite,
+                        cast = mergedCast(previous.cast, fresh.cast.orEmpty().split(',')),
+                        tmdbId = fresh.tmdbId ?: previous.tmdbId,
+                        backdropUrl = fresh.backdropUrl ?: previous.backdropUrl,
+                        plot = fresh.plot ?: previous.plot,
+                        genre = fresh.genre ?: previous.genre,
+                    )
+                })
                 onProgress((index + 1f) / chunks.size * 0.99f)
             }
             true
