@@ -340,11 +340,18 @@ private fun CategoryOption(label: String, count: String, selected: Boolean, onCl
 @Composable
 private fun TvPoster(title: String, poster: String?, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    var lastPosterClick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     Box(
         Modifier.fillMaxWidth().aspectRatio(.66f)
             .onFocusChanged { focused = it.isFocused }
             .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
-            .clickable(onClick = onClick)
+            .clickable(onClick = {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastPosterClick >= 500L) {
+                    lastPosterClick = now
+                    onClick()
+                }
+            })
             .background(Color(0xFF151B2B)),
     ) {
         AsyncImage(model = poster, contentDescription = title,

@@ -164,11 +164,11 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             // Background: the guide. Movies/series are pulled on demand from their own tabs, so
             // nothing the user hasn't asked for ever blocks the channels they can already watch.
             runCatching {
-                if (!graph.catalogRepository.syncMoviesPhase(saved)) {
+                if (!graph.catalogRepository.syncMoviesPhase(saved, CatalogueGate::moviesImportProgress)) {
                     throw IllegalStateException("Movie update failed")
                 }
                 CatalogueGate.moviesDone()
-                if (!graph.catalogRepository.syncSeriesPhase(saved)) {
+                if (!graph.catalogRepository.syncSeriesPhase(saved, CatalogueGate::seriesImportProgress)) {
                     throw IllegalStateException("Series update failed")
                 }
                 graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
