@@ -15,6 +15,8 @@ object CatalogueGate {
         val phase: Phase = Phase.IDLE,
         val completed: Int = 0,
         val message: String = "",
+        val movieFraction: Float = 0f,
+        val seriesFraction: Float = 0f,
     )
     private val mutable = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = mutable.asStateFlow()
@@ -28,9 +30,21 @@ object CatalogueGate {
 
     fun pending() { mutable.value = Snapshot(Phase.WAITING, 0, "Waiting for catalogue update…") }
     fun started() { mutable.value = Snapshot(Phase.LIVE, 0, "Updating Live TV…") }
-    fun liveDone() { mutable.value = Snapshot(Phase.MOVIES, 1, "Updating Movies…") }
-    fun moviesDone() { mutable.value = Snapshot(Phase.SERIES, 2, "Updating Series…") }
-    fun done() { mutable.value = Snapshot(Phase.COMPLETE, 3, "Catalogue is ready") }
+    fun liveDone() { mutable.value = mutable.value.copy(phase = Phase.MOVIES,
+        completed = 1, message = "Updating Movies…") }
+    fun moviesDone() { mutable.value = mutable.value.copy(phase = Phase.SERIES, completed = 2,
+        message = "Updating Series…", movieFraction = 1f) }
+    fun done() { mutable.value = mutable.value.copy(phase = Phase.COMPLETE, completed = 3,
+        message = "Catalogue is ready", movieFraction = 1f, seriesFraction = 1f) }
+    // These values represent confirmed titles written to the local Room database.
+    // Download bytes are not measurable here, so the UI says "Fetching" until
+    // the provider returns the catalogue and importing begins.
+    fun moviesImportProgress(fraction: Float) {
+        mutable.value = mutable.value.copy(movieFraction = fraction.coerceIn(0f, 0.99f))
+    }
+    fun seriesImportProgress(fraction: Float) {
+        mutable.value = mutable.value.copy(seriesFraction = fraction.coerceIn(0f, 0.99f))
+    }
     fun failed(reason: String) {
         val old = mutable.value
         mutable.value = old.copy(phase = Phase.FAILED, message = reason)
