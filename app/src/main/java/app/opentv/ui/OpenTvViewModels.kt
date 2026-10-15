@@ -754,6 +754,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val finished: Boolean = false,
         val sourceId: Long = 0L,
         val seriesProviderId: String? = null,
+        val episodeLabel: String? = null,
+        val positionMs: Long = 0L,
+        val durationMs: Long = 0L,
     )
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -787,6 +790,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl, progress,
                     logicalKey = "movie:${it.sourceId}:${it.displayTitle.trim().lowercase()}:${it.year ?: 0}",
                     finished = pos.isFinished, sourceId = it.sourceId,
+                    positionMs = pos.positionMillis, durationMs = pos.durationMillis,
                 )
             }
             "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
@@ -799,6 +803,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     logicalKey = "series:${episode.sourceId}:${episode.seriesId}",
                     finished = pos.isFinished, sourceId = episode.sourceId,
                     seriesProviderId = episode.seriesId,
+                    episodeLabel = "S%02dE%02d".format(episode.season, episode.episodeNumber),
+                    positionMs = pos.positionMillis, durationMs = pos.durationMillis,
                 )
             }
             else -> null

@@ -46,6 +46,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.material3.Button
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -89,6 +92,7 @@ internal fun TvVodBrowser(
     isSyncing: Boolean,
     onExit: () -> Unit = {},
 ) {
+    val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
     val categoriesState by (if (isSeries) viewModel.seriesCategories else viewModel.movieCategories).collectAsState()
@@ -271,7 +275,7 @@ internal fun TvVodBrowser(
                         }, key = { it.logicalKey }) { item ->
                             ResumePoster(item,
                                 onPlay = { onResume(item.mediaKey, item.streamUrl, item.title) },
-                                onReset = { resetTarget = item })
+                                onOptions = { optionsTarget = item })
                         }
                     }
                 }
@@ -301,6 +305,42 @@ internal fun TvVodBrowser(
                     color = Color.LightGray)
             }
         }
+    }
+    optionsTarget?.let { item ->
+        AlertDialog(
+            onDismissRequest = { optionsTarget = null },
+            title = { Text(item.title, maxLines = 2) },
+            text = { Text(
+                listOfNotNull(item.episodeLabel,
+                    item.positionMs.takeIf { it > 0 }?.let { "${it / 60_000}m watched" },
+                    "${(item.progress * 100).toInt()}% complete"
+                ).joinToString(" · "),
+            ) },
+            confirmButton = {
+                Button(onClick = {
+                    optionsTarget = null
+                    onResume(item.mediaKey, item.streamUrl, item.title)
+                }) { Text("Resume") }
+            },
+            dismissButton = {
+                androidx.compose.foundation.layout.Column {
+                    TextButton(onClick = {
+                        optionsTarget = null
+                        scope.launch {
+                            if (item.seriesProviderId != null) {
+                                catalog.seriesByProviderId(item.sourceId, item.seriesProviderId)?.let(onOpenSeries)
+                            } else {
+                                item.mediaKey.removePrefix("movie:").toLongOrNull()
+                                    ?.let { catalog.movie(it) }?.let(onOpenMovie)
+                            }
+                        }
+                    }) { Text("Open title") }
+                    TextButton(onClick = { optionsTarget = null; resetTarget = item }) {
+                        Text("Reset progress")
+                    }
+                }
+            },
+        )
     }
     resetTarget?.let { item ->
         AlertDialog(
@@ -382,21 +422,38 @@ private fun TvPoster(title: String, poster: String?, onClick: () -> Unit) {
 private fun ResumePoster(
     item: VodViewModel.ResumeItem,
     onPlay: () -> Unit,
-    onReset: () -> Unit,
+    onOptions: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
-            .combinedClickable(onClick = onPlay, onLongClick = onReset),
+            .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(4.dp))
+            .combinedClickable(onClick = onPlay, onLongClick = onOptions),
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(.66f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Text("▶", color = Color.White, fontSize = 28.sp, modifier = Modifier.align(Alignment.Center))
+            Box(Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Black.copy(alpha = .95f)),
+                ))
+                .padding(horizontal = 5.dp, vertical = 5.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(item.title, color = Color.White,
+                        fontSize = 12.sp, maxLines = 2,
+                        fontWeight = FontWeight.SemiBold,
+                        overflow = TextOverflow.Ellipsis)
+                    val episode = item.episodeLabel
+                    if (episode != null) Text(episode, color = Color(0xFF9EE9FF),
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("${(item.progress * 100).toInt()}% · ${item.positionMs / 60_000}m / ${item.durationMs / 60_000}m",
+                        color = Color.White.copy(alpha = .88f),
+                        fontSize = 10.sp, maxLines = 1)
+                }
+            }
         }
-        Text(item.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
             Box(Modifier.fillMaxWidth(item.progress).height(4.dp).background(teal))
         }
