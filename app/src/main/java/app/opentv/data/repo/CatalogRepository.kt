@@ -210,11 +210,39 @@ class CatalogRepository(
     suspend fun episode(id: Long): Episode? = episodeDao.byId(id)
 
     /** The next episode may belong to the next season; source and series must match. */
+    /** Persist cast names from TMDB in the local title catalogue. Images use Coil's disk cache. */
     suspend fun movieCastPortraits(movie: Movie): List<app.opentv.data.remote.TmdbCastPortrait> =
-        withContext(Dispatchers.IO) { tmdb.movieCastPortraits(movie.name, movie.year, movie.tmdbId) }
+        withContext(Dispatchers.IO) {
+            val cast = tmdb.movieCastPortraits(movie.name, movie.year, movie.tmdbId)
+            if (cast.isNotEmpty()) {
+                movieDao.byId(movie.id)?.let { original ->
+                    val merged = mergedCast(original.cast, cast.map { it.name })
+                    if (merged != original.cast) movieDao.upsertAll(listOf(original.copy(cast = merged)))
+                }
+            }
+            cast
+        }
 
     suspend fun seriesCastPortraits(series: Series): List<app.opentv.data.remote.TmdbCastPortrait> =
-        withContext(Dispatchers.IO) { tmdb.seriesCastPortraits(series.name, series.year, series.tmdbId) }
+        withContext(Dispatchers.IO) {
+            val cast = tmdb.seriesCastPortraits(series.name, series.year, series.tmdbId)
+            if (cast.isNotEmpty()) {
+                seriesDao.byId(series.id)?.let { original ->
+                    val merged = mergedCast(original.cast, cast.map { it.name })
+                    if (merged != original.cast) seriesDao.upsertAll(listOf(original.copy(cast = merged)))
+                }
+            }
+            cast
+        }
+
+    private fun mergedCast(original: String?, discovered: List<String>): String? {
+        val names = linkedMapOf<String, String>()
+        (original.orEmpty().split(',', '|') + discovered).forEach { entry ->
+            val name = entry.trim()
+            if (name.isNotEmpty() && names.size < 100) names.putIfAbsent(name.lowercase(), name)
+        }
+        return names.values.joinToString(", ").ifBlank { null }
+    }
 
     suspend fun nextEpisode(id: Long): Episode? = withContext(Dispatchers.IO) {
         val current = episodeDao.byId(id) ?: return@withContext null
@@ -383,7 +411,7 @@ class CatalogRepository(
      * they act in, movies they directed and series they act in, de-duplicating movies that credit the
      * same person as both actor and director. Movies (best-rated first) lead, then series.
      */
-    suspend fun titlesWithPerson(name: String, perKind: Int = 40): List<PersonTitle> =
+    suspend fun titlesWithPerson(name: String, perKind: Int = 350): List<PersonTitle> =
         withContext(Dispatchers.IO) {
             val query = name.trim()
             if (query.isEmpty()) return@withContext emptyList()
@@ -465,7 +493,7 @@ class CatalogRepository(
                     posterUrl = result.posterUrl ?: meta.posterUrl,
                     backdropUrl = result.backdropUrl ?: meta.backdropUrl,
                     plot = result.plot ?: meta.overview,
-                    cast = result.cast ?: meta.cast,
+                    cast = mergedCast(result.cast, meta.cast.orEmpty().split(',')),
                     director = result.director ?: meta.director,
                     genre = result.genre ?: meta.genre,
                     tmdbId = result.tmdbId ?: meta.tmdbId,
@@ -511,7 +539,7 @@ class CatalogRepository(
                     posterUrl = result.posterUrl ?: meta.posterUrl,
                     backdropUrl = result.backdropUrl ?: meta.backdropUrl,
                     plot = result.plot ?: meta.overview,
-                    cast = result.cast ?: meta.cast,
+                    cast = mergedCast(result.cast, meta.cast.orEmpty().split(',')),
                     genre = result.genre ?: meta.genre,
                     tmdbId = result.tmdbId ?: meta.tmdbId,
                     rating = result.rating ?: meta.rating,
