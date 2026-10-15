@@ -91,6 +91,7 @@ private val RAIL_EXPANDED = 236.dp
 fun MainScreen(
     isTelevision: Boolean,
     hasSources: Boolean,
+    sourceForFooter: app.opentv.data.model.Source?,
     isSyncing: Boolean,
     onPlayChannel: (Channel) -> Unit,
     onOpenMovie: (Movie) -> Unit,
@@ -166,6 +167,7 @@ fun MainScreen(
           Box(Modifier.weight(1f).fillMaxWidth()) {
               KokyDashboardScreen(
                   hasSources = hasSources,
+                  sourceForFooter = sourceForFooter,
                   onAddProvider = onAddSource,
                   onLive = { tab = Tab.LIVE; showDashboard = false },
                   onMovies = { tab = Tab.MOVIES; showDashboard = false },
