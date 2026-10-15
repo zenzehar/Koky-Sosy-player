@@ -1,3 +1,17 @@
+# v0.1.10.2 TV alpha — cast completeness, resume clarity and stability
+
+- Fixed a significant actor-search gap: TMDB photo credits were displayed but not indexed locally. Now complete cast names from every opened title are merged with provider names and persisted to Room, so actors from the current title are searchable thereafter.
+- Increased cast coverage to **up to 60** credited performers per opened title and up to **350 local hits per media type**; provider-only names remain present with a photo placeholder.
+- When a person page is opened, optional TMDB filmography supplies additional movie/TV IDs and exact title candidates. Only matches already in the user's local catalogue are returned, via bounded Room database lookups. Credited membership is stored for future use.
+- Cast portrait metadata is bounded to **96 title entries in memory**. Photos use Coil's normal on-demand memory/disk cache; **no mass photo downloads or catalogue-wide TMDB crawl**.
+- Stabilized Series navigation: remember a single episode Room Flow while composing; avoid forcing focus on lazy episode rows while returning from playback.
+- Refresh Movie/Series resume after lifecycle resume, showing **minutes watched and percentage** on detail-level Resume actions. Series defaults to the latest unfinished episode and its season.
+- Fire TV screensaver behavior **still pending hardware verification**, carried forward unchanged.
+- Development-only build: v0.1.10.2, Android versionCode 13. Does not replace user-approved v0.1.9 milestone.
+
+**Limitation:** Exact cause of a hardware-only player-return crash requires an Android logcat stack trace. New navigation guard is a targeted fix, not a claim that all crashes have been reproduced or eliminated.
+
+---
 # v0.1.10.1 TV alpha hotfix — unapproved
 
 - Phone Web Manager TMDB API entry: corrected undefined JavaScript helper that stopped event-handler installation; reliable POST-body reading and confirmed saved-status read-back; explicit phone-page success/error output.

@@ -1,3 +1,18 @@
+# v0.1.10.2 TV acceptance and regression tests
+
+1. On Firestick play a series episode. Back to title, re-enter episode, Back again at least 10 times. Repeat with Media3 and VLC fallback and with another season. No crash; original title/season navigation intact.
+2. Test long/rapid D-pad sequences (Up Up Down Back Right), hold OK and returning from fullscreen. Focus must be visible, no duplicate navigation and no crash.
+3. Resume a Movie around 10 minutes in: Movie detail Resume must show actual minutes and percent. Resume again later; values should update on return.
+4. Resume an episode from season 2: Series title selector and main Resume must default to season 2, episode number and actual time/percent; manually choosing season 1 should still work.
+5. Open a title, choose an actor. Source title must appear on Person page even if the provider originally supplied no cast field. Reopening should work without re-fetching local cast names.
+6. Check actor common titles across all local Movies/Series categories and configured providers, including items with known numeric TMDB IDs and exact film/show titles.
+7. Verify the cast photos are lazy-loaded, smooth with D-pad navigation, and missing photos show named placeholders. TMDB calls shouldn't bulk-load the whole catalogue.
+8. Test after app relaunch: persisted cast credits must still appear in Person results (profile-independent).
+9. **Firestick screensaver remains UNTESTED**; don't mark it passed based on build or emulation.
+
+Without a logcat stack trace, a physical-TV crash cannot be marked conclusively resolved. Collect a redacted adb logcat around a failed Back for follow-up; exclude credentials and provider URLs.
+
+---
 # v0.1.10.1 alpha: focused regression checklist
 
 - [ ] Phone QR manager loads; TMDB section shows existing configured/not-set status (no secret).

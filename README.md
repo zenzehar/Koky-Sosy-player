@@ -37,7 +37,7 @@ Some remotes do not deliver repeat or hold key events consistently. Long-press h
 - **Movies & Series:** cached/paged catalogue, six-up TV poster grid, in-place search, detail artwork, seasons, episode thumbnails, audio/subtitles, progress and resume.
 - **Continue Watching:** one logical latest point per title, episode label/progress, click-to-resume, hold for Resume / Open title / Reset.
 - **Series autoplay:** optional next-episode continuation, including the next season, with correctly updated viewing history.
-- **Cast:** portrait tiles from TMDB for **movies and series** (where credits/photos exist). Select an actor to browse the person's matching **movies and series** within your catalogue.
+- **Cast:** on-demand TMDB credit and portrait lookup for **movies and series**, merged with provider-only names. Credits from visited titles are saved into the local catalog; tapping actors searches the library and optionally cross-checks TMDB filmography against existing local titles. Images are lazily loaded and disk-cached. No whole-library API crawl.
 - **Phone setup:** local QR-paired browser pages let you type provider details and configure TMDB API key/read-access token without a TV keyboard.
 - **Metadata:** provider artwork first, optional TMDB backfill and cast. Missing TMDB data shows a named placeholder, not a fake photo.
 - **Privacy:** provider logins and TMDB credentials are device settings, not stored in the GitHub repository. A local pairing token is required for the phone manager. Build-time defaults remain extractable from an APK.
