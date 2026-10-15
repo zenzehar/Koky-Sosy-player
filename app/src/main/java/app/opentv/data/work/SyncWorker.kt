@@ -17,6 +17,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.opentv.core.ServiceLocator
+import app.opentv.core.AppSettings
+import app.opentv.core.StatusBus
 import app.opentv.data.repo.CatalogRepository
 import java.util.concurrent.TimeUnit
 
@@ -38,35 +40,51 @@ class SyncWorker(
         val sources = graph.sourceRepository.enabled()
         if (sources.isEmpty()) return Result.success()
 
-        var anyFailed = false
-
-        for (source in sources) {
-            when (val result = graph.catalogRepository.sync(source, now)) {
-                is CatalogRepository.SyncResult.Success ->
-                    Log.i(TAG, "Catalogue for ${source.name}: ${result.channelCount} channels")
-                is CatalogRepository.SyncResult.Failed -> {
-                    anyFailed = true
-                    Log.w(TAG, "Catalogue for ${source.name} failed: ${result.reason}")
+        CatalogueGate.started()
+        StatusBus.set("Updating Live TV…", 0f)
+        try {
+            for (source in sources) {
+                when (val result = graph.catalogRepository.syncLive(source, now)) {
+                    is CatalogRepository.SyncResult.Success ->
+                        Log.i(TAG, "Live: ${result.channelCount} channels")
+                    is CatalogRepository.SyncResult.Failed ->
+                        throw IllegalStateException("Live TV: ${result.reason}")
                 }
             }
-
+            CatalogueGate.liveDone()
+            StatusBus.set("Updating Movies…", 1f / 3f)
+            sources.forEachIndexed { index, source ->
+                if (!graph.catalogRepository.syncMoviesPhase(source) { progress ->
+                    CatalogueGate.moviesImportProgress((index + progress) / sources.size)
+                }) {
+                    throw IllegalStateException("Movie catalogue unavailable; previous library retained")
+                }
+            }
+            CatalogueGate.moviesDone()
+            StatusBus.set("Updating Series…", 2f / 3f)
+            sources.forEachIndexed { index, source ->
+                if (!graph.catalogRepository.syncSeriesPhase(source) { progress ->
+                    CatalogueGate.seriesImportProgress((index + progress) / sources.size)
+                }) {
+                    throw IllegalStateException("Series catalogue unavailable; previous library retained")
+                }
+            }
+            // Catalogue is complete. Guide refresh is ancillary and cannot prevent
+            // access to an otherwise valid finished VOD library.
+            graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
+            graph.settings.vodSyncedAtMillis = now
+            CatalogueGate.done()
+            StatusBus.set(null)
+            runCatching { graph.epgRepository.syncAll(now) }
+                .onFailure { Log.w(TAG, "Optional EPG update failed", it) }
+            runCatching { graph.recordingEngine.rescanSeriesRules() }
+            return Result.success()
+        } catch (e: Exception) {
+            Log.w(TAG, "Update failed", e)
+            CatalogueGate.failed(e.message ?: "Update failed; retry")
+            StatusBus.set(null)
+            return Result.failure()
         }
-
-        // Guides sync as one pass across every enabled feed — provider guides, built-in
-        // free sources and user URLs merge into a single guide, then the matcher runs.
-        val summary = graph.epgRepository.syncAll(now)
-        if (summary.feedsFailed > 0) anyFailed = true
-        Log.i(
-            TAG,
-            "Guide: ${summary.programmesWritten} programmes from ${summary.feedsSucceeded} " +
-                "feed(s), ${summary.channelsMatched}/${summary.channelsTotal} channels matched",
-        )
-
-        // Book any newly-revealed series-link airings from this fresh guide.
-        runCatching { graph.recordingEngine.rescanSeriesRules() }
-
-        // A partial failure is still a retry — but the user keeps everything already on disk.
-        return if (anyFailed) Result.retry() else Result.success()
     }
 
     companion object {
@@ -81,6 +99,7 @@ class SyncWorker(
          * tied to a screen's ViewModel scope). REPLACE so repeated taps coalesce into one run.
          */
         fun refreshNow(context: Context) {
+            CatalogueGate.pending()
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(
                     Constraints.Builder()
@@ -95,25 +114,25 @@ class SyncWorker(
             )
         }
 
-        fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build(),
-                )
-                .setBackoffCriteria(
-                    androidx.work.BackoffPolicy.EXPONENTIAL,
-                    15,
-                    TimeUnit.MINUTES,
-                )
+        /** Network sync only at startup when the selected interval has elapsed. */
+        fun refreshAtLaunch(context: Context) {
+            val settings = AppSettings.get(context)
+            val hours = settings.catalogueRefreshHours.value
+            if (hours == 0) return
+            val now = System.currentTimeMillis()
+            if (!CatalogueGate.due(settings, now)) return
+            CatalogueGate.pending()
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
-                request,
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "koky-launch-catalogue", ExistingWorkPolicy.KEEP, request,
             )
+        }
+
+        fun schedule(context: Context) {
+            // Cancel the previous version's unattended six-hour periodic downloader.
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
         }
     }
 }

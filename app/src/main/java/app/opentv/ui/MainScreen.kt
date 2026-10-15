@@ -56,6 +56,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import app.opentv.core.AppSettings
+import app.opentv.data.work.SyncWorker
+import app.opentv.data.work.CatalogueGate
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -126,8 +128,20 @@ fun MainScreen(
     // still switched on (or Recordings if none are).
     val homeTab = visibleTabs.first()
 
-    var tab by remember { mutableStateOf(homeTab) }
+    // Persist the selected section across detail-player navigation. Without this,
+    // returning from a series recreates the screen on the default LIVE tab.
+    var tab by rememberSaveable { mutableStateOf(homeTab) }
     var showDashboard by rememberSaveable { mutableStateOf(true) }
+    val catalogueStatus by CatalogueGate.state.collectAsState()
+    val catalogueGated = CatalogueGate.due(settings) || catalogueStatus.phase in setOf(
+        CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES, CatalogueGate.Phase.FAILED)
+    fun allowTab(candidate: Tab): Boolean = !catalogueGated || when (candidate) {
+        Tab.MOVIES -> catalogueStatus.completed >= 2
+        Tab.SHOWS -> catalogueStatus.completed >= 3
+        Tab.LIVE -> catalogueStatus.completed >= 1
+        Tab.RECORDINGS -> true
+    }
 
     // If the selected tab gets hidden (its type toggled off while it's open), drop back to the
     // home tab so the content area never tries to show a tab that's no longer there.
@@ -138,25 +152,19 @@ fun MainScreen(
     // The top-level Back hierarchy is content -> dashboard -> deliberate exit.
     BackHandler(enabled = !showDashboard) { showDashboard = true }
 
-    // On the home tab, Back would otherwise drop straight out to the TV launcher — one stray press
-    // and you've closed the app. Ask first. (A dialog or panel open in a child screen swallows Back
-    // before this, so this only fires at the true root.)
-    var showExit by remember { mutableStateOf(false) }
-    BackHandler(enabled = showDashboard) { showExit = true }
-    if (showExit) {
-        AlertDialog(
-            onDismissRequest = { showExit = false },
-            title = { Text(stringResource(R.string.exit_title)) },
-            text = { Text(stringResource(R.string.exit_body)) },
-            confirmButton = {
-                TextButton(onClick = { showExit = false; context.findActivity()?.finish() }) {
-                    Text(stringResource(R.string.exit_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExit = false }) { Text(stringResource(R.string.exit_cancel)) }
-            },
-        )
+    // TV-standard double-Back exit: no intrusive confirmation dialog.
+    var exitBackAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    BackHandler(enabled = showDashboard) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - exitBackAt <= 2_000L) {
+            context.findActivity()?.finish()
+        } else {
+            exitBackAt = now
+            android.widget.Toast.makeText(
+                context, "Press Back again to exit Koky & Sosy Player",
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
     }
 
     // The rail sits beside the content and pushes it, rather than floating over it. The Live TV
@@ -169,22 +177,23 @@ fun MainScreen(
                   hasSources = hasSources,
                   sourceForFooter = sourceForFooter,
                   onAddProvider = onAddSource,
-                  onLive = { tab = Tab.LIVE; showDashboard = false },
-                  onMovies = { tab = Tab.MOVIES; showDashboard = false },
-                  onSeries = { tab = Tab.SHOWS; showDashboard = false },
+                  onLive = { if (allowTab(Tab.LIVE)) { tab = Tab.LIVE; showDashboard = false } },
+                  onMovies = { if (allowTab(Tab.MOVIES)) { tab = Tab.MOVIES; showDashboard = false } },
+                  onSeries = { if (allowTab(Tab.SHOWS)) { tab = Tab.SHOWS; showDashboard = false } },
                   onRecordings = { tab = Tab.RECORDINGS; showDashboard = false },
                   onSearch = onOpenSearch,
                   onProfiles = onOpenProfiles,
                   onSettings = onOpenSettings,
-                  onRefresh = onRefresh,
+                  onRefresh = { SyncWorker.refreshNow(context) },
               )
           }
       } else {
       Row(Modifier.weight(1f).fillMaxWidth()) {
-        NavRail(
+        // Movies/Series have their own category rail; remove the global rail.
+        if (tab == Tab.RECORDINGS) NavRail(
             tabs = visibleTabs,
             current = tab,
-            onSelect = { tab = it },
+            onSelect = { desired -> if (allowTab(desired)) tab = desired },
             onOpenSearch = onOpenSearch,
             onOpenSettings = onOpenSettings,
             onOpenProfiles = onOpenProfiles,
@@ -206,6 +215,7 @@ fun MainScreen(
                     onOpenMovie = onOpenMovie,
                     onResume = onResume,
                     onOpenSearch = onOpenSearch,
+                    onBack = { showDashboard = true },
                     hasSources = hasSources,
                     isSyncing = isSyncing,
                 )
@@ -213,6 +223,7 @@ fun MainScreen(
                     onOpenSeries = onOpenSeries,
                     onResume = onResume,
                     onOpenSearch = onOpenSearch,
+                    onBack = { showDashboard = true },
                     hasSources = hasSources,
                     isSyncing = isSyncing,
                 )

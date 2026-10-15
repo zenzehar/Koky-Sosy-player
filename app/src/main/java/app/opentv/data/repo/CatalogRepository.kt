@@ -168,6 +168,18 @@ class CatalogRepository(
 
     fun observeMovies(categoryId: String? = null): Flow<List<Movie>> = movieDao.observe(categoryId)
 
+    /** Disk-backed bounded pages. Never bring all posters/metadata into the TV screen. */
+    suspend fun moviePage(sourceId: Long?, categoryId: String?, favs: Boolean,
+                          query: String, size: Int, offset: Int): List<Movie> =
+        withContext(Dispatchers.IO) { movieDao.page(sourceId, categoryId, favs, query, size, offset) }
+    suspend fun seriesPage(sourceId: Long?, categoryId: String?, favs: Boolean,
+                           query: String, size: Int, offset: Int): List<Series> =
+        withContext(Dispatchers.IO) { seriesDao.page(sourceId, categoryId, favs, query, size, offset) }
+    suspend fun vodCounts(sourceId: Long?, series: Boolean): List<app.opentv.data.db.VodCategoryCount> =
+        withContext(Dispatchers.IO) { if (series) seriesDao.counts(sourceId) else movieDao.counts(sourceId) }
+    suspend fun vodFavouriteCount(sourceId: Long?, series: Boolean): Int =
+        withContext(Dispatchers.IO) { if (series) seriesDao.favouriteCount(sourceId) else movieDao.favouriteCount(sourceId) }
+
     fun observeSeries(categoryId: String? = null): Flow<List<Series>> = seriesDao.observe(categoryId)
 
     fun observeEpisodes(sourceId: Long, seriesId: String): Flow<List<Episode>> =
@@ -202,6 +214,9 @@ class CatalogRepository(
     suspend fun episodeByStreamUrl(url: String): Episode? = episodeDao.byStreamUrl(url)
 
     suspend fun series(id: Long): app.opentv.data.model.Series? = seriesDao.byId(id)
+    suspend fun seriesByProviderId(sourceId: Long, seriesId: String): Series? =
+        seriesDao.byProviderId(sourceId, seriesId)
+
 
     // ---- Netflix-style home feeds ---------------------------------------------------------------
     // All local: derived from the catalogue already on disk plus the active profile's watch history.
@@ -602,6 +617,9 @@ class CatalogRepository(
     /** Series episodes are fetched lazily — panels are slow and most series are never opened. */
     suspend fun ensureEpisodes(source: Source, seriesId: String) {
         if (source.kind != SourceKind.XTREAM) return
+        // Existing episodes are already indexed in Room. Navigation to this title
+        // must never trigger a redundant server refresh.
+        if (episodeDao.countForSeries(source.id, seriesId) > 0) return
         runCatching { api.episodes(source, seriesId) }
             .onSuccess { if (it.isNotEmpty()) episodeDao.upsertAll(it) }
             .onFailure { Log.w(TAG, "Episode fetch failed for series $seriesId", it) }
@@ -625,6 +643,52 @@ class CatalogRepository(
                 .onFailure { Log.w(TAG, "VOD sync failed for source ${source.id}", it) }
         }
         live
+    }
+
+    /** Phase-specific update: a category becomes available only after it has finished. */
+    suspend fun syncMoviesPhase(
+        source: Source,
+        onProgress: (Float) -> Unit = {},
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (source.kind != SourceKind.XTREAM || !settings.moviesEnabled.value) return@withContext true
+        runCatching {
+            val categories = api.movieCategories(source)
+            val movies = api.movies(source)
+            if (categories.isNotEmpty()) categoryDao.upsertAll(categories)
+            val chunks = movies.chunked(100)
+            if (chunks.isEmpty()) onProgress(1f)
+            chunks.forEachIndexed { index, batch ->
+                movieDao.upsertAll(batch)
+                // Last 1% is reserved for the fully completed phase.
+                onProgress((index + 1f) / chunks.size * 0.99f)
+            }
+            true
+        }.getOrElse {
+            Log.w(TAG, "Movie update failed", it)
+            false
+        }
+    }
+
+    suspend fun syncSeriesPhase(
+        source: Source,
+        onProgress: (Float) -> Unit = {},
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (source.kind != SourceKind.XTREAM || !settings.seriesEnabled.value) return@withContext true
+        runCatching {
+            val categories = api.seriesCategories(source)
+            val series = api.series(source)
+            if (categories.isNotEmpty()) categoryDao.upsertAll(categories)
+            val chunks = series.chunked(100)
+            if (chunks.isEmpty()) onProgress(1f)
+            chunks.forEachIndexed { index, batch ->
+                seriesDao.upsertAll(batch)
+                onProgress((index + 1f) / chunks.size * 0.99f)
+            }
+            true
+        }.getOrElse {
+            Log.w(TAG, "Series update failed", it)
+            false
+        }
     }
 
     /** Live channels only — the fast path so the guide can show before VOD and the guide load. */

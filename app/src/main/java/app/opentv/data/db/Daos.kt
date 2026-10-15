@@ -418,8 +418,27 @@ interface ProgrammeDao {
     suspend fun deleteForFeed(feedId: Long)
 }
 
+data class VodCategoryCount(val categoryId: String?, val count: Int)
+
 @Dao
 interface MovieDao {
+    @Query("""SELECT * FROM movies
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:onlyFavourites = 0 OR favourite = 1)
+        AND (:query = '' OR name LIKE '%' || :query || '%')
+        ORDER BY addedMillis DESC, name LIMIT :pageSize OFFSET :offset""")
+    suspend fun page(
+        sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
+        query: String, pageSize: Int, offset: Int
+    ): List<Movie>
+
+    @Query("""SELECT categoryId, COUNT(*) AS count FROM movies
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId) GROUP BY categoryId""")
+    suspend fun counts(sourceId: Long?): List<VodCategoryCount>
+
+    @Query("SELECT COUNT(*) FROM movies WHERE (:sourceId IS NULL OR sourceId = :sourceId) AND favourite = 1")
+    suspend fun favouriteCount(sourceId: Long?): Int
     @Query(
         """
         SELECT * FROM movies
@@ -520,6 +539,23 @@ interface MovieDao {
 
 @Dao
 interface SeriesDao {
+    @Query("""SELECT * FROM series
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:onlyFavourites = 0 OR favourite = 1)
+        AND (:query = '' OR name LIKE '%' || :query || '%')
+        ORDER BY addedMillis DESC, name LIMIT :pageSize OFFSET :offset""")
+    suspend fun page(
+        sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
+        query: String, pageSize: Int, offset: Int
+    ): List<Series>
+
+    @Query("""SELECT categoryId, COUNT(*) AS count FROM series
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId) GROUP BY categoryId""")
+    suspend fun counts(sourceId: Long?): List<VodCategoryCount>
+
+    @Query("SELECT COUNT(*) FROM series WHERE (:sourceId IS NULL OR sourceId = :sourceId) AND favourite = 1")
+    suspend fun favouriteCount(sourceId: Long?): Int
     @Query(
         """
         SELECT * FROM series
@@ -571,6 +607,9 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun byId(id: Long): Series?
 
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
+    suspend fun byProviderId(sourceId: Long, seriesId: String): Series?
+
     @Query("UPDATE series SET favourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)
 
@@ -590,6 +629,9 @@ interface SeriesDao {
 
 @Dao
 interface EpisodeDao {
+    @Query("SELECT COUNT(*) FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId")
+    suspend fun countForSeries(sourceId: Long, seriesId: String): Int
+
     @Query("SELECT * FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId ORDER BY season, episodeNumber")
     fun observeForSeries(sourceId: Long, seriesId: String): Flow<List<Episode>>
 
@@ -615,7 +657,7 @@ interface PlaybackPositionDao {
         "SELECT * FROM playback_positions WHERE profileId = :profileId " +
             "ORDER BY updatedAtMillis DESC LIMIT :limit",
     )
-    fun observeRecent(profileId: Long, limit: Int = 30): Flow<List<PlaybackPosition>>
+    fun observeRecent(profileId: Long, limit: Int = 1000): Flow<List<PlaybackPosition>>
 
     @Query("SELECT * FROM playback_positions")
     suspend fun all(): List<PlaybackPosition>
@@ -629,6 +671,15 @@ interface PlaybackPositionDao {
 
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)
+
+    @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey IN (:keys)")
+    suspend fun deleteKeys(profileId: Long, keys: List<String>)
+
+    @Query(
+        "DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey IN " +
+            "(SELECT 'ep:' || id FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId)"
+    )
+    suspend fun deleteSeries(profileId: Long, sourceId: Long, seriesId: String)
 }
 
 @Dao

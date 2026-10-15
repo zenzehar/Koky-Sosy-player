@@ -5,6 +5,10 @@
 package app.opentv.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+import app.opentv.data.work.CatalogueGate
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -34,6 +38,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.platform.LocalContext
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.Source
@@ -77,6 +84,19 @@ fun KokyDashboardScreen(
 ) {
     val initialFocus = remember { FocusRequester() }
     val context = LocalContext.current
+    val update by CatalogueGate.state.collectAsState()
+    val userSettings = remember(context) { app.opentv.core.AppSettings.get(context) }
+    val due = CatalogueGate.due(userSettings)
+    val waiting = update.phase in setOf(CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES, CatalogueGate.Phase.FAILED)
+    val gated = hasSources && (due || waiting)
+    val liveReady = !gated || update.completed >= 1
+    val moviesReady = !gated || update.completed >= 2
+    val seriesReady = !gated || update.completed >= 3
+    val visualProgress by animateFloatAsState(
+        targetValue = if (gated) update.completed / 3f else 1f,
+        animationSpec = tween(durationMillis = 1300), label = "catalogueProgress",
+    )
     val cache = remember(context) { context.getSharedPreferences("koky_provider_expiry", 0) }
     var expiryText by remember(sourceForFooter?.id) { mutableStateOf("Checking…") }
     LaunchedEffect(sourceForFooter?.id, sourceForFooter?.url, sourceForFooter?.username) {
@@ -113,7 +133,8 @@ fun KokyDashboardScreen(
                 fontWeight = FontWeight.Bold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
-            HeaderAction(Icons.Filled.Search, "Master Search", onSearch)
+            HeaderAction(Icons.Filled.Search, "Master Search",
+                onClick = { if (!gated) onSearch() })
             HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
             HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
         }
@@ -123,6 +144,8 @@ fun KokyDashboardScreen(
         ) {
             DashboardTile(
                 label = "LIVE TV", icon = Icons.Filled.LiveTv,
+                locked = !liveReady, loading = gated && update.phase == CatalogueGate.Phase.LIVE,
+                ready = gated && liveReady, progress = if (liveReady) 1f else 0f,
                 shades = listOf(Color(0xFF31CEA1), Color(0xFF3442C8)),
                 modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(initialFocus),
                 onClick = if (hasSources) onLive else onAddProvider,
@@ -134,12 +157,18 @@ fun KokyDashboardScreen(
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     DashboardTile(
                         label = "MOVIES", icon = Icons.Filled.Movie,
+                        locked = !moviesReady, loading = gated && update.phase == CatalogueGate.Phase.MOVIES,
+                        ready = gated && moviesReady,
+                        progress = if (moviesReady) 1f else update.movieFraction,
                         shades = listOf(Color(0xFFDB2D53), Color(0xFFF49A3D)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = if (hasSources) onMovies else onAddProvider,
                     )
                     DashboardTile(
                         label = "SERIES", icon = Icons.Filled.Tv,
+                        locked = !seriesReady, loading = gated && update.phase == CatalogueGate.Phase.SERIES,
+                        ready = gated && seriesReady,
+                        progress = if (seriesReady) 1f else update.seriesFraction,
                         shades = listOf(Color(0xFF953FAF), Color(0xFF4B9EDD)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = if (hasSources) onSeries else onAddProvider,
@@ -170,6 +199,15 @@ fun KokyDashboardScreen(
                 }
             }
         }
+        // Section progress is drawn INSIDE each coloured tile, never as a
+        // detached Home-bottom progress bar.
+        if (gated && update.phase == CatalogueGate.Phase.FAILED) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(update.message, color = Color(0xFFFFC6B8), modifier = Modifier.weight(1f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                HeaderAction(Icons.Filled.Refresh, "Retry update", onRefresh)
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 sourceForFooter?.name?.let { "Playlist: $it" } ?: "Select a tile to add your IPTV provider",
@@ -196,7 +234,7 @@ private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) 
             .background(if (focused) Color(0xFF263968) else Color(0xFF131C3D))
             .border(if (focused) 3.dp else 0.dp, Color.White, shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
+             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(29.dp))
@@ -210,28 +248,60 @@ private fun DashboardTile(
     shades: List<Color>,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    locked: Boolean = false,
+    loading: Boolean = false,
+    ready: Boolean = false,
+    progress: Float = 1f,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(16.dp)
-    Column(
-        modifier.clip(shape).background(Brush.verticalGradient(shades))
-            .border(if (focused) 4.dp else 0.dp, Color.White, shape)
+    val shape = RoundedCornerShape(14.dp)
+    // Tween genuinely measured fractions from Room import completion.
+    val reveal by animateFloatAsState(
+        progress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 900),
+        label = "fill$label",
+    )
+    Box(
+        modifier.clip(shape)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(if (compact) 8.dp else 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .border(if (focused) 3.dp else 0.dp, Color.White, shape)
+            .clickable(enabled = !locked, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            icon, contentDescription = null, tint = Color.White,
-            modifier = Modifier.size(if (compact) 27.dp else 68.dp),
-        )
-        Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
-        Text(
-            label, color = Color.White, fontWeight = FontWeight.SemiBold,
-            fontSize = if (compact) 14.sp else 27.sp,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
+        Column(
+            Modifier.fillMaxSize().background(Brush.verticalGradient(shades)),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = Color.White,
+                modifier = Modifier.size(if (compact) 27.dp else 68.dp))
+            Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
+            Text(label, color = Color.White, fontWeight = FontWeight.SemiBold,
+                fontSize = if (compact) 14.sp else 27.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (locked || (loading && !ready)) {
+            // The uncoloured area shrinks from TOP to BOTTOM so the tile itself
+            // fills progressively, matching the IPTV reference behaviour.
+            val remaining = (1f - reveal).coerceIn(0f, 1f)
+            if (remaining > 0.001f) {
+                Box(Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                    .fillMaxHeight(remaining).background(Color(0xD90A0D18)))
+            }
+            if (!compact) {
+                Text(
+                    when {
+                        loading && progress <= 0f -> "FETCHING…"
+                        loading -> "${(reveal * 100).toInt()}%"
+                        else -> "WAITING"
+                    },
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 11.dp),
+                )
+            }
+        }
     }
 }

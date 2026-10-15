@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +55,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.launch
 import app.opentv.core.AppSettings
+import app.opentv.data.work.SyncWorker
 import app.opentv.core.ServiceLocator
 import app.opentv.data.parser.displayTitle
 import app.opentv.ui.MainScreen
@@ -225,6 +228,9 @@ object Routes {
 @Composable
 private fun OpenTvApp(isTelevision: Boolean) {
     val navController = rememberNavController()
+    val navScope = rememberCoroutineScope()
+    val catalogue = remember { ServiceLocator.get(navController.context).catalogRepository }
+    var lastResumeActionAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val sourcesViewModel: SourcesViewModel = viewModel()
     val vodViewModel: VodViewModel = viewModel()
     val profilesViewModel: ProfilesViewModel = viewModel()
@@ -247,6 +253,12 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // First run goes straight to setup — an empty channel list with no explanation is the
     // worst possible first impression.
     val start = if (sourcesUi.sources.isEmpty()) Routes.ADD_SOURCE else Routes.HOME
+    val launchContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(sourcesUi.loaded) {
+        if (sourcesUi.loaded && sourcesUi.sources.any { it.enabled }) {
+            SyncWorker.refreshAtLaunch(launchContext)
+        }
+    }
 
     // Boot to last channel: if enabled and we have one, jump straight into the player on launch.
     // Runs once; backing out returns to the guide and doesn't re-trigger.
@@ -332,15 +344,29 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     isSyncing = sourcesUi.syncing,
                     onPlayChannel = { channel -> navController.navigate(Routes.player(channel.id)) },
                     onOpenMovie = { movie ->
-                        navController.navigate(Routes.movieDetail(movie.id))
+                        navController.navigate(Routes.movieDetail(movie.id)) { launchSingleTop = true }
                     },
                     onOpenSeries = { series ->
-                        navController.navigate(Routes.seriesDetail(series.id))
+                        navController.navigate(Routes.seriesDetail(series.id)) { launchSingleTop = true }
                     },
                     onResume = { key, url, title ->
-                        navController.navigate(
-                            Routes.vodPlayer(key, url, title, "OpenTV/0.1 (Android)"),
-                        )
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastResumeActionAt >= 550L) {
+                            lastResumeActionAt = now
+                            // A Continue Watching SERIES card shows the latest episode's
+                            // exact name, not the parent series poster title.
+                            navScope.launch {
+                                val episode = if (key.startsWith("ep:"))
+                                    key.removePrefix("ep:").toLongOrNull()?.let { catalogue.episode(it) }
+                                else null
+                                val playingTitle = episode?.let {
+                                    "S%02dE%02d - %s".format(it.season, it.episodeNumber, it.title)
+                                } ?: title
+                                navController.navigate(
+                                    Routes.vodPlayer(key, url, playingTitle, "OpenTV/0.1 (Android)"),
+                                ) { launchSingleTop = true }
+                            }
+                        }
                     },
                     onAddSource = { navController.navigate(Routes.ADD_SOURCE) },
                     onRefresh = sourcesViewModel::refreshAll,
@@ -487,6 +513,7 @@ private fun OpenTvApp(isTelevision: Boolean) {
                     },
                     onOpenSeries = { series -> navController.navigate(Routes.seriesDetail(series.id)) },
                     onOpenPerson = { name -> navController.navigate(Routes.person(name)) },
+                    onBack = { navController.popBackStack() },
                 )
             }
 

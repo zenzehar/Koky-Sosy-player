@@ -20,9 +20,9 @@ object TvSeekPolicy {
     ): Long {
         val elapsed = (holdElapsedMs - HOLD_THRESHOLD_MS).coerceAtLeast(0L)
         val delta = when {
-            elapsed <= 900L -> elapsed * 12L
-            elapsed <= 3_400L -> 10_800L + (elapsed - 900L) * 40L
-            else -> 110_800L + (elapsed - 3_400L).coerceAtMost(Long.MAX_VALUE / 90L) * 90L
+            elapsed <= 900L -> elapsed * 36L
+            elapsed <= 3_400L -> 32_400L + (elapsed - 900L) * 120L
+            else -> 332_400L + (elapsed - 3_400L).coerceAtMost(Long.MAX_VALUE / 270L) * 270L
         }
         return relative(originalPositionMs, direction, delta, durationMs)
     }
