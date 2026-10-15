@@ -246,7 +246,9 @@ fun AppSettingsScreen(onBack: () -> Unit) {
 private fun TmdbKeySection(settings: AppSettings) {
     val context = LocalContext.current
     val savedKey by settings.tmdbApiKey.collectAsState()
+    val savedToken by settings.tmdbReadToken.collectAsState()
     var field by remember(savedKey) { mutableStateOf(savedKey) }
+    var tokenField by remember(savedToken) { mutableStateOf(savedToken) }
     val savedMessage = stringResource(R.string.settings_tmdb_saved)
 
     SettingsSection(stringResource(R.string.settings_section_metadata)) {
@@ -264,8 +266,17 @@ private fun TmdbKeySection(settings: AppSettings) {
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = tokenField,
+            onValueChange = { tokenField = it.trim() },
+            singleLine = true,
+            label = { Text("TMDB API Read Access Token (optional)") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = {
+                settings.setTmdbReadToken(tokenField)
                 settings.setTmdbApiKey(field)
                 Toast.makeText(context, savedMessage, Toast.LENGTH_SHORT).show()
             }) { Text(stringResource(R.string.settings_tmdb_save)) }

@@ -17,6 +17,9 @@ jobs:
   build:
     name: Test and assemble
     runs-on: ubuntu-latest
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4

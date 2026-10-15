@@ -198,8 +198,10 @@ fun HomeScreen(
     // Keep both valid as the list changes (e.g. switching category): stay on the same channel if
     // it's still present, otherwise fall back to the top of the new list.
     LaunchedEffect(rows) {
-        highlightedRow = rows.firstOrNull { it.key == highlightedRow?.key } ?: rows.firstOrNull()
-        selectedRow = rows.firstOrNull { it.key == selectedRow?.key } ?: rows.firstOrNull()
+        val lastWatched = settings.lastChannelId
+        val previouslyPlaying = rows.firstOrNull { it.primary.id == lastWatched }
+        highlightedRow = previouslyPlaying ?: rows.firstOrNull { it.key == highlightedRow?.key } ?: rows.firstOrNull()
+        selectedRow = previouslyPlaying ?: rows.firstOrNull { it.key == selectedRow?.key } ?: rows.firstOrNull()
     }
 
     // ---- Live preview player -----------------------------------------------------------------

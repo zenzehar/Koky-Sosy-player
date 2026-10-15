@@ -63,12 +63,12 @@ class TmdbClient(
     /** Read at most 20 cast portraits on opening the Cast tab, never during catalogue sync. */
     fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
         val key = settings.tmdbApiKey.value.trim()
-        if (key.isEmpty()) return emptyList()
+        if (key.isEmpty() && settings.tmdbReadToken.value.isBlank()) return emptyList()
         val id = tmdbId?.takeIf { it.isNotBlank() }
             ?: searchId(false, searchTitle(title), year, key)
             ?: return emptyList()
         val url = TMDB_BASE.newBuilder().addPathSegment("tv").addPathSegment(id)
-            .addPathSegment("credits").addQueryParameter("api_key", key).build()
+            .addPathSegment("credits").withKey(key).build()
         val people = get(url)?.jsonObject?.get("cast")?.jsonArray ?: return emptyList()
         return people.take(20).mapNotNull { value ->
             val row = value.jsonObject
@@ -96,7 +96,7 @@ class TmdbClient(
      */
     fun imdbId(title: String, year: Int?, isMovie: Boolean, tmdbId: String?): String? {
         val key = settings.tmdbApiKey.value.trim()
-        if (key.isEmpty()) return null
+        if (key.isEmpty() && settings.tmdbReadToken.value.isBlank()) return null
         val id = tmdbId?.takeIf { it.isNotBlank() }
             ?: searchId(isMovie, searchTitle(title), year, key)
             ?: return null
@@ -104,14 +104,14 @@ class TmdbClient(
             .addPathSegment(if (isMovie) "movie" else "tv")
             .addPathSegment(id)
         if (!isMovie) builder.addPathSegment("external_ids")
-        builder.addQueryParameter("api_key", key)
+        builder.withKey(key)
         val o = get(builder.build())?.jsonObject ?: return null
         return o["imdb_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.startsWith("tt") }
     }
 
     private fun lookup(isMovie: Boolean, title: String, year: Int?, tmdbId: String?): TmdbMeta? {
         val key = settings.tmdbApiKey.value.trim()
-        if (key.isEmpty()) return null
+        if (key.isEmpty() && settings.tmdbReadToken.value.isBlank()) return null
         val query = searchTitle(title)
         if (query.isBlank() && tmdbId.isNullOrBlank()) return null
         val id = tmdbId?.takeIf { it.isNotBlank() } ?: searchId(isMovie, query, year, key) ?: return null
@@ -126,7 +126,7 @@ class TmdbClient(
             val b = TMDB_BASE.newBuilder()
                 .addPathSegment("search")
                 .addPathSegment(if (isMovie) "movie" else "tv")
-                .addQueryParameter("api_key", key)
+                .withKey(key)
                 .addQueryParameter("query", query)
                 .addQueryParameter("include_adult", "false")
             if (withYear && year != null) {
@@ -142,7 +142,7 @@ class TmdbClient(
         val url = TMDB_BASE.newBuilder()
             .addPathSegment(if (isMovie) "movie" else "tv")
             .addPathSegment(id)
-            .addQueryParameter("api_key", key)
+            .withKey(key)
             .addQueryParameter("append_to_response", "credits")
             .build()
         val o = get(url)?.jsonObject ?: return null
@@ -180,8 +180,16 @@ class TmdbClient(
         )
     }
 
+    private fun HttpUrl.Builder.withKey(key: String): HttpUrl.Builder = apply {
+        if (key.isNotBlank()) addQueryParameter("api_key", key)
+    }
+
     private fun get(url: HttpUrl): JsonElement? {
-        val request = Request.Builder().url(url).header("User-Agent", "OpenTV").build()
+        val requestBuilder = Request.Builder().url(url).header("User-Agent", "Koky-Sosy-Player")
+        settings.tmdbReadToken.value.takeIf { it.isNotBlank() }?.let {
+            requestBuilder.header("Authorization", "Bearer " + it)
+        }
+        val request = requestBuilder.build()
         return runCatching {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null

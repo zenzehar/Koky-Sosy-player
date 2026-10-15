@@ -1,30 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Android TV home-screen banner. Must be 320x180; the launcher does not letterbox.
-  Replace with real artwork before a public release.
--->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="320dp"
-    android:height="180dp"
-    android:viewportWidth="320"
-    android:viewportHeight="180">
-    <path
-        android:fillColor="#07080C"
-        android:pathData="M0,0h320v180h-320z" />
-    <path
-        android:strokeColor="#4B5DB8"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:pathData="M138,44 L152,58" />
-    <path
-        android:strokeColor="#4B5DB8"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:pathData="M166,44 L152,58" />
-    <path
-        android:fillColor="#7C93FF"
-        android:pathData="M112,58h80a10,10 0,0 1,10 10v44a10,10 0,0 1,-10 10h-80a10,10 0,0 1,-10 -10v-44a10,10 0,0 1,10 -10z" />
-    <path
-        android:fillColor="#07080C"
-        android:pathData="M142,74l26,16l-26,16z" />
+    android:width="320dp" android:height="180dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <path android:fillColor="#10132C" android:pathData="M0,0h320v180h-320z"/>
+    <path android:fillColor="#1E2A50" android:pathData="M10,10h300v160h-300z"/>
+    <path android:strokeColor="#67DFFF" android:strokeWidth="5" android:pathData="M26,24h268"/>
+    <path android:strokeColor="#F18CD7" android:strokeWidth="5" android:pathData="M26,153h268"/>
+    <path android:fillColor="#71E5F5"
+        android:pathData="M100,56h13v66h-13z M113,88l32,-32h17l-30,33l30,33h-18z"/>
+    <path android:fillColor="#F28DDA"
+        android:pathData="M214,56h-34c-21,0 -25,27 -1,33l19,5c13,3 11,15 -1,15h-28v13h32c36,0 35,-35 6,-41l-20,-4c-10,-2 -8,-9 2,-9h25z"/>
+    <path android:fillColor="#FFFFFF" android:pathData="M239,74l26,16l-26,16z"/>
 </vector>

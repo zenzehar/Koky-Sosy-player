@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
 
 @Composable
 fun TvNativeTextField(
@@ -64,7 +65,7 @@ fun TvNativeTextField(
     val frameColor = if (smartersStyle) Color(0xFFFFDB63) else Color(0xFF69DFF6)
     val bg = if (smartersStyle) Color(0xFFE6BDCB) else Color(0xFF171F36)
     val foreground = if (smartersStyle) Color(0xFF1A1520) else Color.White
-    val height = if (smartersStyle) 60.dp else 55.dp
+    val height = if (smartersStyle) 64.dp else 61.dp
 
     LaunchedEffect(initialFocus) {
         if (initialFocus && !editing) {
@@ -97,7 +98,10 @@ fun TvNativeTextField(
                 keyboardOptions = keyboardOptions,
                 visualTransformation = visualTransformation,
                 trailingIcon = trailingIcon,
-                textStyle = if (smartersStyle) TextStyle(fontSize = 20.sp) else TextStyle.Default,
+                textStyle = TextStyle(
+                    fontSize = if (smartersStyle) 20.sp else 17.sp,
+                    lineHeight = if (smartersStyle) 28.sp else 26.sp,
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = bg,
                     unfocusedContainerColor = bg,
@@ -144,6 +148,7 @@ fun TvNativeTextField(
                     color = if (value.isBlank()) foreground.copy(alpha = .63f) else foreground,
                     fontSize = if (smartersStyle) 20.sp else 17.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    lineHeight = if (smartersStyle) 28.sp else 26.sp,
                     modifier = Modifier.weight(1f),
                 )
                 if (trailingIcon != null) trailingIcon()
