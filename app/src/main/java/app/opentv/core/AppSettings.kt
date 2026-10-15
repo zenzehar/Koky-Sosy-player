@@ -403,7 +403,9 @@ class AppSettings private constructor(context: Context) {
      * credentials, used to fill in artwork/metadata a provider left blank. Blank = the TMDB
      * fallback is off. Each user brings their own key, so no single key carries everyone's traffic.
      */
-    private val _tmdbApiKey = MutableStateFlow(prefs.getString(KEY_TMDB_KEY, "").orEmpty())
+    private val _tmdbApiKey = MutableStateFlow(
+        prefs.getString(KEY_TMDB_KEY, app.opentv.BuildConfig.TMDB_DEFAULT_KEY).orEmpty()
+    )
     val tmdbApiKey: StateFlow<String> = _tmdbApiKey.asStateFlow()
 
     fun setTmdbApiKey(key: String) {
