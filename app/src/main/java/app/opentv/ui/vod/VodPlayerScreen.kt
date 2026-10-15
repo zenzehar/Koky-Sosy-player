@@ -151,7 +151,12 @@ fun VodPlayerScreen(
     val tracks by controller.tracks.collectAsState()
 
     var paused by remember { mutableStateOf(false) }
-    var usingVlc by remember(streamUrl) { mutableStateOf(false) }
+    // For HTTP IPTV VOD, use VLC first: Media3 frequently rejects provider containers.
+    // Growing/internal/SMB recordings retain Media3's specialised data sources.
+    var usingVlc by remember(streamUrl) { mutableStateOf(!growingRec && streamUrl.startsWith("http", true)) }
+    var vlcEverTried by remember(streamUrl) { mutableStateOf(usingVlc) }
+    var resumeLoaded by remember(mediaKey) { mutableStateOf(false) }
+    var resumeFromMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
     val panelFocus = remember { FocusRequester() }
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -168,8 +173,9 @@ fun VodPlayerScreen(
 
     suspend fun savePosition() {
         val player = controller.player
-        val pos = player.currentPosition
-        val dur = player.duration.takeIf { it > 0 } ?: return
+        val pos = if (usingVlc) positionMs else player.currentPosition
+        val dur = if (usingVlc) durationMs else player.duration.takeIf { it > 0 } ?: 0L
+        if (dur <= 0L) return
         if (pos > 5_000) {
             graph.playbackPositions.upsert(
                 app.opentv.data.model.PlaybackPosition(
@@ -192,28 +198,33 @@ fun VodPlayerScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.keepScreenOn = false
-            scope.launch { savePosition() }
+            // Do not cancel the pending final history write with the UI scope.
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { savePosition() }
             controller.release()
             scope.cancel()
         }
     }
 
     LaunchedEffect(mediaKey) {
-        val resumeFrom = graph.playbackPositions.get(settings.activeProfileId.value, mediaKey)
+        resumeFromMs = graph.playbackPositions.get(settings.activeProfileId.value, mediaKey)
             ?.takeIf { !it.isFinished }?.positionMillis ?: 0L
-        controller.play(
-            PlayerController.Request(
-                url = streamUrl,
-                title = title,
-                userAgent = userAgent,
-                startPositionMillis = resumeFrom,
-                isLive = false,
-            ),
-            debounce = false,
-        )
+        resumeLoaded = true
+    }
+    LaunchedEffect(mediaKey, usingVlc, resumeLoaded) {
+        if (!resumeLoaded) return@LaunchedEffect
+        if (!usingVlc) {
+            controller.play(
+                PlayerController.Request(
+                    url = streamUrl, title = title, userAgent = userAgent,
+                    startPositionMillis = if (positionMs > 0L) positionMs else resumeFromMs,
+                    isLive = false,
+                ),
+                debounce = false,
+            )
+        }
         while (isActive) {
             delay(15_000)
-            savePosition()
+            if (!usingVlc) savePosition()
         }
     }
 
@@ -221,10 +232,11 @@ fun VodPlayerScreen(
     // Stop Media3 before the native VLC view is attached. Never loop back automatically.
     LaunchedEffect(state, usingVlc) {
         val failure = state as? PlayerController.State.Error
-        if (!usingVlc && !growingRec &&
+        if (!usingVlc && !vlcEverTried && !growingRec &&
             failure?.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
         ) {
             controller.stop()
+            vlcEverTried = true
             usingVlc = true
         }
     }
@@ -242,7 +254,7 @@ fun VodPlayerScreen(
     // Poll position/duration for the seek bar while the film plays.
     LaunchedEffect(Unit) {
         while (isActive) {
-            if (!scrubbing) {
+            if (!scrubbing && !usingVlc) {
                 positionMs = controller.player.currentPosition.coerceAtLeast(0)
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
@@ -284,13 +296,31 @@ fun VodPlayerScreen(
         }
     }
 
-    if (usingVlc) {
+    if (usingVlc && resumeLoaded) {
         VlcFallbackScreen(
             streamUrl = streamUrl,
             title = title,
             userAgent = userAgent,
-            initialPositionMs = positionMs,
+            initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
             onBack = onBack,
+            onTryMedia3 = { usingVlc = false },
+            onProgress = { pos, dur ->
+                positionMs = pos
+                durationMs = dur
+                if (pos > 5_000L && dur > 0L) {
+                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                        graph.playbackPositions.upsert(
+                            app.opentv.data.model.PlaybackPosition(
+                                profileId = settings.activeProfileId.value,
+                                mediaKey = mediaKey,
+                                positionMillis = pos,
+                                durationMillis = dur,
+                                updatedAtMillis = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                }
+            },
         )
     } else Box(
         Modifier
