@@ -28,6 +28,15 @@ class SourceRepository(
         .followRedirects(true)
         .build()
 
+    /** Authenticate with Xtream and return the actual account expiry in milliseconds. */
+    suspend fun expiryMillis(source: Source): Result<Long?> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (source.kind == SourceKind.XTREAM) {
+                api.authenticate(source.copy(url = normaliseUrl(source.url, source.kind))).expiryMillis
+            } else null
+        }
+    }
+
     fun observeAll(): Flow<List<Source>> = dao.observeAll()
 
     suspend fun enabled(): List<Source> = dao.enabled()
