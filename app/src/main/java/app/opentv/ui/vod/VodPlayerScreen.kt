@@ -591,7 +591,7 @@ fun VodPlayerScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
-                        if (growingRec) seekRelative(-15_000) else controller.seekBackward(); interaction++
+                        if (growingRec) seekRelative(-10_000) else controller.seekBackward(); interaction++
                     }
                     Spacer(Modifier.width(10.dp))
                     VodChip(
@@ -605,7 +605,7 @@ fun VodPlayerScreen(
                     }
                     Spacer(Modifier.width(10.dp))
                     VodChip(Icons.Filled.FastForward, stringResource(R.string.player_forward)) {
-                        if (growingRec) seekRelative(15_000) else controller.seekForward(); interaction++
+                        if (growingRec) seekRelative(10_000) else controller.seekForward(); interaction++
                     }
                     Spacer(Modifier.width(20.dp))
                     VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {
