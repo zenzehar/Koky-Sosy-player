@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,8 +40,11 @@ fun PlaybackDiagnosticsDialog(
     afterCrash: Boolean = false,
 ) {
     var partIndex by remember(report) { mutableIntStateOf(0) }
-    // Both primary and fallback are exercised in real Android bitmap unit tests.
-    val qr = remember(report, partIndex) { DiagnosticQrEncoder.render(report, partIndex) }
+    var easierScan by remember(report) { mutableStateOf(false) }
+    // Both full report and low-density fallback are tested against Android Bitmaps.
+    val qr = remember(report, partIndex, easierScan) {
+        DiagnosticQrEncoder.render(report, partIndex, forceFallback = easierScan)
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -72,6 +76,11 @@ fun PlaybackDiagnosticsDialog(
                     contentDescription = "Scan to copy the sanitized diagnostic report",
                     modifier = Modifier.size(340.dp).background(Color.White).padding(5.dp),
                 )
+                if (!qr.fallback) {
+                    Button(onClick = { partIndex = 0; easierScan = true }) {
+                        Text("Use easier-to-scan QR (smaller parts)")
+                    }
+                }
                 if (qr.fallback) {
                     Text(
                         "Fallback QR part ${qr.partIndex + 1} of ${qr.partCount}. " +
