@@ -1,3 +1,14 @@
+## v0.1.10.9 real-TV QR diagnostic acceptance
+
+1. After installing, open **Settings > Playback > Show latest diagnostic QR** to test scanning before starting a movie. Scan with phone; result must start `KOKY-DIAG/1`. Do not report credentials (none are intentionally encoded).
+2. Reopen the problematic episode **اللعبة S01E05** in Native VLC. When the player freezes, press OK, navigate to **Diagnostics QR** on the second transport row, scan and paste raw decoded text here.
+3. If a dense QR does not scan on the phone, select **Use easier-to-scan QR (smaller parts)**. Scan **all numbered QR parts** with Next part/Previous part and paste them in order.
+4. If QR generation fails even in fallback, photograph the displayed **QR renderer error class** and the report text; the app must not silently hide the failure.
+5. After a sudden app exit, relaunch. A recovered crash or possible unclean-exit QR should appear; otherwise open Settings > Playback > Show latest diagnostic QR to retrieve the persisted previous report.
+6. Observe whether playback timer (native VLC reported position) stays at 0 while moving frames are visible; `VLC_STALL` currently tracks the playback clock, **not decoded video frame output**.
+7. Check remote focus, Back, menu responsiveness and app memory after scanning. The QR interface must not start an additional provider session.
+8. The original intermittent playback remains **unfixed** until physical-device testing proves otherwise. Screensaver still untested. Do not merge draft PR without approval.
+
 ## v0.1.10.8 QR diagnostic testing before/after playback faults
 
 1. From the TV app open **Settings > Playback > Native VLC defaults**. Select **Show latest diagnostic QR** to verify the dialog and QR appear. Scan with phone camera. The phone should display raw text beginning with `KOKY-DIAG/1`; copy all of it and paste into chat. Never paste separate IPTV credentials.

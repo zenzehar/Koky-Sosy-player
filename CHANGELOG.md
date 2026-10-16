@@ -1,3 +1,11 @@
+# v0.1.10.9 TV alpha — repair missing playback diagnostic QR
+
+**Real-TV failure confirmed:** On SDK 34 SDMC HAKO Pro, v0.1.10.8 showed `QR generation unavailable` while LibVLC playback still reported clock stall and one interruption. Source screenshot shows engine=NATIVE, playback duration=1855 seconds, position=0, VLC ready at 11s, clock-stall event at 18s. This is not evidence that the provider or RAM caused it.
+
+**Fix:** Replace untested in-dialog QR bitmap code with the app's already used phone-pairing QR renderer and a separate 480px RGB565/low-error-correction fallback for TVs where the primary code fails. All errors now display a safe exception **class name only**, not raw exception messages (which may contain credentials). Users can choose `Use easier-to-scan QR`; numbered fallback QR parts let the user scan the *entire* 950-character report without silently dropping events. 480px memory-bounded QR image; no extra permissions and no network upload. Add actual Android Bitmap → phone-readable ZXing round-trip tests using the exact report extracted from the user's photo, plus forced fallback and pagination tests.
+
+**Scope:** No LibVLC engine, seek, caching, provider URL or automatic playback changes; preserves native LibVLC 3.7.7 and the report recorder. User should capture diagnostic text after next stall to guide root-cause repair. This remains an unapproved alpha. Real playback and screensaver behaviour still require physical-TV acceptance.
+
 # v0.1.10.8 TV alpha — temporary QR playback/crash diagnostics
 
 **User-requested testing instrumentation**, to be removed from the final stable build, while investigating native VLC buffering on the same provider episode that standalone VLC and IPTV Smarters Pro play smoothly.
