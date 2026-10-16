@@ -23,6 +23,7 @@ object PlaybackDiagnostics {
     private const val SAVED = "recent_diagnostic"
     private const val CRASH = "last_fatal_diagnostic"
     private const val CRASH_PENDING = "crash_pending"
+    private const val ACTIVE_SESSION = "playback_session_in_progress"
     private const val MAX_EVENTS = 18
     private const val MAX_QR_CHARACTERS = 950
     private val installed = AtomicBoolean(false)
@@ -86,8 +87,13 @@ object PlaybackDiagnostics {
     fun event(context: Context, name: String, detail: Int = 0, persistNow: Boolean = false) {
         if (name !in allowedEventNames) return
         synchronized(lock) {
-            if (name == "VLC_BUFFER" && detail < 100) rebufferCount = maxOf(rebufferCount, detail / 1000)
             push("$name ${detail.coerceIn(-999_999, 999_999)}")
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (name == "VLC_START" || name == "MEDIA3_START") {
+                prefs.edit().putBoolean(ACTIVE_SESSION, true).commit()
+            } else if (name == "VLC_EXIT" || name == "MEDIA3_EXIT") {
+                prefs.edit().putBoolean(ACTIVE_SESSION, false).apply()
+            }
             val now = SystemClock.elapsedRealtime()
             // Buffering and stall reports survive ordinary Back and app-process death, while
             // normal progress events never write data to flash every half-second.
@@ -117,14 +123,22 @@ object PlaybackDiagnostics {
     }
 
     /** Crash wins over session report until user dismisses the recovered crash banner. */
-    fun recoveredCrash(context: Context): String? =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .takeIf { it.getBoolean(CRASH_PENDING, false) }
-            ?.getString(CRASH, null)
+    fun recoveredCrash(context: Context): String? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(CRASH_PENDING, false)) return prefs.getString(CRASH, null)
+        // SIGSEGV, native abort, force-stop and OS process reclamation cannot invoke our
+        // Java exception handler. An unclosed playback session is useful but NOT proof of crash.
+        if (prefs.getBoolean(ACTIVE_SESSION, false)) {
+            val last = prefs.getString(SAVED, null) ?: return null
+            return "POSSIBLE_UNCLEAN_EXIT=1 (not necessarily a crash)\n" + last.take(900)
+        }
+        return null
+    }
 
     fun acknowledgeCrash(context: Context) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(CRASH_PENDING, false).apply()
+            .edit().putBoolean(CRASH_PENDING, false)
+            .putBoolean(ACTIVE_SESSION, false).apply()
     }
 
     fun lastReport(context: Context): String = synchronized(lock) {
