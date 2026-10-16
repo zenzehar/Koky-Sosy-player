@@ -1,3 +1,13 @@
+## v0.1.10.7 LibVLC 3.7.7 A/B compatibility test
+
+Previous evidence: v0.1.10.6 using LibVLC 3.6.1 buffers/stalls in-game episode اللعبة S01E05; standalone VLC and IPTV Smarters Pro internal player are smooth on the same TV/network. This points to our embedded player. This build upgrades ONLY the embedded engine, preserving the previous controls and settings.
+
+1. Settings > Playback > **Native VLC defaults**, restart the exact episode **اللعبة S01E05** and watch for **10 minutes without seeking**. Note buffering banner / number of interruptions and whether playback remains smooth.
+2. Next test a different movie and episode, normal ±10 second seeks, long holds, resume, next episode, and rapid Back while video is starting.
+3. If it still freezes, select **Open in VLC app** from this specific embedded player and verify the exact stream URL handoff plays continuously in standalone VLC. This helps rule out provider URL construction.
+4. Installed debug signatures may differ between CI versions: back up profiles/settings/history before any uninstall. Prefer separate-device test if uncertain.
+5. Screensaver remains untested. Neither unit tests nor successful APK assembly confirms native playback on the TV.
+
 ## v0.1.10.6 standalone-VLC compatibility acceptance
 
 1. Keep the same troublesome episode: **اللعبة S01E05**, which plays smoothly in IPTV Smarters Pro internal player AND standalone VLC, but buffers in our v0.1.10.5 embedded LibVLC. Confirm this evidence before interpreting results.
