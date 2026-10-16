@@ -445,7 +445,10 @@ fun VodPlayerScreen(
                         durationMillis = dur,
                         updatedAtMillis = System.currentTimeMillis(),
                     )
-                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    // Reuse the screen-owned coroutine scope. The former code allocated a
+                    // new untracked SupervisorJob on every progress tick (every 10 seconds).
+                    // Final exit progress still uses the independent bounded onDispose save.
+                    scope.launch(Dispatchers.IO) {
                         runCatching { graph.playbackPositions.upsert(snapshot) }
                             .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
                     }
