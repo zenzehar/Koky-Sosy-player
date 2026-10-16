@@ -503,7 +503,7 @@
     <string name="settings_tmdb_save">Save key</string>
     <string name="settings_tmdb_saved">TMDB key saved</string>
     <string name="settings_tmdb_active">Active</string>
-    <string name="settings_playback_buffer_help">Buffer size applies to Media3 and Tuned VLC mode on the next video. Native VLC uses VLC's default caching.</string>
+    <string name="settings_playback_buffer_help">Buffer size applies to Media3 and Tuned VLC mode on the next video. Native VLC uses the built-in cache settings.</string>
     <string name="settings_buffer_fast">Fast start (1.5 s VLC cache)</string>
     <string name="settings_buffer_balanced">Balanced (5 s VLC cache) · Recommended</string>
     <string name="settings_buffer_stable">Stable (8 s VLC cache)</string>
