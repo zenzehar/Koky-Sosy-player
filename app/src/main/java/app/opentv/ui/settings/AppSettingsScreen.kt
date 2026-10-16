@@ -46,6 +46,7 @@ import android.widget.Toast
 import app.opentv.R
 import app.opentv.core.AppSettings
 import app.opentv.player.PlaybackBufferPreset
+import app.opentv.player.VlcPlaybackMode
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.data.work.SyncWorker
@@ -72,6 +73,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val seriesEnabled by settings.seriesEnabled.collectAsState()
     val refreshHours by settings.catalogueRefreshHours.collectAsState()
     val playbackBuffer by settings.playbackBufferPreset.collectAsState()
+    val vlcMode by settings.vlcPlaybackMode.collectAsState()
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -215,6 +217,22 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            Text(
+                stringResource(R.string.settings_vlc_mode_help),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            BufferPresetRow(
+                label = stringResource(R.string.settings_vlc_mode_native),
+                selected = vlcMode == VlcPlaybackMode.NATIVE,
+                onSelect = { settings.setVlcPlaybackMode(VlcPlaybackMode.NATIVE) },
+            )
+            BufferPresetRow(
+                label = stringResource(R.string.settings_vlc_mode_tuned),
+                selected = vlcMode == VlcPlaybackMode.TUNED,
+                onSelect = { settings.setVlcPlaybackMode(VlcPlaybackMode.TUNED) },
+            )
+            Spacer(Modifier.height(10.dp))
             Text(
                 stringResource(R.string.settings_playback_buffer_help),
                 style = MaterialTheme.typography.bodyMedium,
