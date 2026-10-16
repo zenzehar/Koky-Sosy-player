@@ -314,10 +314,22 @@ fun VlcFallbackScreen(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
+                val direction = when (event.key) {
+                    Key.DirectionLeft -> SeekDirection.BACKWARD
+                    Key.DirectionRight -> SeekDirection.FORWARD
+                    else -> null
+                }
+                // Capture the matching release before focus is re-targeted by the controls.
+                // One hold => one native seek, even when it started with controls hidden.
+                if (event.type == KeyEventType.KeyUp && direction != null &&
+                    seekHeldDirection == direction) {
+                    if (scrubbing) seekTo(previewMs)
+                    scrubbing = false
+                    seekHeldDirection = null
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (controlsVisible) {
-                    // Always allow Up to select timeline, and Down to return to transport.
-                    // Do not rely solely on spatial focus traversal between Compose rows.
                     when (event.key) {
                         Key.DirectionUp -> {
                             if (!timelineFocused) { seekFocus.requestFocus(); showControls(); true }
@@ -333,16 +345,17 @@ fun VlcFallbackScreen(
                         }
                     }
                 } else when (event.key) {
-                    Key.DirectionLeft -> {
-                        if (event.nativeKeyEvent.repeatCount == 0) seekTo(
-                            (if (pendingSeekPreview) previewMs else positionMs) - 10_000L,
-                        )
-                        true
-                    }
-                    Key.DirectionRight -> {
-                        if (event.nativeKeyEvent.repeatCount == 0) seekTo(
-                            (if (pendingSeekPreview) previewMs else positionMs) + 10_000L,
-                        )
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        if (event.nativeKeyEvent.repeatCount == 0 && direction != null &&
+                            ready && durationMs > 0L &&
+                            runCatching { player.isSeekable }.getOrDefault(false)) {
+                            seekOriginMs = if (pendingSeekPreview) previewMs else positionMs
+                            seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
+                            seekHeldDirection = direction
+                            previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                            scrubbing = true
+                        }
+                        showControls()
                         true
                     }
                     Key.DirectionUp, Key.DirectionDown, Key.Enter, Key.DirectionCenter -> {
