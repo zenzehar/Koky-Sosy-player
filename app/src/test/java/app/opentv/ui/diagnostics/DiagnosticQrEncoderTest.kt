@@ -51,6 +51,17 @@ class DiagnosticQrEncoderTest {
         assertEquals(report, decoded(image.bitmap!!))
     }
 
+    @Test fun userCanForceEasierScanModeEvenWhenFullQrWouldWork() {
+        val source = "KOKY-DIAG/1\\nengine=VLC\\nevents=0s:VLC_READY 0"
+        val fallback = DiagnosticQrEncoder.render(source, forceFallback = true)
+        assertTrue(fallback.fallback)
+        assertEquals(1, fallback.partCount)
+        assertNotNull(fallback.bitmap)
+        val text = decoded(fallback.bitmap!!)
+        assertTrue(text.startsWith("KOKY-PART 1/1"))
+        assertTrue(text.contains(source))
+    }
+
     @Test fun paginationFallbackPreservesReportRatherThanSilentlyDiscardingEvents() {
         val report = "KOKY-DIAG/1\n" + (1..29).joinToString("|") {
             "${it}s:VLC_BUFFER ${it % 100}"
