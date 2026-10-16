@@ -22,8 +22,14 @@ class TvSeekPolicyTest {
     }
     @Test fun longHoldUsesThreefoldAccelerationWithoutChangingTapStep() {
         assertEquals(10_000L, TvSeekPolicy.tap(0L, 2_000_000L, SeekDirection.FORWARD))
-        assertEquals(602_400L,
+        assertEquals(158_000L,
             TvSeekPolicy.heldPreview(0L, 5_000L, SeekDirection.FORWARD, 2_000_000L))
+    }
+
+    @Test fun fiveSecondHoldAvoidsUnboundedTenMinuteLeap() {
+        val p = TvSeekPolicy.heldPreview(0L, 5_000L, SeekDirection.FORWARD, 3_600_000L)
+        assertEquals(158_000L, p)
+        assertTrue(p < 180_000L)
     }
 
     @Test fun heldPreviewClampsToDuration() {
