@@ -19,14 +19,10 @@ object TvSeekPolicy {
         durationMs: Long?,
     ): Long {
         val elapsed = (holdElapsedMs - HOLD_THRESHOLD_MS).coerceAtLeast(0L)
-        // Smooth, deliberately bounded acceleration: long holds should not jump ten minutes
-        // with one gesture and then stall providers that cannot seek across large keyframe gaps.
         val delta = when {
-            elapsed <= 2_000L -> elapsed * 25L
-            elapsed <= 5_000L -> 50_000L + (elapsed - 2_000L) * 45L
-            else -> 185_000L + (elapsed - 5_000L).coerceAtMost(
-                (Long.MAX_VALUE - 185_000L) / 65L,
-            ) * 65L
+            elapsed <= 900L -> elapsed * 36L
+            elapsed <= 3_400L -> 32_400L + (elapsed - 900L) * 120L
+            else -> 332_400L + (elapsed - 3_400L).coerceAtMost(Long.MAX_VALUE / 270L) * 270L
         }
         return relative(originalPositionMs, direction, delta, durationMs)
     }
