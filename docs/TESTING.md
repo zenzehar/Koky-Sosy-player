@@ -1,3 +1,13 @@
+## v0.1.10.6 standalone-VLC compatibility acceptance
+
+1. Keep the same troublesome episode: **اللعبة S01E05**, which plays smoothly in IPTV Smarters Pro internal player AND standalone VLC, but buffers in our v0.1.10.5 embedded LibVLC. Confirm this evidence before interpreting results.
+2. Choose **Settings > Playback > Native VLC defaults (recommended)**, then reopen the episode, avoid seeking, watch 10 minutes. Report continuous time and interruption counter. The mode intentionally ignores manual VLC cache values but retains explicitly customised provider UA.
+3. For a controlled comparison, use **Settings > Playback > Tuned VLC**, reopen the exact same episode and test for 5 minutes. Document A/B outcome; avoid concurrent player/provider connections.
+4. If Native still freezes, choose **Open in VLC app** from player controls. VLC should launch that episode, and our embedded stream should close before handoff. This is a usable temporary workaround but external VLC does not share native resume/autoplay.
+5. Press Back early after playback begins, navigate through seasons, play/seek/exit five times and check saved resume. Test Arabic titles and focus on a remote.
+6. If both embedded modes fail and standalone succeeds, inspect the native libvlc version/device decoder, HTTP headers and input stats. Don't blame the provider or simply keep raising cache without evidence. Capture redacted logcat; URLs embed credentials.
+7. Screensaver remains UNTESTED. No merge or milestone approval solely on CI.
+
 ## v0.1.10.5 continuous playback diagnostic acceptance tests
 
 1. Select **Balanced (5-second VLC cache)** in Settings > Playback, then play one previously stuttering VOD movie/episode for ten minutes **without seeking**. Note the number of freezes and whether the top banner displays "Buffering XX% · interruptions: N". This represents native VLC input-buffer events, not a measurement of network throughput.
