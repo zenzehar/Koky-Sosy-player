@@ -1,3 +1,19 @@
+## v0.1.10.4 playback stress-testing (USER ACCEPTANCE REQUIRED)
+
+Test **without uninstalling the prior version** if signing permits. If Android reports conflicting signatures, do not remove the old app until playlists/settings/history are backed up. Never infer device testing from CI.
+
+1. Start a movie, press Back during spinner/before first frame, repeat 20×. Repeat with series S01E03 and a different season; focus returns without crash.
+2. Play 2–5 min, exit, verify resume. Seek forward/back 10 s ten times, and do 1s, 3s and 5s D-pad holds on focused timeline. A single hold must issue ONE native seek on release and never jump ten minutes unexpectedly.
+3. While seek/rebuffer is active, send repeated Right/Left/Back quickly. Controls should respond, native seek requests should coalesce, and Back should exit safely. Saved resume must not incorrectly use a preview timestamp.
+4. Seek near the end and towards the middle of multiple provider movies and episodes (MP4, MKV, TS/HLS where available). Native VLC seek failure may still need the **Try Media3** button; note if fallback plays/decodes successfully.
+5. Pause intentionally for 20 seconds. Seek while paused and resume manually. No background recovery should override user Pause.
+6. Switch Settings > Playback buffers between Fast, Balanced, Stable and Large; each selection stays saved after app restart and applies on NEXT playback. Compare start latency, buffering, memory/heat, video/audio and long viewing.
+7. On an older/lower-RAM Fire TV, keep playback running for 1 hour, repeat playback/back 30× and monitor memory. No runaway allocation, frozen UI, accumulated player surfaces or increasing startup delay.
+8. Smoke test Live preview, guide return, subtitle/audio pickers, cast, Continue Watching and QR management. Screensaver remains UNTESTED.
+9. On crash, record **redacted** Android logcat and exact video/provider format. Do not record provider credentials/URLs.
+
+Automated validation: playback buffer preset tests, seek policy tests, existing Android unit tests and debug APK assemble; these DO NOT replace physical video-decoder testing.
+
 ## v0.1.10.3 physical Fire TV / Android TV regression plan
 
 - Open a movie/series episode then press Back during loading, before first frame. Reopen and repeat 20 times. No crash and no blank/stuck surface.
