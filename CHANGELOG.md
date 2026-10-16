@@ -1,3 +1,23 @@
+# v0.1.11.0 TV test — v0.1.9 playback restored, modern features preserved
+
+**Purpose:** User asked to branch the latest feature-rich app, retaining all non-playback enhancements but reverting playback to its last uncontested working version. v0.1.10.3 acceptance was later explicitly withdrawn, so the baseline is **milestone/v0.1.9-tv-approved** at `72347c8dc5102ad3c937fd1a4cfa1f8199506c85`.
+
+## Playback rollback
+- Exact v0.1.9 native LibVLC startup, HTTP UA, default **1400 ms** VLC cache, hardware decoder override, event handling, native seek and progress code restored in `VlcFallbackScreen.kt`.
+- Embedded LibVLC dependency downgraded from **3.7.7 to 3.6.1**, matching v0.1.9.
+- Restored original v0.1.9 D-pad tap/long-press seek policy and matching original tests.
+- Kept only compatibility shims required by the newer app: existing `suspendPlayback` screensaver pause parameter, passive read-only buffering/error logging, `Diagnostics QR` capture and explicit standalone VLC handoff. No newer playback watchdog, automatic stop/play recovery, seek coalescing or native configuration overrides are carried into the restored VLC player.
+- Modern Media3 backend for Live/DVR/recordings stays intact to avoid unintentionally regressing those subsystems. Xtream stream URL construction and other provider code stays unchanged.
+- The v0.1.9 VLC renderer deliberately uses historical **1400 ms** caching, regardless of newer buffer preset UI. That setting remains functional for Media3; this experiment does NOT claim per-profile VLC buffer tuning is active.
+
+## Still retained
+- Full modern categories, cast filmography and metadata caching, Continue Watching, per-episode resume database, newest title/episode screens, screen layouts, multi-profile, QR manager, TV remote focus, app settings, Arabic UI, active playback/crash diagnostics and GitHub build pipeline.
+- Prior checkpoints and unmerged draft PRs untouched; this is a separate hybrid branch, not a replacement of main.
+
+## Acceptance
+- User must test the exact troublesome episode **اللعبة S01E05** without seeking for 10–20 minutes; then repeated +/-10s seeks, long presses, immediate Back, episode auto-continuation and resume.
+- Screensaver still **UNTESTED**. This is **NOT** an approved milestone merely because GitHub CI passes.
+
 # v0.1.10.9 TV alpha — repair missing playback diagnostic QR
 
 **Real-TV failure confirmed:** On SDK 34 SDMC HAKO Pro, v0.1.10.8 showed `QR generation unavailable` while LibVLC playback still reported clock stall and one interruption. Source screenshot shows engine=NATIVE, playback duration=1855 seconds, position=0, VLC ready at 11s, clock-stall event at 18s. This is not evidence that the provider or RAM caused it.
