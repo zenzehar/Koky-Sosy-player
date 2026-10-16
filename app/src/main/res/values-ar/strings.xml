@@ -437,8 +437,8 @@
     <string name="settings_tmdb_saved">تم حفظ مفتاح TMDB</string>
     <string name="settings_tmdb_active">نشط</string>
     <string name="settings_playback_buffer_help">إعداد التخزين المؤقت للشبكة (يطبق عند تشغيل الفيديو التالي). الخيارات الأكبر قد تقلل التقطيع لكنها أبطأ في البدء وتستخدم ذاكرة أكثر، ولا تصلح أعطال البحث في بث المزود.</string>
-    <string name="settings_buffer_fast">بدء سريع (٠٫٩ ثانية في VLC)</string>
-    <string name="settings_buffer_balanced">متوازن (١٫٨ ثانية في VLC) · موصى به</string>
-    <string name="settings_buffer_stable">ثابت (٣٫٥ ثوانٍ في VLC)</string>
-    <string name="settings_buffer_large">كبير (٦٫٥ ثوانٍ في VLC) · استهلاك ذاكرة أعلى</string>
+    <string name="settings_buffer_fast">بدء سريع (١٫٥ ثانية في VLC)</string>
+    <string name="settings_buffer_balanced">متوازن (٥ ثوانٍ في VLC) · موصى به</string>
+    <string name="settings_buffer_stable">ثابت (٨ ثوانٍ في VLC)</string>
+    <string name="settings_buffer_large">كبير (١٢ ثانية في VLC) · استهلاك ذاكرة أعلى</string>
 </resources>
