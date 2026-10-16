@@ -1,3 +1,14 @@
+## v0.1.10.5 continuous playback diagnostic acceptance tests
+
+1. Select **Balanced (5-second VLC cache)** in Settings > Playback, then play one previously stuttering VOD movie/episode for ten minutes **without seeking**. Note the number of freezes and whether the top banner displays "Buffering XX% · interruptions: N". This represents native VLC input-buffer events, not a measurement of network throughput.
+2. If freezing persists, switch to **Stable (8-second VLC cache)** and restart the SAME title. Compare startup delay, uninterrupted watch time and native buffering count. Do not assume high buffer is always better for low-RAM Firesticks.
+3. If the picture freezes without native Buffering status but displays "Playback stalled without VLC buffering", test manual Try Media3. It may fail with an unsupported container; report the precise error code instead of credential-bearing URLs.
+4. Repeat on another provider stream or quality tier if available to isolate stream-specific server bitrate/codec behaviour.
+5. Retry VLC only as an explicit user command; during normal playback no watchdog should repeatedly pause/play or stop/play.
+6. Run seek / resume / rapid Back regression tests from v0.1.10.4. Check saved position integrity across ordinary and frozen exits.
+7. Screensaver remains UNTESTED. Capture redacted logcat around native Buffering/MediaCodec only if further source-level diagnosis is required.
+8. GitHub CI passing is NOT hardware-playback acceptance.
+
 ## v0.1.10.4 playback stress-testing (USER ACCEPTANCE REQUIRED)
 
 Test **without uninstalling the prior version** if signing permits. If Android reports conflicting signatures, do not remove the old app until playlists/settings/history are backed up. Never infer device testing from CI.

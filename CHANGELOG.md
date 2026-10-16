@@ -1,3 +1,14 @@
+# v0.1.10.5 TV alpha — continuous playback interruption mitigation
+
+- User reported cyclic play / pause / play and increasing buffering on v0.1.10.4.
+- Raised native VLC caches for Fast/Balanced/Stable/Large to 1.5/5/8/12 seconds respectively; longer caches may increase memory demand and startup delay.
+- Added LibVLC native Buffering event telemetry and an unobtrusive count of interruptions, distinct from a timestamp stall when no buffering is signalled. Native event instrumentation does not prove video-frame output.
+- Enabled VLC 3.x HTTP reconnect on HTTP/HTTPS VOD media.
+- Removed automatic VLC pause/play and stop/play recovery steps during network/seek stalls. These can prolong starvation and release/reinitialise decoder resources while the provider is already reconnecting.
+- Added an explicit Retry VLC option and retained Try Media3 fallback on the TV transport controls.
+- New unit tests cover native buffering detection, long-stalled playback, and startup/non-rebuffer events. Prior tests and existing cast, resume, and navigation are preserved.
+- Physical-device validation and screensaver outcome are PENDING. Not an accepted milestone.
+
 # v0.1.10.4 TV alpha — playback and seek stability audit (UNVERIFIED ON TV)
 
 User withdrew the physical-test approval previously recorded for v0.1.10.3 due to numerous playback/seek faults. The old branch is now a source snapshot, NOT a quality signoff. Never merge this alpha without new TV testing.
