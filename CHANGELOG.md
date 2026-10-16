@@ -1,3 +1,13 @@
+# v0.1.10.7 TV alpha — embedded LibVLC engine-only comparison
+
+**Failed previous real-TV test:** v0.1.10.6 Native VLC settings repeatedly stalled/buffered (photo: Buffering 8% · interruptions: 2); user also observed playback stalled without buffering. The same episode plays smoothly using IPTV Smarters Pro and standalone VLC on the same TV and network. Our embedded playback implementation is the main suspect.
+
+**One functional change:** upgraded embedded org.videolan.android:libvlc-all from **3.6.1** to stable **3.7.7** (October 2026). This tests whether the newer engine's demuxing, decoder and HTTP internals behave more like the working standalone VLC. Native/Tuned VLC modes and manual external VLC handoff are unchanged. No cache, User-Agent, seek, UI, or provider-URL changes.
+
+**Distribution:** The repo-owned alpha branch's successful GitHub CI attempts to publish an explicitly unapproved prerelease APK asset, so the user can download an APK directly from GitHub. Debug signing remains per-CI and can block in-place upgrades.
+
+**Acceptance:** test the identical troublesome episode in Native VLC for at least 10 minutes without seeking; compare interruption counts and stalls. If failing again, use external VLC for immediate playback and collect redacted input/decoder telemetry. Screensaver remains untested. Draft PR, no merge or milestone until real-TV approval.
+
 # v0.1.10.6 TV alpha — native VLC compatibility and standalone VLC fallback
 
 ## Evidence-based scope
