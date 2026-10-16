@@ -503,9 +503,12 @@
     <string name="settings_tmdb_save">Save key</string>
     <string name="settings_tmdb_saved">TMDB key saved</string>
     <string name="settings_tmdb_active">Active</string>
-    <string name="settings_playback_buffer_help">Network buffer preset (applies to the next playback). Larger buffers can reduce interruptions but start slower and use more memory. Not a guarantee against provider seeking faults.</string>
+    <string name="settings_playback_buffer_help">Buffer size applies to Media3 and Tuned VLC mode on the next video. Native VLC uses VLC's default caching.</string>
     <string name="settings_buffer_fast">Fast start (1.5 s VLC cache)</string>
     <string name="settings_buffer_balanced">Balanced (5 s VLC cache) · Recommended</string>
     <string name="settings_buffer_stable">Stable (8 s VLC cache)</string>
     <string name="settings_buffer_large">Large (12 s VLC cache) · Higher memory use</string>
+    <string name="settings_vlc_mode_help">VLC mode affects the next video. Native uses the same defaults as standalone VLC; Tuned enables custom cache and HTTP options.</string>
+    <string name="settings_vlc_mode_native">Native VLC defaults (recommended)</string>
+    <string name="settings_vlc_mode_tuned">Tuned VLC (manual buffering)</string>
 </resources>
