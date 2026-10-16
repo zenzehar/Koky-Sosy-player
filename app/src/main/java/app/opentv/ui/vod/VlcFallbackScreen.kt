@@ -66,6 +66,7 @@ import kotlin.math.max
 import kotlin.math.min
 import java.util.concurrent.atomic.AtomicBoolean
 import app.opentv.player.VlcSeekWatchdog
+import app.opentv.player.VlcPlaybackHealth
 
 /** Native VLC is the first VOD choice. Media3 remains an explicitly bounded alternative. */
 @Composable
@@ -97,6 +98,10 @@ fun VlcFallbackScreen(
     val released = remember(streamUrl) { AtomicBoolean(false) }
     val exitRequested = remember(streamUrl) { AtomicBoolean(false) }
     val seekWatchdog = remember(streamUrl) { VlcSeekWatchdog() }
+    val playbackHealth = remember(streamUrl) { VlcPlaybackHealth() }
+    var healthSnapshot by remember(streamUrl) {
+        mutableStateOf(VlcPlaybackHealth.Snapshot(VlcPlaybackHealth.State.STARTING, 0, 0))
+    }
     var recoveryMessage by remember(streamUrl) { mutableStateOf<String?>(null) }
     // Native seeks are serialized. A later D-pad command supersedes queued commands instead of
     // overwhelming a decoder with dozens of seeks while recovering from the first one.
@@ -160,7 +165,21 @@ fun VlcFallbackScreen(
         player.setEventListener { event ->
             if (!released.get()) when (event.type) {
                 MediaPlayer.Event.Playing -> scope.launch {
-                    if (!released.get()) { ready = true; failed = false; paused = false }
+                    if (!released.get()) {
+                        playbackHealth.onPlaying(android.os.SystemClock.elapsedRealtime())
+                        ready = true
+                        failed = false
+                        paused = false
+                    }
+                }
+                MediaPlayer.Event.Buffering -> {
+                    // LibVLC may emit native callbacks off the main/UI thread.
+                    val percent = event.getBuffering()
+                    scope.launch {
+                        if (!released.get()) playbackHealth.onBuffering(
+                            percent, android.os.SystemClock.elapsedRealtime(),
+                        )
+                    }
                 }
                 MediaPlayer.Event.EncounteredError -> scope.launch {
                     if (!released.get()) { failed = true; ready = false; showControls() }
@@ -202,6 +221,10 @@ fun VlcFallbackScreen(
                 val length = player.length
                 if (length > 0L) durationMs = length
                 val nativeTime = player.time.coerceAtLeast(0L)
+                val tick = android.os.SystemClock.elapsedRealtime()
+                healthSnapshot = playbackHealth.sample(
+                    tick, nativeTime, player.isPlaying, paused,
+                )
                 if (!scrubbing) positionMs = nativeTime
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
                     initialSeekPending = false
@@ -216,24 +239,21 @@ fun VlcFallbackScreen(
                 }
                 if (ready && !scrubbing && !ended) {
                     when (seekWatchdog.observe(
-                        android.os.SystemClock.elapsedRealtime(), nativeTime, !paused,
+                        tick, nativeTime, !paused && !playbackHealth.networkBuffering,
                     )) {
                         VlcSeekWatchdog.Action.NUDGE -> {
-                            android.util.Log.w("VlcFallbackScreen", "Seek not advancing; nudging VLC")
-                            if (player.isPlaying) player.pause()
-                            player.play()
+                            // Never pause/play a decoder while network input is buffering.
+                            // The old recovery actively amplified normal rebuffering.
+                            recoveryMessage = "Seek is taking longer than expected. Buffering may recover."
+                            showControls()
                         }
                         VlcSeekWatchdog.Action.RESTART -> {
-                            android.util.Log.w("VlcFallbackScreen", "VLC seek stalled, one recovery restart")
-                            queuedSeekTarget = null // Never repeat a known failing seek automatically.
+                            // Let VLC/HTTP reconnect. Never automatically stop/restart the stream,
+                            // especially while the provider is struggling to fill its cache.
+                            queuedSeekTarget = null
                             pendingSeekPreview = false
-                            initialSeekPending = false
-                            ready = false
-                            failed = false
-                            recoveryMessage = "Seek could not recover. Restarting the stream. You can switch to Media3 below."
+                            recoveryMessage = "Seek not responding. Try Media3 or Retry VLC."
                             showControls()
-                            player.stop()
-                            player.play() // One view owner; do not re-attach the surface.
                         }
                         else -> Unit
                     }
@@ -379,6 +399,11 @@ fun VlcFallbackScreen(
                     media.setHWDecoderEnabled(true, false)
                     media.addOption(":http-user-agent=$userAgent")
                     media.addOption(":network-caching=${bufferPreset.vlcNetworkCacheMs}")
+                    // VLC 3.x HTTP input reconnect defaults off; allow it to recover a
+                    // transient server socket drop without restarting the media player.
+                    if (streamUrl.startsWith("http", ignoreCase = true)) {
+                        media.addOption(":http-reconnect")
+                    }
                     player.media = media
                     media.release()
                     player.play()
@@ -399,6 +424,23 @@ fun VlcFallbackScreen(
         )
         if (!ready && !failed && !ended) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        }
+        if (!failed && !ended && (
+            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING ||
+            healthSnapshot.state == VlcPlaybackHealth.State.STALLED
+        )) {
+            Text(
+                text = when (healthSnapshot.state) {
+                    VlcPlaybackHealth.State.BUFFERING ->
+                        "Buffering ${healthSnapshot.bufferPercent}% · interruptions: ${healthSnapshot.interruptions}"
+                    else -> "Playback stalled without VLC buffering · Try Media3 or Retry VLC"
+                },
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.82f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                color = Color.White,
+            )
         }
         if (failed) {
             Column(
@@ -562,6 +604,16 @@ fun VlcFallbackScreen(
                     }
                     TvVlcButton("+10s", enabled = ready && player.isSeekable) {
                         seekTo((if (pendingSeekPreview) previewMs else positionMs) + 10_000L)
+                    }
+                    TvVlcButton("Retry VLC") {
+                        if (!released.get()) {
+                            seekWatchdog.reset()
+                            queuedSeekTarget = null
+                            recoveryMessage = null
+                            ready = false
+                            player.stop()
+                            player.play()
+                        }
                     }
                     TvVlcButton("Try Media3", onClick = onTryMedia3)
                     TvVlcButton("Back", onClick = ::exitOnce)
