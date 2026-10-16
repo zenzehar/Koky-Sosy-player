@@ -70,6 +70,8 @@ import app.opentv.player.VlcSeekWatchdog
 import app.opentv.player.VlcPlaybackHealth
 import app.opentv.player.VlcPlaybackMode
 import app.opentv.player.VlcPlaybackPolicy
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 import app.opentv.data.model.Source
 
 /** Native VLC is the first VOD choice. Media3 remains an explicitly bounded alternative. */
@@ -107,6 +109,8 @@ fun VlcFallbackScreen(
     var healthSnapshot by remember(streamUrl) {
         mutableStateOf(VlcPlaybackHealth.Snapshot(VlcPlaybackHealth.State.STARTING, 0, 0))
     }
+    var showDiagnosticQr by remember(streamUrl) { mutableStateOf(false) }
+    var diagnosticText by remember(streamUrl) { mutableStateOf("") }
     var recoveryMessage by remember(streamUrl) { mutableStateOf<String?>(null) }
     // Native seeks are serialized. A later D-pad command supersedes queued commands instead of
     // overwhelming a decoder with dozens of seeks while recovering from the first one.
@@ -159,6 +163,7 @@ fun VlcFallbackScreen(
             return
         }
         lastNativeSeekTime = now
+        PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt(), persistNow = true)
         // A successful seek can go backwards. Forget the old monotonic position so a later
         // confirmed lower timestamp can become the new correct resume point.
         lastConfirmedPositionMs = 0L
@@ -166,8 +171,16 @@ fun VlcFallbackScreen(
         showControls()
     }
 
+    fun showDiagnostics() {
+        PlaybackDiagnostics.event(context, "REPORT", persistNow = true)
+        diagnosticText = PlaybackDiagnostics.capture(context)
+        showDiagnosticQr = true
+        showControls()
+    }
+
     fun openExternalVlc() {
         if (released.get() || exitRequested.get()) return
+        PlaybackDiagnostics.event(context, "VLC_EXTERNAL", persistNow = true)
         // Package-restricted intent: only the VLC application receives the stream URL.
         // Stop the internal decoder/socket first to avoid two sessions on a one-stream account.
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -193,11 +206,14 @@ fun VlcFallbackScreen(
     }
 
     DisposableEffect(player) {
+        PlaybackDiagnostics.begin("VLC", vlcMode.name)
+        PlaybackDiagnostics.event(context, "VLC_START", persistNow = true)
         player.setEventListener { event ->
             if (!released.get()) when (event.type) {
                 MediaPlayer.Event.Playing -> scope.launch {
                     if (!released.get()) {
                         playbackHealth.onPlaying(android.os.SystemClock.elapsedRealtime())
+                        PlaybackDiagnostics.event(context, "VLC_READY")
                         ready = true
                         failed = false
                         paused = false
@@ -213,11 +229,17 @@ fun VlcFallbackScreen(
                     }
                 }
                 MediaPlayer.Event.EncounteredError -> scope.launch {
-                    if (!released.get()) { failed = true; ready = false; showControls() }
+                    if (!released.get()) {
+                        PlaybackDiagnostics.event(context, "VLC_ERROR", persistNow = true)
+                        failed = true
+                        ready = false
+                        showControls()
+                    }
                 }
                 MediaPlayer.Event.EndReached -> scope.launch {
                     if (!released.get()) {
                         if (!ended) {
+                            PlaybackDiagnostics.event(context, "VLC_END", persistNow = true)
                             ended = true
                             onProgress(durationMs, durationMs)
                             onEnded()
@@ -228,6 +250,7 @@ fun VlcFallbackScreen(
             }
         }
         onDispose {
+            PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
             // The AndroidView can still own a native surface during composition disposal.
             // Its onRelease is the sole owner of stop/detach/release.
             runCatching { player.setEventListener(null) }
@@ -247,6 +270,7 @@ fun VlcFallbackScreen(
 
     LaunchedEffect(player) {
         var lastSaved = 0L
+        var lastHealthState = VlcPlaybackHealth.State.STARTING
         while (isActive && !released.get()) {
             runCatching {
                 val length = player.length
@@ -256,6 +280,20 @@ fun VlcFallbackScreen(
                 healthSnapshot = playbackHealth.sample(
                     tick, nativeTime, player.isPlaying, paused,
                 )
+                PlaybackDiagnostics.sample(nativeTime, durationMs, healthSnapshot.interruptions)
+                if (healthSnapshot.state != lastHealthState) {
+                    when (healthSnapshot.state) {
+                        VlcPlaybackHealth.State.BUFFERING ->
+                            PlaybackDiagnostics.event(
+                                context, "VLC_BUFFER",
+                                healthSnapshot.bufferPercent, persistNow = true,
+                            )
+                        VlcPlaybackHealth.State.STALLED ->
+                            PlaybackDiagnostics.event(context, "VLC_STALL", persistNow = true)
+                        else -> Unit
+                    }
+                    lastHealthState = healthSnapshot.state
+                }
                 if (!scrubbing) positionMs = nativeTime
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
                     initialSeekPending = false
@@ -488,6 +526,7 @@ fun VlcFallbackScreen(
                 TvVlcButton("Retry VLC") { failed = false; ended = false; player.play() }
                 TvVlcButton("Try Media3 instead", onClick = onTryMedia3)
                 TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
+                TvVlcButton("Diagnostics QR", onClick = ::showDiagnostics)
                 TvVlcButton("Back to title", onClick = ::exitOnce)
             }
         }
@@ -661,13 +700,23 @@ fun VlcFallbackScreen(
                             player.play()
                         }
                     }
-                    TvVlcButton("Try Media3", onClick = onTryMedia3)
+                    TvVlcButton("Try Media3", onClick = {
+                        PlaybackDiagnostics.event(context, "VLC_TO_MEDIA3", persistNow = true)
+                        onTryMedia3()
+                    })
                     TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
+                    TvVlcButton("Diagnostics QR", onClick = ::showDiagnostics)
                 }
                 if (recoveryMessage != null) Text(recoveryMessage.orEmpty(), color = Color.White)
                 if (ended) Text("Playback finished", color = Color.White)
             }
         }
+    }
+    if (showDiagnosticQr) {
+        PlaybackDiagnosticsDialog(
+            report = diagnosticText,
+            onDismiss = { showDiagnosticQr = false },
+        )
     }
 }
 
