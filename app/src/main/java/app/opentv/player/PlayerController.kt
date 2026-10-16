@@ -86,6 +86,11 @@ class PlayerController(
     private val liveRecording: Boolean = false,
 ) {
 
+    // Snapshot settings once per playback instance, preventing allocation/decoder churn while
+    // navigating controls; the next playback picks up any changed buffering setting.
+    private val bufferPreset = app.opentv.core.AppSettings.get(context).playbackBufferPreset.value
+    private var released = false
+
     /** Channel-surf debounce for this controller — longer for the preview so browsing is calm. */
     private val switchDebounceMillis = if (preview) PREVIEW_SWITCH_DEBOUNCE_MILLIS else SWITCH_DEBOUNCE_MILLIS
 
@@ -195,22 +200,34 @@ class PlayerController(
         .setLoadControl(
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
-                    if (preview) PREVIEW_MIN_BUFFER_MILLIS else MIN_BUFFER_MILLIS,
+                    if (preview) PREVIEW_MIN_BUFFER_MILLIS
+                    else if (liveRecording) MIN_BUFFER_MILLIS
+                    else bufferPreset.media3MinBufferMs,
                     when {
                         preview -> PREVIEW_MAX_BUFFER_MILLIS
                         dvr -> DVR_MAX_BUFFER_MILLIS
                         liveRecording -> LIVE_REC_MAX_BUFFER_MILLIS
-                        else -> MAX_BUFFER_MILLIS
+                        else -> bufferPreset.media3MaxBufferMs
                     },
                     when {
                         preview -> PREVIEW_BUFFER_FOR_PLAYBACK_MILLIS
                         liveRecording -> LIVE_REC_BUFFER_FOR_PLAYBACK_MILLIS
-                        else -> BUFFER_FOR_PLAYBACK_MILLIS
+                        else -> bufferPreset.media3StartMs
                     },
                     when {
                         preview -> PREVIEW_BUFFER_AFTER_REBUFFER_MILLIS
                         liveRecording -> LIVE_REC_BUFFER_AFTER_REBUFFER_MILLIS
-                        else -> BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MILLIS
+                        else -> bufferPreset.media3RebufferMs
+                    },
+                )
+                // Caps ExoPlayer's allocator. Native codec surfaces use additional memory.
+                // Preserve dedicated bounds for guide preview, DVR and growing recordings.
+                .setTargetBufferBytes(
+                    when {
+                        preview -> 12 * 1024 * 1024
+                        dvr -> 48 * 1024 * 1024
+                        liveRecording -> 32 * 1024 * 1024
+                        else -> bufferPreset.media3TargetBufferBytes
                     },
                 )
                 // Retain the last few minutes so pause/rewind of live TV has something to seek into.
@@ -268,6 +285,7 @@ class PlayerController(
      * that rapid presses collapse into a single tune. Pass false for a deliberate selection.
      */
     fun play(request: Request, debounce: Boolean = true) {
+        if (released) return
         // Cancelling here is what makes fast channel-changing safe: the previous switch never
         // reaches the player, so we never stack prepares.
         switchJob?.cancel()
@@ -309,6 +327,7 @@ class PlayerController(
     }
 
     fun retry() {
+        if (released) return
         consecutiveFailures = 0
         current?.let { play(it, debounce = false) }
     }
@@ -369,6 +388,7 @@ class PlayerController(
     }
 
     fun stop() {
+        if (released) return
         switchJob?.cancel()
         current = null
         player.stop()
@@ -377,7 +397,11 @@ class PlayerController(
     }
 
     fun release() {
+        if (released) return
+        released = true
         switchJob?.cancel()
+        switchJob = null
+        current = null
         player.release()
     }
 
@@ -388,7 +412,7 @@ class PlayerController(
         const val C_TIME_UNSET = androidx.media3.common.C.TIME_UNSET
 
         const val SWITCH_DEBOUNCE_MILLIS = 350L
-        const val SEEK_INCREMENT_MILLIS = 15_000L
+        const val SEEK_INCREMENT_MILLIS = 10_000L
         const val INITIAL_BACKOFF_MILLIS = 500L
         const val MAX_BACKOFF_MILLIS = 8_000L
         const val MAX_LOAD_RETRIES = 5
