@@ -128,10 +128,10 @@ object PlaybackDiagnostics {
     }
 
     fun lastReport(context: Context): String = synchronized(lock) {
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(CRASH, null)
-            ?: context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getString(SAVED, null)
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(CRASH_PENDING, false)) prefs.getString(CRASH, null)
+            ?: prefs.getString(SAVED, null) ?: composeReport(context.applicationContext)
+        else prefs.getString(SAVED, null) ?: prefs.getString(CRASH, null)
             ?: composeReport(context.applicationContext)
     }
 
