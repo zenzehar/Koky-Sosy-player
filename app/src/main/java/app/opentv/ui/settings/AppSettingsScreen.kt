@@ -45,6 +45,7 @@ import android.content.Context
 import android.widget.Toast
 import app.opentv.R
 import app.opentv.core.AppSettings
+import app.opentv.player.PlaybackBufferPreset
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.data.work.SyncWorker
@@ -70,6 +71,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
     val refreshHours by settings.catalogueRefreshHours.collectAsState()
+    val playbackBuffer by settings.playbackBufferPreset.collectAsState()
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -213,6 +215,24 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            Text(
+                stringResource(R.string.settings_playback_buffer_help),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PlaybackBufferPreset.entries.forEach { preset ->
+                BufferPresetRow(
+                    label = when (preset) {
+                        PlaybackBufferPreset.FAST -> stringResource(R.string.settings_buffer_fast)
+                        PlaybackBufferPreset.BALANCED -> stringResource(R.string.settings_buffer_balanced)
+                        PlaybackBufferPreset.STABLE -> stringResource(R.string.settings_buffer_stable)
+                        PlaybackBufferPreset.LARGE -> stringResource(R.string.settings_buffer_large)
+                    },
+                    selected = playbackBuffer == preset,
+                    onSelect = { settings.setPlaybackBufferPreset(preset) },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
             ToggleRow(
                 title = stringResource(R.string.settings_subtitles_title),
                 subtitle = stringResource(R.string.settings_subtitles_subtitle),
@@ -408,6 +428,21 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) { content() }
+    }
+}
+
+@Composable
+private fun BufferPresetRow(label: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect)
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // One focus target for D-pad navigation. Avoid duplicate click handlers on the radio.
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.titleMedium)
     }
 }
 
