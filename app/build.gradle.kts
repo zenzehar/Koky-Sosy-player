@@ -14,8 +14,8 @@ android {
         applicationId = "tv.kokysosy.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.1.10.9-tv-alpha"
+        versionCode = 21
+        versionName = "0.1.11.0-tv-playback-rollback"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
@@ -134,7 +134,7 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
 
     // Native fallback for provider VOD containers that Media3 cannot parse.
-    implementation("org.videolan.android:libvlc-all:3.7.7")
+    implementation("org.videolan.android:libvlc-all:3.6.1")
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
