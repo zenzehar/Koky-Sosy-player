@@ -80,6 +80,8 @@ fun VlcFallbackScreen(
     onTryMedia3: () -> Unit = {},
     onProgress: (Long, Long) -> Unit = { _, _ -> },
     onEnded: () -> Unit = {},
+    // Keep the newer screensaver lifecycle hook even though the VLC engine is v0.1.9.
+    suspendPlayback: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -218,6 +220,16 @@ fun VlcFallbackScreen(
                 }
             }
             delay(500)
+        }
+    }
+
+    // Retain the modern screensaver pause hook without replacing v0.1.9 playback internals.
+    // Do not auto-resume: the viewer should explicitly unpause after waking.
+    LaunchedEffect(suspendPlayback) {
+        if (suspendPlayback) {
+            runCatching { player.pause() }
+            paused = true
+            controlsVisible = true
         }
     }
 
