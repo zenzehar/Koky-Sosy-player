@@ -1,3 +1,14 @@
+## v0.1.11.0 hybrid playback rollback test
+
+- Baseline VOD player source: v0.1.9 snapshot `72347c8d` (source rollback); not v0.1.10.3, since its success claim was withdrawn.
+- First play **اللعبة S01E05** for 10–20 minutes without seeking. Compare against the repeat buffering/stall failures in v0.1.10.5–0.1.10.8 and the known smooth standalone VLC + IPTV Smarters Pro results.
+- Press OK and use Diagnostics QR to send timing and interruptions if any. This diagnostic recorder is passive; the old player still owns native playback. If QR unavailable, retrieve Settings > Playback > Show latest diagnostic QR.
+- Next seek +/-10 seconds and long hold to compare with v0.1.9; the old algorithm has a more aggressive hold ramp, so avoid jumping close to end until ordinary playback is confirmed.
+- Press Back during early startup, while paused, after seeking, and after a stall. Verify no crashes, correct season/episode selection and saved resume state.
+- Smoke-test cast search, full-library search, current categories, guide mini-preview/Live, QR pairing and updated Settings. Media3 buffering choices remain active; historical 1400ms VLC cache is *not* controlled by new buffer presets in this isolated rollback build.
+- Screen saver pause path is present but remains untested. Any hardware acceptance must be explicitly reported by user.
+- Debug APK may be signed by a different ephemeral GitHub certificate. Do not uninstall current app before backup; keep existing releases/branches as rollback copies.
+
 ## v0.1.10.9 real-TV QR diagnostic acceptance
 
 1. After installing, open **Settings > Playback > Show latest diagnostic QR** to test scanning before starting a movie. Scan with phone; result must start `KOKY-DIAG/1`. Do not report credentials (none are intentionally encoded).
