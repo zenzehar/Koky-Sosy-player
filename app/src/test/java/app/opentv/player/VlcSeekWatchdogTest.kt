@@ -35,6 +35,16 @@ class VlcSeekWatchdogTest {
         assertEquals(VlcSeekWatchdog.Action.NUDGE, w.observe(37_100, 90_000, true))
     }
 
+    @Test fun networkBufferingDoesNotTriggerSeekRecovery() {
+        val watchdog = VlcSeekWatchdog()
+        watchdog.begin(1000)
+        assertEquals(VlcSeekWatchdog.Action.NONE, watchdog.observe(2000, 90_000, true))
+        // Caller correctly reports shouldBePlaying=false during native Buffering events.
+        assertEquals(VlcSeekWatchdog.Action.NONE, watchdog.observe(20_000, 90_000, false))
+        assertEquals(VlcSeekWatchdog.Action.NONE, watchdog.observe(20_100, 90_000, true))
+        assertEquals(VlcSeekWatchdog.Action.NONE, watchdog.observe(26_800, 90_000, true))
+    }
+
     @Test fun repeatedSeekReplacesOldWatchAndRecoveryIsBounded() {
         val w = VlcSeekWatchdog()
         w.begin(0)
