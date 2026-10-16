@@ -140,10 +140,14 @@ fun VodPlayerScreen(
     // little differently in the transport: the "length" is how much has been recorded so far, which
     // keeps growing, and seeking is bounded to that recorded extent.
     val growingRec = remember(streamUrl) { streamUrl.startsWith("optvrec://") }
-    // HTTP VOD prefers VLC. Do not allocate an idle Media3 ExoPlayer on every VLC movie/episode.
-    // On low-RAM sticks its native renderer, track selector and buffers are unnecessary overhead.
-    var usingVlc by remember(streamUrl) {
-        mutableStateOf(!growingRec && streamUrl.startsWith("http", true))
+    // User-selectable VOD renderer: video settings persist across restarts. Internal,
+    // SMB and recording-specific sources keep Media3's specialised data source support.
+    // Read preference only at stream-open so a settings change never tears down live decoding.
+    var usingVlc by remember(streamUrl, mediaKey) {
+        mutableStateOf(
+            !growingRec && streamUrl.startsWith("http", ignoreCase = true) &&
+                settings.vodPlaybackEngine.value == app.opentv.core.AppSettings.VodPlaybackEngine.VLC,
+        )
     }
     var vlcEverTried by remember(streamUrl) { mutableStateOf(usingVlc) }
     // The SMB and growing recording data sources are initialised only when actually needed.

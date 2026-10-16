@@ -72,6 +72,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val seriesEnabled by settings.seriesEnabled.collectAsState()
     val refreshHours by settings.catalogueRefreshHours.collectAsState()
     val playbackBuffer by settings.playbackBufferPreset.collectAsState()
+    val vodEngine by settings.vodPlaybackEngine.collectAsState()
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -215,6 +216,26 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            Text(
+                stringResource(R.string.settings_player_engine_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                stringResource(R.string.settings_player_engine_help),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            BufferPresetRow(
+                label = stringResource(R.string.settings_player_engine_vlc),
+                selected = vodEngine == AppSettings.VodPlaybackEngine.VLC,
+                onSelect = { settings.setVodPlaybackEngine(AppSettings.VodPlaybackEngine.VLC) },
+            )
+            BufferPresetRow(
+                label = stringResource(R.string.settings_player_engine_media3),
+                selected = vodEngine == AppSettings.VodPlaybackEngine.MEDIA3,
+                onSelect = { settings.setVodPlaybackEngine(AppSettings.VodPlaybackEngine.MEDIA3) },
+            )
+            Spacer(Modifier.height(12.dp))
             Text(
                 stringResource(R.string.settings_playback_buffer_help),
                 style = MaterialTheme.typography.bodyMedium,
