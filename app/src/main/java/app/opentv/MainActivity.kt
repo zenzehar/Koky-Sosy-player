@@ -87,6 +87,8 @@ import app.opentv.ui.vod.PersonScreen
 import app.opentv.ui.vod.SeriesDetailScreen
 import app.opentv.ui.vod.VodPlayerScreen
 import app.opentv.update.UpdateGate
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 
 class MainActivity : ComponentActivity() {
 
@@ -98,11 +100,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Set up the crash breadcrumb before any source loading or Compose playback.
+        PlaybackDiagnostics.install(applicationContext)
         enableEdgeToEdge()
         handlePlayIntent(intent)
         val isTelevision = isRunningOnTelevision(this)
 
         setContent {
+            var recoveredCrash by remember {
+                mutableStateOf(PlaybackDiagnostics.recoveredCrash(applicationContext))
+            }
             var brandSplashVisible by remember { mutableStateOf(true) }
             LaunchedEffect(Unit) {
                 delay(850)
@@ -121,8 +128,20 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    if (brandSplashVisible) BrandSplash()
-                    else OpenTvApp(isTelevision = isTelevision)
+                    Box(Modifier.fillMaxSize()) {
+                        if (brandSplashVisible) BrandSplash()
+                        else OpenTvApp(isTelevision = isTelevision)
+                        if (!brandSplashVisible && recoveredCrash != null) {
+                            PlaybackDiagnosticsDialog(
+                                report = recoveredCrash.orEmpty(),
+                                afterCrash = true,
+                                onDismiss = {
+                                    PlaybackDiagnostics.acknowledgeCrash(applicationContext)
+                                    recoveredCrash = null
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
