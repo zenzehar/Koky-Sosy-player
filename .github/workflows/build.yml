@@ -53,3 +53,37 @@ jobs:
           name: test-reports
           path: app/build/reports/tests/
           if-no-files-found: ignore
+
+  # Only this repo-owned, explicitly named alpha branch can publish a public
+  # prerelease APK. Fork pull requests never get write access or a release path.
+  publish-tv-alpha:
+    name: Publish direct APK
+    needs: build
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'fix/v0.1.10.7-libvlc-engine-update'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve assembled APK
+        uses: actions/download-artifact@v4
+        with:
+          name: koky-sosy-player-tv-debug-apk
+          path: apk
+
+      - name: Publish unapproved prerelease on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test -s apk/app-debug.apk
+          gh release create v0.1.10.7-tv-alpha-test \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.10.7_TV_alpha.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "Koky & Sosy v0.1.10.7 TV alpha (hardware test pending)" \
+            --notes "UNVERIFIED TEST APK. Upgrades embedded LibVLC 3.6.1 to stable 3.7.7. Test the same title where the earlier embedded player repeatedly buffered while standalone VLC and IPTV Smarters Pro did not. No approved playback milestone. Debug signing may be incompatible with earlier CI APKs." \
+            --prerelease
