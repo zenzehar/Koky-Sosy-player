@@ -264,6 +264,17 @@ class AppSettings private constructor(context: Context) {
     /** Configures bounded buffering at the NEXT playback session (not while a stream is decoding).
      * Default Balanced retains quick starts without allocating a large native cache on Fire TV.
      */
+    /** Native VLC defaults match the standalone player that successfully plays this provider. */
+    private val _vlcPlaybackMode = MutableStateFlow(
+        app.opentv.player.VlcPlaybackMode.fromSaved(prefs.getString(KEY_VLC_PLAYBACK_MODE, null))
+    )
+    val vlcPlaybackMode: StateFlow<app.opentv.player.VlcPlaybackMode> = _vlcPlaybackMode.asStateFlow()
+
+    fun setVlcPlaybackMode(mode: app.opentv.player.VlcPlaybackMode) {
+        prefs.edit().putString(KEY_VLC_PLAYBACK_MODE, mode.name).apply()
+        _vlcPlaybackMode.value = mode
+    }
+
     private val _playbackBufferPreset = MutableStateFlow(
         app.opentv.player.PlaybackBufferPreset.fromSaved(prefs.getString(KEY_PLAYBACK_BUFFER_PRESET, null))
     )
@@ -483,6 +494,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_LAST_CHANNEL = "last_channel_id"
         private const val KEY_RESIZE_MODE = "player_resize_mode"
         private const val KEY_PLAYBACK_BUFFER_PRESET = "playback_buffer_preset"
+        private const val KEY_VLC_PLAYBACK_MODE = "vlc_playback_mode"
         private const val KEY_LANGUAGE = "language_tag"
 
         /**
