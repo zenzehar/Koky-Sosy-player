@@ -11,9 +11,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33]) // Robolectric 4.13 SDK 33 simulator; app still compiles against 36.
 class PlaybackDiagnosticsTest {
     private val context get() = RuntimeEnvironment.getApplication()
 
