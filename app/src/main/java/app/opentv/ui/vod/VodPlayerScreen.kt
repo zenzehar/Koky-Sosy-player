@@ -103,6 +103,8 @@ import app.opentv.core.ServiceLocator
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.player.PlayerController
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -174,6 +176,11 @@ fun VodPlayerScreen(
         else controller.tracks.collectAsState().value
 
     var paused by remember { mutableStateOf(false) }
+    var media3Diagnostic by remember { mutableStateOf<String?>(null) }
+    fun showMedia3Diagnostic() {
+        PlaybackDiagnostics.event(context, "REPORT", persistNow = true)
+        media3Diagnostic = PlaybackDiagnostics.capture(context)
+    }
 
     var screenSaverSuspended by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -283,6 +290,27 @@ fun VodPlayerScreen(
     }
 
     // Media3 is used for local/recorded content and certain fallback streams.
+    LaunchedEffect(usingVlc) {
+        if (!usingVlc) {
+            PlaybackDiagnostics.begin("Media3", "EXO")
+            PlaybackDiagnostics.event(context, "MEDIA3_START", persistNow = true)
+        }
+    }
+    LaunchedEffect(state, usingVlc) {
+        if (!usingVlc) {
+            when (val current = state) {
+                is PlayerController.State.Error ->
+                    PlaybackDiagnostics.event(
+                        context, "MEDIA3_ERROR", current.errorCode ?: -1, persistNow = true,
+                    )
+                is PlayerController.State.Buffering ->
+                    PlaybackDiagnostics.event(context, "MEDIA3_STATE", 1, persistNow = true)
+                is PlayerController.State.Playing ->
+                    PlaybackDiagnostics.event(context, "MEDIA3_STATE", 2)
+                else -> Unit
+            }
+        }
+    }
     LaunchedEffect(mediaKey, usingVlc) {
         if (usingVlc) return@LaunchedEffect
         while (isActive && !advanced.get()) {
@@ -301,6 +329,10 @@ fun VodPlayerScreen(
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         view.keepScreenOn = true
         onDispose {
+            PlaybackDiagnostics.event(
+                context, if (usingVlc) "VLC_EXIT" else "MEDIA3_EXIT",
+                persistNow = true,
+            )
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.keepScreenOn = false
             // IMPORTANT: Media3 player getters must run on their application/main
@@ -386,6 +418,7 @@ fun VodPlayerScreen(
                 // can skip ahead) is what's been read into the buffer.
                 durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
                 else controller.player.duration.takeIf { it > 0 } ?: 0
+                PlaybackDiagnostics.sample(positionMs, durationMs, 0)
             }
             delay(500)
         }
@@ -515,6 +548,8 @@ fun VodPlayerScreen(
                         Text(current.message, color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                         Spacer(Modifier.height(24.dp))
                         Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = ::showMedia3Diagnostic) { Text("Scan error diagnostics QR") }
                     }
                 }
 
@@ -621,7 +656,17 @@ fun VodPlayerScreen(
                         interaction++
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = ::showMedia3Diagnostic) {
+                    Text("Diagnostics QR")
+                }
             }
+        }
+        media3Diagnostic?.let { report ->
+            PlaybackDiagnosticsDialog(
+                report = report,
+                onDismiss = { media3Diagnostic = null },
+            )
         }
     }
 }

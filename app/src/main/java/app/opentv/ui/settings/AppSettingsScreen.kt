@@ -47,6 +47,8 @@ import app.opentv.R
 import app.opentv.core.AppSettings
 import app.opentv.player.PlaybackBufferPreset
 import app.opentv.player.VlcPlaybackMode
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.data.work.SyncWorker
@@ -74,6 +76,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val refreshHours by settings.catalogueRefreshHours.collectAsState()
     val playbackBuffer by settings.playbackBufferPreset.collectAsState()
     val vlcMode by settings.vlcPlaybackMode.collectAsState()
+    var diagnosticReport by remember { mutableStateOf<String?>(null) }
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -217,6 +220,17 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            OutlinedButton(onClick = {
+                diagnosticReport = PlaybackDiagnostics.lastReport(context)
+            }) {
+                Text("Show latest diagnostic QR (temporary test tool)")
+            }
+            Text(
+                "Scan this QR with your phone after playback issues or a crash. " +
+                    "The last report is saved even if you close the app.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(14.dp))
             Text(
                 stringResource(R.string.settings_vlc_mode_help),
                 style = MaterialTheme.typography.bodyMedium,
@@ -272,6 +286,12 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SleepTimerSection()
+    }
+    diagnosticReport?.let { report ->
+        PlaybackDiagnosticsDialog(
+            report = report,
+            onDismiss = { diagnosticReport = null },
+        )
     }
 }
 

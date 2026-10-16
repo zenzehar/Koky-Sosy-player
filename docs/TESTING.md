@@ -1,3 +1,15 @@
+## v0.1.10.8 QR diagnostic testing before/after playback faults
+
+1. From the TV app open **Settings > Playback > Native VLC defaults**. Select **Show latest diagnostic QR** to verify the dialog and QR appear. Scan with phone camera. The phone should display raw text beginning with `KOKY-DIAG/1`; copy all of it and paste into chat. Never paste separate IPTV credentials.
+2. Play the known troublesome episode **اللعبة S01E05** using Native VLC. If buffering/stalled warnings appear, press OK to show the control bar and choose **Diagnostics QR** on the second row. Scan and copy the complete report; include approximate moment/video position in your chat.
+3. If a freeze prevents opening transport controls, press Back; then reopen **Settings > Playback > Show latest diagnostic QR**. Recent rebuffer/stall events were persisted to app-private storage.
+4. If the app terminates unexpectedly, relaunch Koky & Sosy. A **Recovered crash diagnostic** QR should appear automatically if an uncaught Java exception was caught. If the OS/native VLC killed the process without Java handler, the report may instead say **POSSIBLE_UNCLEAN_EXIT=1**, which is only an interrupted playback hint. The current report remains accessible in Settings.
+5. Also verify Media3 unsupported container error displays **Scan error diagnostics QR**, and scanned text includes numeric Media3 error code.
+6. Repeat D-pad seek, stop/back/early-Back checks with QR report dialog dismissal. The scan tool must not itself pause/restart VLC or launch a second provider stream.
+7. Report should contain only approved event/OS/heap statistics. It must NOT include stream URLs, HTTP auth, access tokens, or title names. No report is uploaded automatically; it leaves the device only when the user copies/pastes it.
+8. After the user reports a reproducible fix, remove recorder, QR dialog, crash hook, Settings/UI buttons and tests before final stable release.
+9. Screensaver remains untested. CI build/tests are necessary but do not prove native device playback.
+
 ## v0.1.10.7 LibVLC 3.7.7 A/B compatibility test
 
 Previous evidence: v0.1.10.6 using LibVLC 3.6.1 buffers/stalls in-game episode اللعبة S01E05; standalone VLC and IPTV Smarters Pro internal player are smooth on the same TV/network. This points to our embedded player. This build upgrades ONLY the embedded engine, preserving the previous controls and settings.
