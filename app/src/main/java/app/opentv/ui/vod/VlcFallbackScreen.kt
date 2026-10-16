@@ -5,6 +5,7 @@
 package app.opentv.ui.vod
 
 import android.net.Uri
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,6 +68,9 @@ import kotlin.math.min
 import java.util.concurrent.atomic.AtomicBoolean
 import app.opentv.player.VlcSeekWatchdog
 import app.opentv.player.VlcPlaybackHealth
+import app.opentv.player.VlcPlaybackMode
+import app.opentv.player.VlcPlaybackPolicy
+import app.opentv.data.model.Source
 
 /** Native VLC is the first VOD choice. Media3 remains an explicitly bounded alternative. */
 @Composable
@@ -83,18 +87,19 @@ fun VlcFallbackScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val bufferPreset = remember(streamUrl) {
-        app.opentv.core.AppSettings.get(context).playbackBufferPreset.value
+    val appSettings = remember { app.opentv.core.AppSettings.get(context) }
+    val bufferPreset = remember(streamUrl) { appSettings.playbackBufferPreset.value }
+    val vlcMode = remember(streamUrl) { appSettings.vlcPlaybackMode.value }
+    // The standalone VLC app plays this exact stream correctly. Default to libVLC's
+    // native HTTP/decoder/cache behaviour instead of forcing the app's generic UA.
+    // Retain the older tuned options as an explicit A/B setting, not an automatic reset.
+    val libvlc = remember(streamUrl, bufferPreset, vlcMode) {
+        LibVLC(
+            context.applicationContext,
+            VlcPlaybackPolicy.engineArguments(vlcMode, bufferPreset.vlcNetworkCacheMs),
+        )
     }
-    // At most one LibVLC instance and one decoder for this VOD screen. Cache values are
-    // durations (ms), not MB of preallocated memory. Read once on stream opening.
-    val libvlc = remember(streamUrl, bufferPreset) {
-        LibVLC(context.applicationContext, arrayListOf(
-            "--network-caching=${bufferPreset.vlcNetworkCacheMs}",
-            "--no-video-title-show",
-        ))
-    }
-    val player = remember(streamUrl, bufferPreset) { MediaPlayer(libvlc) }
+    val player = remember(streamUrl, bufferPreset, vlcMode) { MediaPlayer(libvlc) }
     val released = remember(streamUrl) { AtomicBoolean(false) }
     val exitRequested = remember(streamUrl) { AtomicBoolean(false) }
     val seekWatchdog = remember(streamUrl) { VlcSeekWatchdog() }
@@ -159,6 +164,32 @@ fun VlcFallbackScreen(
         lastConfirmedPositionMs = 0L
         if (!paused) seekWatchdog.begin(now) else pendingSeekPreview = false
         showControls()
+    }
+
+    fun openExternalVlc() {
+        if (released.get() || exitRequested.get()) return
+        // Package-restricted intent: only the VLC application receives the stream URL.
+        // Stop the internal decoder/socket first to avoid two sessions on a one-stream account.
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(streamUrl), "video/*")
+            setPackage("org.videolan.vlc")
+        }
+        try {
+            if (durationMs > 0L && lastConfirmedPositionMs > 5_000L) {
+                onProgress(lastConfirmedPositionMs, durationMs)
+            }
+            player.stop()
+            context.startActivity(intent)
+            exitOnce()
+        } catch (e: android.content.ActivityNotFoundException) {
+            recoveryMessage = "Standalone VLC is unavailable on this device."
+            runCatching { player.play() }
+            showControls()
+        } catch (e: Exception) {
+            // Do not log the exception: it can contain the credential-bearing stream URI.
+            recoveryMessage = "Could not open VLC. Internal playback can be retried."
+            showControls()
+        }
     }
 
     DisposableEffect(player) {
@@ -396,16 +427,21 @@ fun VlcFallbackScreen(
                     player.attachViews(this, null, true, false)
                     player.setVideoScale(MediaPlayer.ScaleType.SURFACE_BEST_FIT)
                     val media = Media(libvlc, Uri.parse(streamUrl))
-                    media.setHWDecoderEnabled(true, false)
-                    media.addOption(":http-user-agent=$userAgent")
-                    media.addOption(":network-caching=${bufferPreset.vlcNetworkCacheMs}")
-                    // VLC 3.x HTTP input reconnect defaults off; allow it to recover a
-                    // transient server socket drop without restarting the media player.
-                    if (streamUrl.startsWith("http", ignoreCase = true)) {
-                        media.addOption(":http-reconnect")
+                    try {
+                        // Native = use LibVLC's built-in automatic decoder handling.
+                        // Tuned = restore the older explicit decoder choice for A/B testing.
+                        if (VlcPlaybackPolicy.overrideHardwareDecoder(vlcMode)) {
+                            media.setHWDecoderEnabled(true, false)
+                        }
+                        VlcPlaybackPolicy.mediaArguments(
+                            vlcMode, userAgent, Source.DEFAULT_USER_AGENT,
+                        ).forEach(media::addOption)
+                        // The network cache option is set only on the tuned LibVLC engine,
+                        // avoiding duplicate per-media cache options overriding HW defaults.
+                        player.media = media
+                    } finally {
+                        media.release()
                     }
-                    player.media = media
-                    media.release()
                     player.play()
                 }
             },
@@ -451,6 +487,7 @@ fun VlcFallbackScreen(
                 Text("VLC could not decode or open this stream.", color = Color.White, textAlign = TextAlign.Center)
                 TvVlcButton("Retry VLC") { failed = false; ended = false; player.play() }
                 TvVlcButton("Try Media3 instead", onClick = onTryMedia3)
+                TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
                 TvVlcButton("Back to title", onClick = ::exitOnce)
             }
         }
@@ -616,6 +653,7 @@ fun VlcFallbackScreen(
                         }
                     }
                     TvVlcButton("Try Media3", onClick = onTryMedia3)
+                    TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
                     TvVlcButton("Back", onClick = ::exitOnce)
                 }
                 if (recoveryMessage != null) Text(recoveryMessage.orEmpty(), color = Color.White)
