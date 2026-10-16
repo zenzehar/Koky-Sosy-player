@@ -64,6 +64,8 @@ import app.opentv.player.SeekDirection
 import app.opentv.player.TvSeekPolicy
 import kotlin.math.max
 import kotlin.math.min
+import java.util.concurrent.atomic.AtomicBoolean
+import app.opentv.player.VlcSeekWatchdog
 
 /** Native VLC is the first VOD choice. Media3 remains an explicitly bounded alternative. */
 @Composable
@@ -76,6 +78,7 @@ fun VlcFallbackScreen(
     onTryMedia3: () -> Unit = {},
     onProgress: (Long, Long) -> Unit = { _, _ -> },
     onEnded: () -> Unit = {},
+    suspendPlayback: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -83,6 +86,13 @@ fun VlcFallbackScreen(
         LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
     }
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
+    val released = remember(streamUrl) { AtomicBoolean(false) }
+    val exitRequested = remember(streamUrl) { AtomicBoolean(false) }
+    val seekWatchdog = remember(streamUrl) { VlcSeekWatchdog() }
+    var recoveryMessage by remember(streamUrl) { mutableStateOf<String?>(null) }
+    fun exitOnce() {
+        if (exitRequested.compareAndSet(false, true)) onBack()
+    }
     var ready by remember(streamUrl) { mutableStateOf(false) }
     var failed by remember(streamUrl) { mutableStateOf(false) }
     var ended by remember(streamUrl) { mutableStateOf(false) }
@@ -104,54 +114,102 @@ fun VlcFallbackScreen(
 
     fun showControls() { controlsVisible = true; interaction++ }
     fun seekTo(target: Long) {
-        if (!player.isSeekable) return
-        val capped = target.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
-        player.setTime(capped)
-        positionMs = capped
+        if (released.get() || !ready || !runCatching { player.isSeekable }.getOrDefault(false)) return
+        val ceiling = durationMs.takeIf { it > 1_000L }?.minus(1_000L) ?: Long.MAX_VALUE
+        val capped = target.coerceIn(0L, ceiling)
+        if (runCatching { player.setTime(capped) }.isFailure) {
+            recoveryMessage = "This stream could not seek to that position."
+            showControls()
+            return
+        }
+        seekWatchdog.begin(android.os.SystemClock.elapsedRealtime())
+        previewMs = capped
         showControls()
     }
 
     DisposableEffect(player) {
         player.setEventListener { event ->
-            when (event.type) {
-                MediaPlayer.Event.Playing -> scope.launch { ready = true; failed = false; paused = false }
-                MediaPlayer.Event.EncounteredError -> scope.launch { failed = true; ready = false; showControls() }
+            if (!released.get()) when (event.type) {
+                MediaPlayer.Event.Playing -> scope.launch {
+                    if (!released.get()) { ready = true; failed = false; paused = false }
+                }
+                MediaPlayer.Event.EncounteredError -> scope.launch {
+                    if (!released.get()) { failed = true; ready = false; showControls() }
+                }
                 MediaPlayer.Event.EndReached -> scope.launch {
-                    if (!ended) {
-                        ended = true
-                        onProgress(durationMs, durationMs)
-                        onEnded()
+                    if (!released.get()) {
+                        if (!ended) {
+                            ended = true
+                            onProgress(durationMs, durationMs)
+                            onEnded()
+                        }
+                        showControls()
                     }
-                    showControls()
                 }
             }
         }
         onDispose {
-            onProgress(positionMs, durationMs)
-            player.setEventListener(null)
-            runCatching { player.stop() }
-            // This is the ONLY detach; factory runs only once per AndroidView instance.
-            runCatching { player.detachViews() }
-            runCatching { player.release() }
-            runCatching { libvlc.release() }
+            // The AndroidView can still own a native surface during composition disposal.
+            // Its onRelease is the sole owner of stop/detach/release.
+            runCatching { player.setEventListener(null) }
+            if (!released.get()) onProgress(positionMs, durationMs)
+        }
+    }
+
+    // Unlike pausing an Android view, pause() also stops the VLC audio decoder.
+    LaunchedEffect(suspendPlayback) {
+        if (suspendPlayback) {
+            runCatching { player.pause() }
+            paused = true
+            controlsVisible = true
         }
     }
 
     LaunchedEffect(player) {
         var lastSaved = 0L
-        while (isActive) {
+        while (isActive && !released.get()) {
             runCatching {
                 val length = player.length
                 if (length > 0L) durationMs = length
-                if (!scrubbing) positionMs = player.time.coerceAtLeast(0L)
+                val nativeTime = player.time.coerceAtLeast(0L)
+                if (!scrubbing) positionMs = nativeTime
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
-                    player.setTime(initialPositionMs.coerceIn(0L, durationMs))
                     initialSeekPending = false
+                    val target = initialPositionMs.coerceIn(0L, (durationMs - 1_000L).coerceAtLeast(0L))
+                    player.setTime(target)
+                    seekWatchdog.begin(android.os.SystemClock.elapsedRealtime())
                 }
-                if (ready && positionMs - lastSaved >= 10_000L && durationMs > 0L) {
-                    lastSaved = positionMs
-                    onProgress(positionMs, durationMs)
+                if (ready && !scrubbing && !ended) {
+                    when (seekWatchdog.observe(
+                        android.os.SystemClock.elapsedRealtime(), nativeTime, !paused,
+                    )) {
+                        VlcSeekWatchdog.Action.NUDGE -> {
+                            android.util.Log.w("VlcFallbackScreen", "Seek not advancing; nudging VLC")
+                            if (player.isPlaying) player.pause()
+                            player.play()
+                        }
+                        VlcSeekWatchdog.Action.RESTART -> {
+                            android.util.Log.w("VlcFallbackScreen", "Seek stalled; restarting media")
+                            seekWatchdog.reset()
+                            initialSeekPending = false
+                            ready = false
+                            failed = false
+                            recoveryMessage = "Seek stalled. Restarted playback; try a different position."
+                            showControls()
+                            player.stop()
+                            player.play() // Same native player and surface; never attach again.
+                        }
+                        else -> Unit
+                    }
                 }
+                // Only persist positions verified by the native playback clock.
+                if (ready && !scrubbing && seekWatchdog.isIdle &&
+                    nativeTime - lastSaved >= 10_000L && durationMs > 0L) {
+                    lastSaved = nativeTime
+                    onProgress(nativeTime, durationMs)
+                }
+            }.onFailure {
+                if (!released.get()) android.util.Log.w("VlcFallbackScreen", "VLC polling issue", it)
             }
             delay(500)
         }
@@ -199,7 +257,7 @@ fun VlcFallbackScreen(
                 showControls()
             }
             controlsVisible && ready && !failed -> controlsVisible = false
-            else -> onBack()
+            else -> exitOnce()
         }
     }
 
@@ -253,6 +311,18 @@ fun VlcFallbackScreen(
                     player.play()
                 }
             },
+            onRelease = {
+                // Release the player after Compose removes the AndroidView, not earlier.
+                // Particularly important if Back is pressed during initial stream startup.
+                if (released.compareAndSet(false, true)) {
+                    seekWatchdog.reset()
+                    runCatching { player.setEventListener(null) }
+                    runCatching { player.stop() }
+                    runCatching { player.detachViews() }
+                    runCatching { player.release() }
+                    runCatching { libvlc.release() }
+                }
+            },
         )
         if (!ready && !failed && !ended) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -266,7 +336,7 @@ fun VlcFallbackScreen(
                 Text("VLC could not decode or open this stream.", color = Color.White, textAlign = TextAlign.Center)
                 TvVlcButton("Retry VLC") { failed = false; ended = false; player.play() }
                 TvVlcButton("Try Media3 instead", onClick = onTryMedia3)
-                TvVlcButton("Back to title", onClick = onBack)
+                TvVlcButton("Back to title", onClick = ::exitOnce)
             }
         }
         if (controlsVisible) {
@@ -416,8 +486,9 @@ fun VlcFallbackScreen(
                         showControls()
                     }
                     TvVlcButton("+10s", enabled = player.isSeekable) { seekTo(positionMs + 10_000L) }
-                    TvVlcButton("Back", onClick = onBack)
+                    TvVlcButton("Back", onClick = ::exitOnce)
                 }
+                if (recoveryMessage != null) Text(recoveryMessage.orEmpty(), color = Color.White)
                 if (ended) Text("Playback finished", color = Color.White)
             }
         }

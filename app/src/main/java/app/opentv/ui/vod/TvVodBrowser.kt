@@ -114,7 +114,6 @@ internal fun TvVodBrowser(
     }
     var sourceMenu by remember { mutableStateOf(false) }
     var resetTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
-    var optionsTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
     var moviePage by remember(isSeries) { mutableStateOf<List<Movie>>(emptyList()) }
     var seriesPage by remember(isSeries) { mutableStateOf<List<Series>>(emptyList()) }
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
@@ -273,9 +272,21 @@ internal fun TvVodBrowser(
                         gridItems(scopedResume.filter {
                             titleQuery.isBlank() || it.title.contains(titleQuery.trim(), ignoreCase = true)
                         }, key = { it.logicalKey }) { item ->
-                            ResumePoster(item,
+                            ResumePoster(
+                                item,
                                 onPlay = { onResume(item.mediaKey, item.streamUrl, item.title) },
-                                onOptions = { optionsTarget = item })
+                                onOpenTitle = {
+                                    scope.launch {
+                                        if (item.seriesProviderId != null) {
+                                            catalog.seriesByProviderId(item.sourceId, item.seriesProviderId)?.let(onOpenSeries)
+                                        } else {
+                                            item.mediaKey.removePrefix("movie:").toLongOrNull()
+                                                ?.let { catalog.movie(it) }?.let(onOpenMovie)
+                                        }
+                                    }
+                                },
+                                onReset = { resetTarget = item },
+                            )
                         }
                     }
                 }
@@ -288,10 +299,19 @@ internal fun TvVodBrowser(
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     if (isSeries) gridItems(seriesPage, key = { "s:${it.id}" }) { item ->
-                        TvPoster(item.displayTitle, item.posterUrl) { onOpenSeries(item) }
+                        TvPoster(
+                            title = item.displayTitle, poster = item.posterUrl,
+                            onClick = { onOpenSeries(item) },
+                            onReset = { viewModel.resetSeriesProgress(item) },
+                        )
                     }
                     else gridItems(moviePage, key = { "m:${it.id}" }) { item ->
-                        TvPoster(item.displayTitle, item.posterUrl) { onOpenMovie(item) }
+                        TvPoster(
+                            title = item.displayTitle, poster = item.posterUrl,
+                            onClick = { onOpenMovie(item) },
+                            onPlay = { onResume("movie:${item.id}", item.streamUrl, item.displayTitle) },
+                            onReset = { viewModel.resetMovieProgress(item.id) },
+                        )
                     }
                     if (loading) item(key = "loading") {
                         Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
@@ -305,42 +325,6 @@ internal fun TvVodBrowser(
                     color = Color.LightGray)
             }
         }
-    }
-    optionsTarget?.let { item ->
-        AlertDialog(
-            onDismissRequest = { optionsTarget = null },
-            title = { Text(item.title, maxLines = 2) },
-            text = { Text(
-                listOfNotNull(item.episodeLabel,
-                    item.positionMs.takeIf { it > 0 }?.let { "${it / 60_000}m watched" },
-                    "${(item.progress * 100).toInt()}% complete"
-                ).joinToString(" · "),
-            ) },
-            confirmButton = {
-                Button(onClick = {
-                    optionsTarget = null
-                    onResume(item.mediaKey, item.streamUrl, item.title)
-                }) { Text("Resume") }
-            },
-            dismissButton = {
-                androidx.compose.foundation.layout.Column {
-                    TextButton(onClick = {
-                        optionsTarget = null
-                        scope.launch {
-                            if (item.seriesProviderId != null) {
-                                catalog.seriesByProviderId(item.sourceId, item.seriesProviderId)?.let(onOpenSeries)
-                            } else {
-                                item.mediaKey.removePrefix("movie:").toLongOrNull()
-                                    ?.let { catalog.movie(it) }?.let(onOpenMovie)
-                            }
-                        }
-                    }) { Text("Open title") }
-                    TextButton(onClick = { optionsTarget = null; resetTarget = item }) {
-                        Text("Reset progress")
-                    }
-                }
-            },
-        )
     }
     resetTarget?.let { item ->
         AlertDialog(
@@ -386,54 +370,80 @@ private fun CategoryOption(label: String, count: String, selected: Boolean, onCl
 
 
 @Composable
-private fun TvPoster(title: String, poster: String?, onClick: () -> Unit) {
+private fun TvPoster(
+    title: String,
+    poster: String?,
+    onClick: () -> Unit,
+    onPlay: (() -> Unit)? = null,
+    onReset: () -> Unit,
+) {
     var focused by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     var lastPosterClick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    Box(
-        Modifier.fillMaxWidth().aspectRatio(.66f)
-            .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
-            .clickable(onClick = {
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastPosterClick >= 500L) {
-                    lastPosterClick = now
-                    onClick()
-                }
-            })
-            .background(Color(0xFF151B2B)),
-    ) {
-        AsyncImage(model = poster, contentDescription = title,
-            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (focused || poster == null) {
-            Box(
-                Modifier.fillMaxWidth().align(Alignment.BottomCenter)
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha=.85f))))
-                    .padding(6.dp),
-            ) {
-                Text(title, color = Color.White, fontSize = 13.sp, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis)
+    Column(Modifier.fillMaxWidth()) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(.69f)
+                .onFocusChanged { focused = it.isFocused }
+                .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
+                .tvRemoteActions(
+                    onClick = {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastPosterClick >= 500L) {
+                            lastPosterClick = now
+                            onClick()
+                        }
+                    },
+                    onLongPress = { menuOpen = true },
+                )
+                .background(Color(0xFF151B2B)),
+        ) {
+            AsyncImage(model = poster, contentDescription = title,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (focused) IconButton(
+                onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd),
+            ) { Icon(Icons.Default.MoreVert, contentDescription = "Title options", tint = Color.White) }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (onPlay != null) DropdownMenuItem(
+                    text = { Text("Play movie") },
+                    onClick = { menuOpen = false; onPlay() },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (onPlay == null) "Open episodes" else "Open title") },
+                    onClick = { menuOpen = false; onClick() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Reset progress") },
+                    onClick = { menuOpen = false; onReset() },
+                )
             }
         }
+        Text(title, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
+            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 6.dp))
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResumePoster(
     item: VodViewModel.ResumeItem,
     onPlay: () -> Unit,
-    onOptions: () -> Unit,
+    onOpenTitle: () -> Unit,
+    onReset: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
             .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(4.dp))
-            .combinedClickable(onClick = onPlay, onLongClick = onOptions),
+            .tvRemoteActions(onPlay, { menuOpen = true }),
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(.66f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(.69f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (focused) IconButton(onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Continue watching options", tint = Color.White)
+            }
             Box(Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(
@@ -445,13 +455,17 @@ private fun ResumePoster(
                         fontSize = 12.sp, maxLines = 2,
                         fontWeight = FontWeight.SemiBold,
                         overflow = TextOverflow.Ellipsis)
-                    val episode = item.episodeLabel
-                    if (episode != null) Text(episode, color = Color(0xFF9EE9FF),
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    item.episodeLabel?.let { Text(it, color = Color(0xFF9EE9FF),
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold) }
                     Text("${(item.progress * 100).toInt()}% · ${item.positionMs / 60_000}m / ${item.durationMs / 60_000}m",
                         color = Color.White.copy(alpha = .88f),
                         fontSize = 10.sp, maxLines = 1)
                 }
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Resume") }, onClick = { menuOpen = false; onPlay() })
+                DropdownMenuItem(text = { Text("Open title") }, onClick = { menuOpen = false; onOpenTitle() })
+                DropdownMenuItem(text = { Text("Reset progress") }, onClick = { menuOpen = false; onReset() })
             }
         }
         Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {

@@ -54,32 +54,89 @@ data class TmdbMeta(
 /** Read-only optional performer portrait supplied by TMDB with a user-provided key. */
 data class TmdbCastPortrait(val name: String, val imageUrl: String?)
 
+/** The actor's roles (not every movie matching a similar name). */
+data class TmdbCredit(val id: String, val title: String, val year: Int?)
+data class TmdbPersonCredits(val movies: List<TmdbCredit>, val series: List<TmdbCredit>)
+
 class TmdbClient(
     private val http: OkHttpClient,
     private val settings: AppSettings,
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
 ) {
 
-    /** Read at most 20 cast portraits on opening the Cast tab, never during catalogue sync. */
-    fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
+    /** Look up movie cast portraits using the same credentials as series. */
+    fun movieCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> =
+        castPortraits(true, title, year, tmdbId)
+
+    /** Portraits and full searchable cast are fetched on demand, not on a whole-library crawl. */
+    fun seriesCastPortraits(title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> =
+        castPortraits(false, title, year, tmdbId)
+
+    // In-memory metadata cache; Coil independently caches network thumbnails to disk.
+    // Bound entries to prevent large VOD libraries from growing the heap.
+    private val portraitCache = object : LinkedHashMap<String, List<TmdbCastPortrait>>(96, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<TmdbCastPortrait>>?): Boolean =
+            size > 96
+    }
+
+    private fun castPortraits(movie: Boolean, title: String, year: Int?, tmdbId: String?): List<TmdbCastPortrait> {
+        val cacheKey = "${movie}:${tmdbId.orEmpty()}:${title.lowercase()}:${year ?: 0}"
+        synchronized(portraitCache) { portraitCache[cacheKey]?.let { return it } }
         val key = settings.tmdbApiKey.value.trim()
         if (key.isEmpty() && settings.tmdbReadToken.value.isBlank()) return emptyList()
         val id = tmdbId?.takeIf { it.isNotBlank() }
-            ?: searchId(false, searchTitle(title), year, key)
+            ?: searchId(movie, searchTitle(title), year, key)
             ?: return emptyList()
-        val url = TMDB_BASE.newBuilder().addPathSegment("tv").addPathSegment(id)
+        val url = TMDB_BASE.newBuilder().addPathSegment(if (movie) "movie" else "tv").addPathSegment(id)
             .addPathSegment("credits").withKey(key).build()
         val people = get(url)?.jsonObject?.get("cast")?.jsonArray ?: return emptyList()
-        return people.take(20).mapNotNull { value ->
+        val result = people.take(60).mapNotNull { value ->
             val row = value.jsonObject
             val name = row["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
             val path = row["profile_path"]?.jsonPrimitive?.contentOrNull
             TmdbCastPortrait(name, path?.let { "https://image.tmdb.org/t/p/w185" + it })
-        }
+        }.distinctBy { it.name.lowercase() }
+        synchronized(portraitCache) { portraitCache[cacheKey] = result }
+        return result
+    }
+
+    /**
+     * Discover additional locally-owned titles by person filmography. One person query and
+     * one combined-credits request, only when a user opens that actor's page.
+     * Exact person-name match prevents silently choosing an unrelated namesake.
+     */
+    fun personCredits(name: String): TmdbPersonCredits? {
+        if (!isConfigured()) return null
+        val key = settings.tmdbApiKey.value.trim()
+        val lookup = TMDB_BASE.newBuilder().addPathSegment("search").addPathSegment("person")
+            .withKey(key).addQueryParameter("query", name).build()
+        val candidates = get(lookup)?.jsonObject?.get("results")?.jsonArray ?: return null
+        val selected = candidates.firstOrNull { item ->
+            item.jsonObject["name"]?.jsonPrimitive?.contentOrNull
+                ?.trim()?.equals(name.trim(), ignoreCase = true) == true
+        } ?: return null
+        val id = selected.jsonObject["id"]?.jsonPrimitive?.contentOrNull ?: return null
+        val url = TMDB_BASE.newBuilder().addPathSegment("person").addPathSegment(id)
+            .addPathSegment("combined_credits").withKey(key).build()
+        val credits = get(url)?.jsonObject?.get("cast")?.jsonArray ?: return null
+        fun parse(movie: Boolean) = credits.asSequence().mapNotNull { value ->
+            val item = value.jsonObject
+            if (item["media_type"]?.jsonPrimitive?.contentOrNull != if (movie) "movie" else "tv") {
+                return@mapNotNull null
+            }
+            val mediaId = item["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val mediaTitle = item[if (movie) "title" else "name"]?.jsonPrimitive?.contentOrNull
+                ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val date = item[if (movie) "release_date" else "first_air_date"]
+                ?.jsonPrimitive?.contentOrNull
+            TmdbCredit(mediaId, mediaTitle, date?.take(4)?.toIntOrNull())
+        }.distinctBy { it.id }.take(250).toList()
+        return TmdbPersonCredits(parse(true), parse(false))
     }
 
     /** True once the user has saved a key. Callers gate on this so nothing runs without one. */
-    fun isConfigured(): Boolean = settings.tmdbApiKey.value.isNotBlank()
+    fun isConfigured(): Boolean =
+        settings.tmdbApiKey.value.isNotBlank() || settings.tmdbReadToken.value.isNotBlank()
 
     /** Metadata for a film: by [tmdbId] when the provider already gave one, else a title(+year) search. */
     fun movieMeta(title: String, year: Int?, tmdbId: String?): TmdbMeta? =
@@ -210,6 +267,6 @@ class TmdbClient(
         val TMDB_BASE: HttpUrl = "https://api.themoviedb.org/3".toHttpUrl()
         const val IMG_POSTER = "https://image.tmdb.org/t/p/w500"
         const val IMG_BACKDROP = "https://image.tmdb.org/t/p/w1280"
-        const val TOP_CAST = 12
+        const val TOP_CAST = 60
     }
 }

@@ -509,6 +509,13 @@ interface MovieDao {
     )
     suspend fun moviesWithActor(name: String, limit: Int): List<Movie>
 
+    /** Indexed-ish bounded matching against TMDB's person filmography. Chunk lists <= 100. */
+    @Query("SELECT * FROM movies WHERE tmdbId IN (:ids)")
+    suspend fun byTmdbIds(ids: List<String>): List<Movie>
+
+    @Query("SELECT * FROM movies WHERE LOWER(name) IN (:names)")
+    suspend fun byExactNames(names: List<String>): List<Movie>
+
     /** Movies a person directed. See [moviesWithActor]; same shape over the `director` field. */
     @Query(
         """
@@ -526,6 +533,9 @@ interface MovieDao {
     /** Stream URL is the cross-device key: the same film has the same URL on the same provider. */
     @Query("SELECT * FROM movies WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Movie?
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId AND streamId IN (:streamIds)")
+    suspend fun bySourceStreamIds(sourceId: Long, streamIds: List<String>): List<Movie>
 
     @Query("UPDATE movies SET favourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)
@@ -611,11 +621,20 @@ interface SeriesDao {
     )
     suspend fun seriesWithActor(name: String, limit: Int): List<Series>
 
+    @Query("SELECT * FROM series WHERE tmdbId IN (:ids)")
+    suspend fun byTmdbIds(ids: List<String>): List<Series>
+
+    @Query("SELECT * FROM series WHERE LOWER(name) IN (:names)")
+    suspend fun byExactNames(names: List<String>): List<Series>
+
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun byId(id: Long): Series?
 
     @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId = :seriesId LIMIT 1")
     suspend fun byProviderId(sourceId: Long, seriesId: String): Series?
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId AND seriesId IN (:seriesIds)")
+    suspend fun bySourceSeriesIds(sourceId: Long, seriesIds: List<String>): List<Series>
 
     @Query("UPDATE series SET favourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)

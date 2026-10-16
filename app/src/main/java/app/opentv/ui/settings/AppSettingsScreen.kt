@@ -55,7 +55,7 @@ import app.opentv.data.work.SyncWorker
  * [AppSettings] and takes effect immediately.
  */
 @Composable
-fun AppSettingsScreen(onBack: () -> Unit) {
+fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val themeMode by settings.themeMode.collectAsState()
@@ -229,7 +229,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
-        TmdbKeySection(settings)
+        TmdbKeySection(settings, onOpenWebManager)
 
         Spacer(Modifier.height(16.dp))
 
@@ -243,7 +243,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
  * default, so the feature is off until opted into.
  */
 @Composable
-private fun TmdbKeySection(settings: AppSettings) {
+private fun TmdbKeySection(settings: AppSettings, onOpenWebManager: () -> Unit) {
     val context = LocalContext.current
     val savedKey by settings.tmdbApiKey.collectAsState()
     val savedToken by settings.tmdbReadToken.collectAsState()
@@ -252,6 +252,10 @@ private fun TmdbKeySection(settings: AppSettings) {
     val savedMessage = stringResource(R.string.settings_tmdb_saved)
 
     SettingsSection(stringResource(R.string.settings_section_metadata)) {
+        OutlinedButton(onClick = onOpenWebManager) {
+            Text("Enter TMDB credentials from phone (show QR code)")
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
             stringResource(R.string.settings_tmdb_note),
             style = MaterialTheme.typography.bodyMedium,

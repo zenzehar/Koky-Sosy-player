@@ -1,4 +1,76 @@
-# Changelog
+# v0.1.10.3 TV alpha — VLC seek recovery and safer fast-Back
+
+- Move LibVLC native release to AndroidView.onRelease so fast Back during buffering/loading does not free the player while its surface can remain attached.
+- Guard LibVLC callbacks and duplicate Back navigation after exit starts.
+- Bound frozen-seek handling: nudge decoder at 7 seconds without native-time progress, then restart playback in-place after 17 seconds; do not automatically repeat a known-failed seek.
+- Seek previews are not recorded as confirmed viewing history. Media3 view is detached on release and VOD progress snapshots are captured on the UI thread before IO persistence.
+- Added pure seek-stall state-machine regression tests. Screensaver test deferred. Physical Fire TV/Android TV validation outstanding.
+
+# v0.1.10.2 TV alpha — cast completeness, resume clarity and stability
+
+- Fixed a significant actor-search gap: TMDB photo credits were displayed but not indexed locally. Now complete cast names from every opened title are merged with provider names and persisted to Room, so actors from the current title are searchable thereafter.
+- Increased cast coverage to **up to 60** credited performers per opened title and up to **350 local hits per media type**; provider-only names remain present with a photo placeholder.
+- When a person page is opened, optional TMDB filmography supplies additional movie/TV IDs and exact title candidates. Only matches already in the user's local catalogue are returned, via bounded Room database lookups. Credited membership is stored for future use.
+- During future Xtream content refreshes, preserve previously enriched cast names, TMDB IDs, plots, title-row IDs, and favourites using one bounded provider-ID query per import batch, so a refresh does not erase the new cast index.
+- Cast portrait metadata is bounded to **96 title entries in memory**. Photos use Coil's normal on-demand memory/disk cache; **no mass photo downloads or catalogue-wide TMDB crawl**.
+- Fixed a concrete VOD exit race: the final save previously read Media3 player properties on an IO thread *after* releasing the player; this could throw an uncaught wrong-thread/released-player exception on Back. Now final position/duration are snapshotted on the UI thread before release, and only those immutable values are persisted in background.
+- Stabilized Series navigation: remember a single episode Room Flow while composing; avoid forcing focus on lazy episode rows while returning from playback.
+- Refresh Movie/Series resume after lifecycle resume, showing **minutes watched and percentage** on detail-level Resume actions. Series defaults to the latest unfinished episode and its season.
+- Fire TV screensaver behavior **still pending hardware verification**, carried forward unchanged.
+- Development-only build: v0.1.10.2, Android versionCode 13. Does not replace user-approved v0.1.9 milestone.
+
+**Limitation:** Exact cause of a hardware-only player-return crash requires an Android logcat stack trace. New navigation guard is a targeted fix, not a claim that all crashes have been reproduced or eliminated.
+
+---
+# v0.1.10.1 TV alpha hotfix — unapproved
+
+- Phone Web Manager TMDB API entry: corrected undefined JavaScript helper that stopped event-handler installation; reliable POST-body reading and confirmed saved-status read-back; explicit phone-page success/error output.
+- Added an **Enter TMDB from phone** button inside TV Settings → Metadata, linking directly to the Web Manager QR screen.
+- Made native remote long holds open action menus **on key release**, preventing the released OK key from also activating a menu item.
+- Replaced modal movie/series/episode/Continue Watching action dialogs with anchored TV dropdown menus. Reset confirmation remains available for Continue Watching.
+- Movie and Series posters now **always show a readable title** below the image.
+- Series details choose the newest unfinished episode as the default season and Play/Resume target; manual season selection still works.
+- About now says whether a newer **published release** was found and links to GitHub Actions for alpha builds. Previously-installed versions cannot discover unpublished CI artifacts retrospectively.
+- Fire TV screensaver behaviour: **deferred hardware test**, no claim of verification.
+- Android versionCode 12, name 0.1.10.1-tv-alpha. v0.1.9 remains the approved checkpoint.
+
+---
+# Koky & Sosy Player — changelog
+
+Version names below are Android TV application versions. The earlier **OpenTV upstream changelog** is retained under the historical section for licensing/provenance context; its numbering does **not** mean a newer Koky & Sosy APK is available.
+
+## v0.1.10 TV alpha — development / not yet approved
+
+- TMDB cast portraits for **Movies** and **Series**, with D-pad-accessible person cards that open matching Movies and Series in the local library.
+- Enter or replace the TMDB API key/read-access token using the **LAN-only, QR-token-authenticated phone manager**; no credential values are returned by status requests.
+- TV remote gestures: brief OK plays/opens; hold OK/Select or Menu opens the relevant title/episode options. Visible options controls remain available.
+- Episode-specific Reset progress, and movie/series poster actions. Existing Continue Watching actions retained.
+- Pause fullscreen Live audio and video when the device goes to screensaver / screen-off (and on background stop except intentional PiP).
+- Rebalanced EPG layout: wider channel text, two-line names, tighter programme timeline, more legible category rail.
+- Back from fullscreen Live restores the playing channel in the guide, focuses the channel row, and continues preview until a different channel is explicitly selected.
+- Documentation and manual Fire TV/Android TV regression checklist refreshed.
+- `versionCode = 11` (in-place upgrade over approved v0.1.9).
+
+**Status:** compile and real-device verification required; do not merge this alpha without approval.
+
+## v0.1.9 TV — approved milestone
+
+- Improved branding, splash/launcher visuals, search descenders, search reset on category changes.
+- Richer Continue Watching posters and click/long-hold actions.
+- Initial Live return selection and left-hand login focus; factory reset.
+- Correct repository-scoped update checker and optional TMDB key/token setup.
+
+## v0.1.8 TV — approved milestone
+
+- Automatic next episode/season setting, saved next-episode resume location.
+- Live tile update percentage during imports and VOD lock through final catalogue preparation.
+- Compact episode details and series TMDB cast-photo tab.
+
+## v0.1.7 TV — approved milestone
+
+- Six-up VOD grid, simplified category styling, improved focus, updated navigation and in-tile import progress.
+
+## Earlier original OpenTV upstream history (not Koky & Sosy release numbering)
 
 ## 0.11.8
 

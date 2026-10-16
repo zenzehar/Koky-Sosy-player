@@ -7,6 +7,15 @@ package app.opentv.ui.vod
 
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -155,6 +164,43 @@ fun VodPlayerScreen(
     val tracks by controller.tracks.collectAsState()
 
     var paused by remember { mutableStateOf(false) }
+
+    var screenSaverSuspended by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context, controller) {
+        fun pauseForSaver() {
+            if (!app.opentv.core.PipState.inPip.value) {
+                screenSaverSuspended = true
+                controller.player.pause()
+                paused = true
+                app.opentv.core.PipState.isPlaying = false
+            }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF, Intent.ACTION_DREAMING_STARTED -> pauseForSaver()
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) pauseForSaver()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
     // For HTTP IPTV VOD, use VLC first: Media3 frequently rejects provider containers.
     // Growing/internal/SMB recordings retain Media3's specialised data sources.
     var usingVlc by remember(streamUrl) { mutableStateOf(!growingRec && streamUrl.startsWith("http", true)) }
@@ -249,8 +295,29 @@ fun VodPlayerScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.keepScreenOn = false
-            // Do not cancel the pending final history write with the UI scope.
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { savePosition() }
+            // IMPORTANT: Media3 player getters must run on their application/main
+            // thread and must never be read after release(). Earlier versions launched
+            // savePosition() on IO and immediately released the player, which could crash
+            // Android on Back from VOD. Snapshot first, persist only captured primitives.
+            val endingPos = if (usingVlc) positionMs else
+                runCatching { controller.player.currentPosition }.getOrDefault(0L)
+            val endingDuration = if (usingVlc) durationMs else
+                runCatching { controller.player.duration.takeIf { it > 0L } ?: 0L }.getOrDefault(0L)
+            val endingProfile = settings.activeProfileId.value
+            val endingIsComplete = advanced.get()
+            if (!endingIsComplete && endingPos > 5_000L && endingDuration > 0L) {
+                val snapshot = app.opentv.data.model.PlaybackPosition(
+                    profileId = endingProfile,
+                    mediaKey = mediaKey,
+                    positionMillis = endingPos,
+                    durationMillis = endingDuration,
+                    updatedAtMillis = System.currentTimeMillis(),
+                )
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    runCatching { graph.playbackPositions.upsert(snapshot) }
+                        .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
+                }
+            }
             controller.release()
             scope.cancel()
         }
@@ -356,20 +423,23 @@ fun VodPlayerScreen(
             onBack = onBack,
             onTryMedia3 = { usingVlc = false },
             onEnded = { naturalEnd() },
+            suspendPlayback = screenSaverSuspended,
             onProgress = { pos, dur ->
                 positionMs = pos
                 durationMs = dur
                 if (!advanced.get() && pos > 5_000L && dur > 0L) {
+                    // Capture active profile and position on the UI thread, then persist only
+                    // immutable values on IO, never touch player or settings after teardown.
+                    val snapshot = app.opentv.data.model.PlaybackPosition(
+                        profileId = settings.activeProfileId.value,
+                        mediaKey = mediaKey,
+                        positionMillis = pos,
+                        durationMillis = dur,
+                        updatedAtMillis = System.currentTimeMillis(),
+                    )
                     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                        graph.playbackPositions.upsert(
-                            app.opentv.data.model.PlaybackPosition(
-                                profileId = settings.activeProfileId.value,
-                                mediaKey = mediaKey,
-                                positionMillis = pos,
-                                durationMillis = dur,
-                                updatedAtMillis = System.currentTimeMillis(),
-                            ),
-                        )
+                        runCatching { graph.playbackPositions.upsert(snapshot) }
+                            .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
                     }
                 }
             },
@@ -406,6 +476,8 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            // Drop Media3's view reference before the native/decoder teardown.
+            onRelease = { playerView -> playerView.player = null },
         )
 
         when (val current = state) {
