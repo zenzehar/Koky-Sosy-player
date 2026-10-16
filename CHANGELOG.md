@@ -7,6 +7,7 @@ User withdrew the physical-test approval previously recorded for v0.1.10.3 due t
 - More conservative, responsive long-press seeking: still accelerates after the normal 10 s tap, but avoids extreme multi-minute jumps that overload fragile provider seek indexes.
 - Allow manually switching to Media3 from the VLC control bar. This is an escape for VLC-specific decoder/seek faults; the alternative may not parse every provider container.
 - Media3: 10-second seek increments, bounded allocator size, release guard to avoid duplicate native teardown.
+- Avoid eager Media3 controller allocation for ordinary VLC VOD playback; initialise the alternate engine only when selected, preserving native RAM/codec headroom.
 - Added unit tests for buffer profiles and remote seek ramp; retaining v0.1.10.3 rollback code unchanged.
 - IMPORTANT LIMITATIONS: Device/stream compatibility, decoder freezes despite a moving timestamp, and Fire TV screensaver remain to be physically verified. Buffering cannot correct a provider's defective seek index.
 
