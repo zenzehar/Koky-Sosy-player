@@ -15,7 +15,9 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 internal data class DiagnosticQrResult(
     val bitmap: Bitmap?,
     val failureClass: String? = null,
-    val compact: Boolean = false,
+    val fallback: Boolean = false,
+    val partIndex: Int = 0,
+    val partCount: Int = 1,
 )
 
 /**
@@ -27,23 +29,28 @@ internal data class DiagnosticQrResult(
  * Do not upload any report automatically. QR contains only already-allowlisted plain text.
  */
 internal object DiagnosticQrEncoder {
-    fun render(report: String): DiagnosticQrResult {
+    fun render(report: String, partIndex: Int = 0): DiagnosticQrResult {
         val safe = report.take(MAX_TEXT)
         if (safe.isBlank()) return DiagnosticQrResult(null, "EmptyReport")
-        // Pairing QR generation has been used elsewhere in this app; it has a quiet zone,
-        // contrast and a phone-camera-tested bitmap conversion.
-        QrCodes.render(safe, PIXELS)?.let { return DiagnosticQrResult(it) }
+        // Prefer one full-text QR using our established phone-pairing renderer.
+        if (partIndex == 0) {
+            QrCodes.render(safe, PIXELS)?.let { return DiagnosticQrResult(it) }
+        }
 
+        // If a dense QR fails, try multiple low-density, numbered QR pages. Never
+        // silently discard events: every 220-character slice is represented.
+        val count = (safe.length + PART_SIZE - 1) / PART_SIZE
+        val index = partIndex.coerceIn(0, count - 1)
+        val from = index * PART_SIZE
+        val partText = "KOKY-PART ${index + 1}/$count\n" +
+            safe.substring(from, minOf(from + PART_SIZE, safe.length))
         var errorType = "PrimaryRendererFailure"
-        // Reattempt with lower error-correction pressure and without optional hint knobs.
-        // Use RGB_565 (half the bitmap memory) to tolerate constrained Android TV devices.
-        val compact = safe.take(280)
         val fallback = try {
             val hints = mapOf(
                 EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.L,
                 EncodeHintType.MARGIN to 3,
             )
-            val matrix = QRCodeWriter().encode(compact, BarcodeFormat.QR_CODE, PIXELS, PIXELS, hints)
+            val matrix = QRCodeWriter().encode(partText, BarcodeFormat.QR_CODE, PIXELS, PIXELS, hints)
             val pixels = IntArray(matrix.width * matrix.height)
             for (y in 0 until matrix.height) {
                 val offset = y * matrix.width
@@ -60,9 +67,16 @@ internal object DiagnosticQrEncoder {
                 .replace(Regex("[^A-Za-z0-9_]"), "").take(42)
             null
         }
-        return DiagnosticQrResult(fallback, if (fallback == null) errorType else null, compact = true)
+        return DiagnosticQrResult(
+            bitmap = fallback,
+            failureClass = if (fallback == null) errorType else null,
+            fallback = true,
+            partIndex = index,
+            partCount = count,
+        )
     }
 
+    private const val PART_SIZE = 220
     private const val MAX_TEXT = 950
     private const val PIXELS = 480 // 0.9 MiB ARGB_8888, previously 1.2 MiB at 560px.
 }
