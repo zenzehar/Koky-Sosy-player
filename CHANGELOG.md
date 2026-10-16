@@ -1,3 +1,18 @@
+# v0.1.10.6 TV alpha — native VLC compatibility and standalone VLC fallback
+
+## Evidence-based scope
+The user tested the *same episode on the same TV/network* using IPTV Smarters Pro's internal player and standalone VLC. **Both play smoothly.** Koky & Sosy v0.1.10.5 continues to rebuffer and occasionally stalls. Its Media3 fallback fails with ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED for that episode. Source-stream quality cannot be blamed without further evidence.
+
+## Changes
+- Native VLC mode now defaults ON for new and previously unset installations. It allows LibVLC's native user-agent, cache/HTTP handling and hardware-decoder defaults, matching the known-working standalone VLC baseline more closely.
+- Preserve configured custom per-source User-Agent explicitly: native mode omits only the generic OpenTV UA. Provider-specific overrides are never silently lost.
+- Retain old Tuned VLC mode for comparison: selected network cache + generic/custom User-Agent, hardware decoder override and HTTP reconnect. Settings > Playback allows D-pad switching; applied at the next video.
+- Buffer presets remain available for Media3 and Tuned VLC. Native VLC uses its own caching. The absence of a custom cache size in native mode is intentional, not a broken setting.
+- Add **Open in VLC app** button to playback and error controls. It passes the URL only to the installed VLC Android package, stops internal playback first to avoid concurrent provider sessions, and leaves the embedded player screen on successful handoff. External app cannot automatically provide our progress/next-episode controls.
+- Preserve cast, resume, guide navigation and existing UI with no changes to user data or URL constructions.
+- Pure policy tests enforce default vs tuned options and explicit custom UA.
+- Do NOT claim verified until real Fire TV hardware testing, including continuous playback and seek/back. Screensaver remains untested. This PR is a draft, not an approved milestone.
+
 # v0.1.10.5 TV alpha — continuous playback interruption mitigation
 
 - User reported cyclic play / pause / play and increasing buffering on v0.1.10.4.
