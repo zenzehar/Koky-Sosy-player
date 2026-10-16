@@ -1,3 +1,15 @@
+# v0.1.10.8 TV alpha — temporary QR playback/crash diagnostics
+
+**User-requested testing instrumentation**, to be removed from the final stable build, while investigating native VLC buffering on the same provider episode that standalone VLC and IPTV Smarters Pro play smoothly.
+
+- Adds a bounded (18-event) diagnostic recorder including engine, Native/Tuned mode, LibVLC status transitions, buffering percentage, number of rebuffer interruptions, stalled-clock indication, seek targets, Media3 error code, elapsed/total playback seconds, device SDK/board model and rough heap/RAM. Strings are allowlisted. Does not include stream URL (often includes Xtream password), title, account, key, request headers or exception messages. Saved in app-private SharedPreferences; nothing uploaded automatically.
+- Adds **Diagnostics QR** in the embedded VLC transport/error controls, **Scan error diagnostics QR** on Media3 error screens, and **Show latest diagnostic QR** in Settings > Playback. A phone camera scanning the on-screen QR receives PLAIN TEXT to paste into ChatGPT; does not require connecting devices or exporting files.
+- Registers a process-wide uncaught Java exception handler, preserves a short message-free stack trace and recent event history synchronously before invoking Android's original handler. After a fatal exception, on next app launch the TV automatically shows a QR with the recovered crash report. Impossible to render a QR inside an already-dead process.
+- Native abort, force-stop or Android OS process eviction bypass Java handlers. A persisted in-progress playback marker can show **POSSIBLE_UNCLEAN_EXIT=1** on restart; this is not proof of a crash. The user can dismiss, and the previous report stays accessible in Settings.
+- Low-overhead and memory-conscious: no screenshot/video recording, no permissions, no background server, bounded log and QR, event-driven persistence with at most one ordinary report per 3 seconds, 500-ms video poll reused without spawning jobs. QR rendering only on demand.
+- Existing LibVLC 3.7.7/Media3 playback, caching, D-pad, resume and cast remain unchanged. **Playback still fails previous real-TV validation** and screensaver behaviour remains UNTESTED; v0.1.10.8 is a diagnostic alpha, not a successful milestone.
+- Known scope: without privileged logcat/access to network traffic, the QR cannot reveal arbitrary native VLC internals, HTTP status or native stack traces; it is safe structured app-side evidence, not a substitute for Android bugreports.
+
 # v0.1.10.7 TV alpha — embedded LibVLC engine-only comparison
 
 **Failed previous real-TV test:** v0.1.10.6 Native VLC settings repeatedly stalled/buffered (photo: Buffering 8% · interruptions: 2); user also observed playback stalled without buffering. The same episode plays smoothly using IPTV Smarters Pro and standalone VLC on the same TV and network. Our embedded playback implementation is the main suspect.
