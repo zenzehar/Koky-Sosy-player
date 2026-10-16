@@ -428,16 +428,18 @@ fun VodPlayerScreen(
                 positionMs = pos
                 durationMs = dur
                 if (!advanced.get() && pos > 5_000L && dur > 0L) {
+                    // Capture active profile and position on the UI thread, then persist only
+                    // immutable values on IO, never touch player or settings after teardown.
+                    val snapshot = app.opentv.data.model.PlaybackPosition(
+                        profileId = settings.activeProfileId.value,
+                        mediaKey = mediaKey,
+                        positionMillis = pos,
+                        durationMillis = dur,
+                        updatedAtMillis = System.currentTimeMillis(),
+                    )
                     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                        graph.playbackPositions.upsert(
-                            app.opentv.data.model.PlaybackPosition(
-                                profileId = settings.activeProfileId.value,
-                                mediaKey = mediaKey,
-                                positionMillis = pos,
-                                durationMillis = dur,
-                                updatedAtMillis = System.currentTimeMillis(),
-                            ),
-                        )
+                        runCatching { graph.playbackPositions.upsert(snapshot) }
+                            .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
                     }
                 }
             },
@@ -474,6 +476,8 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            // Drop Media3's view reference before the native/decoder teardown.
+            onRelease = { playerView -> playerView.player = null },
         )
 
         when (val current = state) {

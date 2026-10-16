@@ -1,3 +1,13 @@
+## v0.1.10.3 physical Fire TV / Android TV regression plan
+
+- Open a movie/series episode then press Back during loading, before first frame. Reopen and repeat 20 times. No crash and no blank/stuck surface.
+- Seek ±10 seconds and long-press seek in both movies and episodes. Verify picture/audio continue and timeline reflects actual native playback.
+- Seek to the middle and near end of a long VOD stream. If seek freezes, leave it for 20 seconds: bounded native decoder nudge and restart should recover rather than leave a permanent freeze. Then Back must be safe.
+- From a stuck/frozen seek press Back promptly. Reopen the title; verify no lingering player or crashed navigation.
+- Manually Pause a title and ensure no automated stall recovery starts while paused.
+- Check Media3/local/recording playback and VLC HTTP/HTTPS title return, saved resume data, focus/season restoration and previous cast-search behavior.
+- Screensaver outcome remains UNTESTED / DEFERRED.
+
 # v0.1.10.2 TV acceptance and regression tests
 
 1. On Firestick play a series episode. Back to title, re-enter episode, Back again at least 10 times. Repeat with Media3 and VLC fallback and with another season. No crash; original title/season navigation intact.

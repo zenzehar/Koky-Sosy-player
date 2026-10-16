@@ -1,3 +1,11 @@
+# v0.1.10.3 TV alpha — VLC seek recovery and safer fast-Back
+
+- Move LibVLC native release to AndroidView.onRelease so fast Back during buffering/loading does not free the player while its surface can remain attached.
+- Guard LibVLC callbacks and duplicate Back navigation after exit starts.
+- Bound frozen-seek handling: nudge decoder at 7 seconds without native-time progress, then restart playback in-place after 17 seconds; do not automatically repeat a known-failed seek.
+- Seek previews are not recorded as confirmed viewing history. Media3 view is detached on release and VOD progress snapshots are captured on the UI thread before IO persistence.
+- Added pure seek-stall state-machine regression tests. Screensaver test deferred. Physical Fire TV/Android TV validation outstanding.
+
 # v0.1.10.2 TV alpha — cast completeness, resume clarity and stability
 
 - Fixed a significant actor-search gap: TMDB photo credits were displayed but not indexed locally. Now complete cast names from every opened title are merged with provider names and persisted to Room, so actors from the current title are searchable thereafter.
