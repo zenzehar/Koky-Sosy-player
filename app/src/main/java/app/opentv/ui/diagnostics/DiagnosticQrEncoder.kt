@@ -29,11 +29,11 @@ internal data class DiagnosticQrResult(
  * Do not upload any report automatically. QR contains only already-allowlisted plain text.
  */
 internal object DiagnosticQrEncoder {
-    fun render(report: String, partIndex: Int = 0): DiagnosticQrResult {
+    fun render(report: String, partIndex: Int = 0, forceFallback: Boolean = false): DiagnosticQrResult {
         val safe = report.take(MAX_TEXT)
         if (safe.isBlank()) return DiagnosticQrResult(null, "EmptyReport")
         // Prefer one full-text QR using our established phone-pairing renderer.
-        if (partIndex == 0) {
+        if (!forceFallback && partIndex == 0) {
             QrCodes.render(safe, PIXELS)?.let { return DiagnosticQrResult(it) }
         }
 
