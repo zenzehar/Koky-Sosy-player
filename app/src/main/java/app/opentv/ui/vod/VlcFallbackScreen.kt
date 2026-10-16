@@ -642,6 +642,15 @@ fun VlcFallbackScreen(
                     TvVlcButton("+10s", enabled = ready && player.isSeekable) {
                         seekTo((if (pendingSeekPreview) previewMs else positionMs) + 10_000L)
                     }
+                    TvVlcButton("Back", onClick = ::exitOnce)
+                }
+                // Keep everyday controls on the primary row; the advanced fallbacks
+                // occupy a separate row so they never clip on lower-resolution TVs.
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     TvVlcButton("Retry VLC") {
                         if (!released.get()) {
                             seekWatchdog.reset()
@@ -654,7 +663,6 @@ fun VlcFallbackScreen(
                     }
                     TvVlcButton("Try Media3", onClick = onTryMedia3)
                     TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
-                    TvVlcButton("Back", onClick = ::exitOnce)
                 }
                 if (recoveryMessage != null) Text(recoveryMessage.orEmpty(), color = Color.White)
                 if (ended) Text("Playback finished", color = Color.White)
