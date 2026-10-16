@@ -149,6 +149,9 @@ fun VlcFallbackScreen(
             return
         }
         lastNativeSeekTime = now
+        // A successful seek can go backwards. Forget the old monotonic position so a later
+        // confirmed lower timestamp can become the new correct resume point.
+        lastConfirmedPositionMs = 0L
         if (!paused) seekWatchdog.begin(now) else pendingSeekPreview = false
         showControls()
     }
@@ -206,6 +209,7 @@ fun VlcFallbackScreen(
                     if (runCatching { player.setTime(target) }.isSuccess) {
                         lastNativeSeekTime = android.os.SystemClock.elapsedRealtime()
                         if (!paused) seekWatchdog.begin(lastNativeSeekTime)
+                        lastConfirmedPositionMs = 0L
                         previewMs = target
                         pendingSeekPreview = true
                     }
@@ -330,11 +334,15 @@ fun VlcFallbackScreen(
                     }
                 } else when (event.key) {
                     Key.DirectionLeft -> {
-                        if (event.nativeKeyEvent.repeatCount == 0) seekTo(positionMs - 10_000L)
+                        if (event.nativeKeyEvent.repeatCount == 0) seekTo(
+                            (if (pendingSeekPreview) previewMs else positionMs) - 10_000L,
+                        )
                         true
                     }
                     Key.DirectionRight -> {
-                        if (event.nativeKeyEvent.repeatCount == 0) seekTo(positionMs + 10_000L)
+                        if (event.nativeKeyEvent.repeatCount == 0) seekTo(
+                            (if (pendingSeekPreview) previewMs else positionMs) + 10_000L,
+                        )
                         true
                     }
                     Key.DirectionUp, Key.DirectionDown, Key.Enter, Key.DirectionCenter -> {
@@ -531,13 +539,17 @@ fun VlcFallbackScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TvVlcButton("−10s", enabled = ready && player.isSeekable) { seekTo(positionMs - 10_000L) }
+                    TvVlcButton("−10s", enabled = ready && player.isSeekable) {
+                        seekTo((if (pendingSeekPreview) previewMs else positionMs) - 10_000L)
+                    }
                     TvVlcButton(if (paused) "Play" else "Pause", modifier = Modifier.focusRequester(pauseFocus)) {
                         if (paused) player.play() else player.pause()
                         paused = !paused
                         showControls()
                     }
-                    TvVlcButton("+10s", enabled = ready && player.isSeekable) { seekTo(positionMs + 10_000L) }
+                    TvVlcButton("+10s", enabled = ready && player.isSeekable) {
+                        seekTo((if (pendingSeekPreview) previewMs else positionMs) + 10_000L)
+                    }
                     TvVlcButton("Try Media3", onClick = onTryMedia3)
                     TvVlcButton("Back", onClick = ::exitOnce)
                 }
