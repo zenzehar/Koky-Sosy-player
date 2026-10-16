@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feat/v0.1.10.8-qr-playback-diagnostics'
+      github.head_ref == 'fix/v0.1.10.9-qr-diagnostics-reliability'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.10.8-tv-alpha-test \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.10.8_TV_alpha.apk" \
+          gh release create v0.1.10.9-tv-alpha-test \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.10.9_TV_alpha.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.10.8 TV alpha (hardware test pending)" \
-            --notes "UNVERIFIED TEST APK. Retains LibVLC 3.7.7 and adds temporary privacy-safe QR diagnostics for rebuffering, errors and crash recovery. Same-title real-TV testing and screensaver pending. Debug signing may differ from earlier CI APKs." \
+            --title "Koky & Sosy v0.1.10.9 TV alpha (hardware test pending)" \
+            --notes "UNVERIFIED TEST APK. Fixes missing QR on SDMC HAKO Pro TV using the existing pairing QR renderer, memory-bounded bitmap fallback, multipart low-density scanning, and safe error identifiers. Embedded LibVLC 3.7.7 remains unverified for uninterrupted playback. Debug signing may differ from earlier CI APKs." \
             --prerelease
