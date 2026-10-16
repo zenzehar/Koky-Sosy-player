@@ -140,18 +140,25 @@ fun VodPlayerScreen(
     // little differently in the transport: the "length" is how much has been recorded so far, which
     // keeps growing, and seeking is bounded to that recorded extent.
     val growingRec = remember(streamUrl) { streamUrl.startsWith("optvrec://") }
-    // The SMB source lets a recording stored on a NAS play and seek in-app; harmless for the
-    // http/file URLs of ordinary VOD.
-    val controller = remember {
-        PlayerController(
-            context, scope, graph.streamingHttpClient, subtitlesEnabled = false,
-            smbDataSourceFactory = app.opentv.player.SmbDataSource.Factory(graph.settings),
-            // Lets an `optvrec://<id>` recording play while it's still being written.
-            growingDataSourceFactory =
-                app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
-            liveRecording = growingRec,
-        )
+    // HTTP VOD prefers VLC. Do not allocate an idle Media3 ExoPlayer on every VLC movie/episode.
+    // On low-RAM sticks its native renderer, track selector and buffers are unnecessary overhead.
+    var usingVlc by remember(streamUrl) {
+        mutableStateOf(!growingRec && streamUrl.startsWith("http", true))
     }
+    var vlcEverTried by remember(streamUrl) { mutableStateOf(usingVlc) }
+    // The SMB and growing recording data sources are initialised only when actually needed.
+    val media3Holder = remember {
+        lazy(LazyThreadSafetyMode.NONE) {
+            PlayerController(
+                context, scope, graph.streamingHttpClient, subtitlesEnabled = false,
+                smbDataSourceFactory = app.opentv.player.SmbDataSource.Factory(graph.settings),
+                growingDataSourceFactory =
+                    app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
+                liveRecording = growingRec,
+            )
+        }
+    }
+    val controller by media3Holder
     // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
     // the item as seekable (no fixed length), so we seek directly, clamped to what's on disk.
     fun seekRelative(deltaMs: Long) {
@@ -160,18 +167,23 @@ fun VodPlayerScreen(
         else (p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
         p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
     }
-    val state by controller.state.collectAsState()
-    val tracks by controller.tracks.collectAsState()
+    // Subscribe to Media3 only while it is selected; VLC owns its own player state and tracks.
+    val state: PlayerController.State = if (usingVlc) PlayerController.State.Idle
+        else controller.state.collectAsState().value
+    val tracks: Tracks = if (usingVlc) Tracks.EMPTY
+        else controller.tracks.collectAsState().value
 
     var paused by remember { mutableStateOf(false) }
 
     var screenSaverSuspended by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, context, controller) {
+    DisposableEffect(lifecycleOwner, context) {
         fun pauseForSaver() {
             if (!app.opentv.core.PipState.inPip.value) {
                 screenSaverSuspended = true
-                controller.player.pause()
+                if (media3Holder.isInitialized()) {
+                    runCatching { controller.player.pause() }
+                }
                 paused = true
                 app.opentv.core.PipState.isPlaying = false
             }
@@ -201,10 +213,6 @@ fun VodPlayerScreen(
             runCatching { context.unregisterReceiver(receiver) }
         }
     }
-    // For HTTP IPTV VOD, use VLC first: Media3 frequently rejects provider containers.
-    // Growing/internal/SMB recordings retain Media3's specialised data sources.
-    var usingVlc by remember(streamUrl) { mutableStateOf(!growingRec && streamUrl.startsWith("http", true)) }
-    var vlcEverTried by remember(streamUrl) { mutableStateOf(usingVlc) }
     var resumeLoaded by remember(mediaKey) { mutableStateOf(false) }
     var resumeFromMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
@@ -223,9 +231,9 @@ fun VodPlayerScreen(
 
     suspend fun savePosition() {
         if (advanced.get()) return
-        val player = controller.player
-        val pos = if (usingVlc) positionMs else player.currentPosition
-        val dur = if (usingVlc) durationMs else player.duration.takeIf { it > 0 } ?: 0L
+        val pos = if (usingVlc) positionMs else controller.player.currentPosition
+        val dur = if (usingVlc) durationMs
+            else controller.player.duration.takeIf { it > 0 } ?: 0L
         if (dur <= 0L) return
         if (pos > 5_000) {
             graph.playbackPositions.upsert(
@@ -318,7 +326,7 @@ fun VodPlayerScreen(
                         .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
                 }
             }
-            controller.release()
+            if (media3Holder.isInitialized()) controller.release()
             scope.cancel()
         }
     }
@@ -583,7 +591,7 @@ fun VodPlayerScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
-                        if (growingRec) seekRelative(-15_000) else controller.seekBackward(); interaction++
+                        if (growingRec) seekRelative(-10_000) else controller.seekBackward(); interaction++
                     }
                     Spacer(Modifier.width(10.dp))
                     VodChip(
@@ -597,7 +605,7 @@ fun VodPlayerScreen(
                     }
                     Spacer(Modifier.width(10.dp))
                     VodChip(Icons.Filled.FastForward, stringResource(R.string.player_forward)) {
-                        if (growingRec) seekRelative(15_000) else controller.seekForward(); interaction++
+                        if (growingRec) seekRelative(10_000) else controller.seekForward(); interaction++
                     }
                     Spacer(Modifier.width(20.dp))
                     VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {

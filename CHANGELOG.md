@@ -1,3 +1,16 @@
+# v0.1.10.4 TV alpha — playback and seek stability audit (UNVERIFIED ON TV)
+
+User withdrew the physical-test approval previously recorded for v0.1.10.3 due to numerous playback/seek faults. The old branch is now a source snapshot, NOT a quality signoff. Never merge this alpha without new TV testing.
+
+- Added four persistent buffering profiles in Settings > Playback: Fast, Balanced (default), Stable, Large. Changes apply when opening the next player. VLC uses bounded network-caching durations; Media3 sets a bounded allocator target (12–48 MiB) and matching playback buffering thresholds. Preview/recording/DVR have separate specialised caps.
+- VLC: coalesce seeks to the most recent target instead of sending overlapping native seek commands; protect resume data from unconfirmed seek previews and backwards seeks; prevent runaway repeats in hidden-controls mode.
+- More conservative, responsive long-press seeking: still accelerates after the normal 10 s tap, but avoids extreme multi-minute jumps that overload fragile provider seek indexes.
+- Allow manually switching to Media3 from the VLC control bar. This is an escape for VLC-specific decoder/seek faults; the alternative may not parse every provider container.
+- Media3: 10-second seek increments, bounded allocator size, release guard to avoid duplicate native teardown.
+- Avoid eager Media3 controller allocation for ordinary VLC VOD playback; initialise the alternate engine only when selected, preserving native RAM/codec headroom.
+- Added unit tests for buffer profiles and remote seek ramp; retaining v0.1.10.3 rollback code unchanged.
+- IMPORTANT LIMITATIONS: Device/stream compatibility, decoder freezes despite a moving timestamp, and Fire TV screensaver remain to be physically verified. Buffering cannot correct a provider's defective seek index.
+
 # v0.1.10.3 TV alpha — VLC seek recovery and safer fast-Back
 
 - Move LibVLC native release to AndroidView.onRelease so fast Back during buffering/loading does not free the player while its surface can remain attached.

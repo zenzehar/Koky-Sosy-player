@@ -82,14 +82,28 @@ fun VlcFallbackScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val libvlc = remember(streamUrl) {
-        LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
+    val bufferPreset = remember(streamUrl) {
+        app.opentv.core.AppSettings.get(context).playbackBufferPreset.value
     }
-    val player = remember(streamUrl) { MediaPlayer(libvlc) }
+    // At most one LibVLC instance and one decoder for this VOD screen. Cache values are
+    // durations (ms), not MB of preallocated memory. Read once on stream opening.
+    val libvlc = remember(streamUrl, bufferPreset) {
+        LibVLC(context.applicationContext, arrayListOf(
+            "--network-caching=${bufferPreset.vlcNetworkCacheMs}",
+            "--no-video-title-show",
+        ))
+    }
+    val player = remember(streamUrl, bufferPreset) { MediaPlayer(libvlc) }
     val released = remember(streamUrl) { AtomicBoolean(false) }
     val exitRequested = remember(streamUrl) { AtomicBoolean(false) }
     val seekWatchdog = remember(streamUrl) { VlcSeekWatchdog() }
     var recoveryMessage by remember(streamUrl) { mutableStateOf<String?>(null) }
+    // Native seeks are serialized. A later D-pad command supersedes queued commands instead of
+    // overwhelming a decoder with dozens of seeks while recovering from the first one.
+    var queuedSeekTarget by remember(streamUrl) { mutableStateOf<Long?>(null) }
+    var lastConfirmedPositionMs by remember(streamUrl) { mutableLongStateOf(0L) }
+    var pendingSeekPreview by remember(streamUrl) { mutableStateOf(false) }
+    var lastNativeSeekTime by remember(streamUrl) { mutableLongStateOf(0L) }
     fun exitOnce() {
         if (exitRequested.compareAndSet(false, true)) onBack()
     }
@@ -114,16 +128,31 @@ fun VlcFallbackScreen(
 
     fun showControls() { controlsVisible = true; interaction++ }
     fun seekTo(target: Long) {
-        if (released.get() || !ready || !runCatching { player.isSeekable }.getOrDefault(false)) return
+        if (released.get() || failed || !ready ||
+            !runCatching { player.isSeekable }.getOrDefault(false)) return
         val ceiling = durationMs.takeIf { it > 1_000L }?.minus(1_000L) ?: Long.MAX_VALUE
         val capped = target.coerceIn(0L, ceiling)
+        previewMs = capped
+        pendingSeekPreview = true
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!seekWatchdog.isIdle || now - lastNativeSeekTime < 450L) {
+            // Keep only the latest target. The preview reacts instantly; native seeks do not pile up.
+            queuedSeekTarget = capped
+            showControls()
+            return
+        }
+        queuedSeekTarget = null
         if (runCatching { player.setTime(capped) }.isFailure) {
+            pendingSeekPreview = false
             recoveryMessage = "This stream could not seek to that position."
             showControls()
             return
         }
-        seekWatchdog.begin(android.os.SystemClock.elapsedRealtime())
-        previewMs = capped
+        lastNativeSeekTime = now
+        // A successful seek can go backwards. Forget the old monotonic position so a later
+        // confirmed lower timestamp can become the new correct resume point.
+        lastConfirmedPositionMs = 0L
+        if (!paused) seekWatchdog.begin(now) else pendingSeekPreview = false
         showControls()
     }
 
@@ -152,7 +181,8 @@ fun VlcFallbackScreen(
             // The AndroidView can still own a native surface during composition disposal.
             // Its onRelease is the sole owner of stop/detach/release.
             runCatching { player.setEventListener(null) }
-            if (!released.get()) onProgress(positionMs, durationMs)
+            // Never persist a speculative playhead from an unfinished/frozen native seek.
+            if (!released.get()) onProgress(lastConfirmedPositionMs, durationMs)
         }
     }
 
@@ -176,8 +206,13 @@ fun VlcFallbackScreen(
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
                     initialSeekPending = false
                     val target = initialPositionMs.coerceIn(0L, (durationMs - 1_000L).coerceAtLeast(0L))
-                    player.setTime(target)
-                    seekWatchdog.begin(android.os.SystemClock.elapsedRealtime())
+                    if (runCatching { player.setTime(target) }.isSuccess) {
+                        lastNativeSeekTime = android.os.SystemClock.elapsedRealtime()
+                        if (!paused) seekWatchdog.begin(lastNativeSeekTime)
+                        lastConfirmedPositionMs = 0L
+                        previewMs = target
+                        pendingSeekPreview = true
+                    }
                 }
                 if (ready && !scrubbing && !ended) {
                     when (seekWatchdog.observe(
@@ -189,24 +224,38 @@ fun VlcFallbackScreen(
                             player.play()
                         }
                         VlcSeekWatchdog.Action.RESTART -> {
-                            android.util.Log.w("VlcFallbackScreen", "Seek stalled; restarting media")
-                            seekWatchdog.reset()
+                            android.util.Log.w("VlcFallbackScreen", "VLC seek stalled, one recovery restart")
+                            queuedSeekTarget = null // Never repeat a known failing seek automatically.
+                            pendingSeekPreview = false
                             initialSeekPending = false
                             ready = false
                             failed = false
-                            recoveryMessage = "Seek stalled. Restarted playback; try a different position."
+                            recoveryMessage = "Seek could not recover. Restarting the stream. You can switch to Media3 below."
                             showControls()
                             player.stop()
-                            player.play() // Same native player and surface; never attach again.
+                            player.play() // One view owner; do not re-attach the surface.
                         }
                         else -> Unit
                     }
+                    if (seekWatchdog.isIdle && pendingSeekPreview) {
+                        pendingSeekPreview = false
+                    }
+                    if (seekWatchdog.isIdle && queuedSeekTarget != null) {
+                        val queued = queuedSeekTarget
+                        queuedSeekTarget = null
+                        if (queued != null) seekTo(queued)
+                    }
                 }
-                // Only persist positions verified by the native playback clock.
-                if (ready && !scrubbing && seekWatchdog.isIdle &&
-                    nativeTime - lastSaved >= 10_000L && durationMs > 0L) {
-                    lastSaved = nativeTime
-                    onProgress(nativeTime, durationMs)
+                // Do not store unconfirmed seek previews in Continue Watching.
+                // Native time is only useful once the playback watchdog has cleared.
+                if (ready && !scrubbing && !paused && player.isPlaying &&
+                    seekWatchdog.isIdle && queuedSeekTarget == null && !pendingSeekPreview &&
+                    nativeTime >= lastConfirmedPositionMs && durationMs > 0L) {
+                    lastConfirmedPositionMs = nativeTime
+                    if (nativeTime - lastSaved >= 10_000L) {
+                        lastSaved = nativeTime
+                        onProgress(nativeTime, durationMs)
+                    }
                 }
             }.onFailure {
                 if (!released.get()) android.util.Log.w("VlcFallbackScreen", "VLC polling issue", it)
@@ -265,10 +314,22 @@ fun VlcFallbackScreen(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
+                val direction = when (event.key) {
+                    Key.DirectionLeft -> SeekDirection.BACKWARD
+                    Key.DirectionRight -> SeekDirection.FORWARD
+                    else -> null
+                }
+                // Capture the matching release before focus is re-targeted by the controls.
+                // One hold => one native seek, even when it started with controls hidden.
+                if (event.type == KeyEventType.KeyUp && direction != null &&
+                    seekHeldDirection == direction) {
+                    if (scrubbing) seekTo(previewMs)
+                    scrubbing = false
+                    seekHeldDirection = null
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (controlsVisible) {
-                    // Always allow Up to select timeline, and Down to return to transport.
-                    // Do not rely solely on spatial focus traversal between Compose rows.
                     when (event.key) {
                         Key.DirectionUp -> {
                             if (!timelineFocused) { seekFocus.requestFocus(); showControls(); true }
@@ -284,8 +345,19 @@ fun VlcFallbackScreen(
                         }
                     }
                 } else when (event.key) {
-                    Key.DirectionLeft -> { seekTo(positionMs - 10_000L); true }
-                    Key.DirectionRight -> { seekTo(positionMs + 10_000L); true }
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        if (event.nativeKeyEvent.repeatCount == 0 && direction != null &&
+                            ready && durationMs > 0L &&
+                            runCatching { player.isSeekable }.getOrDefault(false)) {
+                            seekOriginMs = if (pendingSeekPreview) previewMs else positionMs
+                            seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
+                            seekHeldDirection = direction
+                            previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                            scrubbing = true
+                        }
+                        showControls()
+                        true
+                    }
                     Key.DirectionUp, Key.DirectionDown, Key.Enter, Key.DirectionCenter -> {
                         showControls(); true
                     }
@@ -306,6 +378,7 @@ fun VlcFallbackScreen(
                     val media = Media(libvlc, Uri.parse(streamUrl))
                     media.setHWDecoderEnabled(true, false)
                     media.addOption(":http-user-agent=$userAgent")
+                    media.addOption(":network-caching=${bufferPreset.vlcNetworkCacheMs}")
                     player.media = media
                     media.release()
                     player.play()
@@ -354,7 +427,7 @@ fun VlcFallbackScreen(
                 )
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(clock(if (scrubbing) previewMs else positionMs), color = Color.White)
+                    Text(clock(if (scrubbing || pendingSeekPreview) previewMs else positionMs), color = Color.White)
                     Box(
                         modifier = Modifier.weight(1f).padding(horizontal = 14.dp).height(48.dp)
                             .focusRequester(seekFocus)
@@ -445,7 +518,7 @@ fun VlcFallbackScreen(
                                 strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round,
                             )
                             val fraction = if (durationMs > 0L) {
-                                (if (scrubbing) previewMs else positionMs)
+                                (if (scrubbing || pendingSeekPreview) previewMs else positionMs)
                                     .coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()
                             } else 0f
                             val playheadX = startX + (endX - startX) * fraction
@@ -479,13 +552,18 @@ fun VlcFallbackScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TvVlcButton("−10s", enabled = player.isSeekable) { seekTo(positionMs - 10_000L) }
+                    TvVlcButton("−10s", enabled = ready && player.isSeekable) {
+                        seekTo((if (pendingSeekPreview) previewMs else positionMs) - 10_000L)
+                    }
                     TvVlcButton(if (paused) "Play" else "Pause", modifier = Modifier.focusRequester(pauseFocus)) {
                         if (paused) player.play() else player.pause()
                         paused = !paused
                         showControls()
                     }
-                    TvVlcButton("+10s", enabled = player.isSeekable) { seekTo(positionMs + 10_000L) }
+                    TvVlcButton("+10s", enabled = ready && player.isSeekable) {
+                        seekTo((if (pendingSeekPreview) previewMs else positionMs) + 10_000L)
+                    }
+                    TvVlcButton("Try Media3", onClick = onTryMedia3)
                     TvVlcButton("Back", onClick = ::exitOnce)
                 }
                 if (recoveryMessage != null) Text(recoveryMessage.orEmpty(), color = Color.White)

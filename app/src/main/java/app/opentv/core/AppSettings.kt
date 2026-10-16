@@ -261,6 +261,20 @@ class AppSettings private constructor(context: Context) {
      * constant (0 = Fit). Persisted so the choice survives leaving the player, which testers asked
      * for — picking Fill every single time you open a channel gets old fast.
      */
+    /** Configures bounded buffering at the NEXT playback session (not while a stream is decoding).
+     * Default Balanced retains quick starts without allocating a large native cache on Fire TV.
+     */
+    private val _playbackBufferPreset = MutableStateFlow(
+        app.opentv.player.PlaybackBufferPreset.fromSaved(prefs.getString(KEY_PLAYBACK_BUFFER_PRESET, null))
+    )
+    val playbackBufferPreset: StateFlow<app.opentv.player.PlaybackBufferPreset> =
+        _playbackBufferPreset.asStateFlow()
+
+    fun setPlaybackBufferPreset(preset: app.opentv.player.PlaybackBufferPreset) {
+        prefs.edit().putString(KEY_PLAYBACK_BUFFER_PRESET, preset.name).apply()
+        _playbackBufferPreset.value = preset
+    }
+
     private val _playerResizeMode = MutableStateFlow(prefs.getInt(KEY_RESIZE_MODE, 0))
     val playerResizeMode: StateFlow<Int> = _playerResizeMode.asStateFlow()
 
@@ -468,6 +482,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_CONTENT_SERIES = "content_series"
         private const val KEY_LAST_CHANNEL = "last_channel_id"
         private const val KEY_RESIZE_MODE = "player_resize_mode"
+        private const val KEY_PLAYBACK_BUFFER_PRESET = "playback_buffer_preset"
         private const val KEY_LANGUAGE = "language_tag"
 
         /**
