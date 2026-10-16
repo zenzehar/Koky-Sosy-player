@@ -594,6 +594,9 @@ fun VlcFallbackScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Make renderer switching visible at the start of the transport row.
+                    // It used to be fifth in a non-scrolling row, often clipped on TVs.
+                    TvVlcButton("Use Media3", onClick = onTryMedia3)
                     TvVlcButton("−10s", enabled = ready && player.isSeekable) {
                         seekTo((if (pendingSeekPreview) previewMs else positionMs) - 10_000L)
                     }
@@ -605,18 +608,18 @@ fun VlcFallbackScreen(
                     TvVlcButton("+10s", enabled = ready && player.isSeekable) {
                         seekTo((if (pendingSeekPreview) previewMs else positionMs) + 10_000L)
                     }
-                    TvVlcButton("Retry VLC") {
-                        if (!released.get()) {
-                            seekWatchdog.reset()
-                            queuedSeekTarget = null
-                            recoveryMessage = null
-                            ready = false
-                            player.stop()
-                            player.play()
-                        }
-                    }
-                    TvVlcButton("Try Media3", onClick = onTryMedia3)
                     TvVlcButton("Back", onClick = ::exitOnce)
+                }
+                // Manual VLC retry stays available below the short primary transport row.
+                TvVlcButton("Retry VLC") {
+                    if (!released.get()) {
+                        seekWatchdog.reset()
+                        queuedSeekTarget = null
+                        recoveryMessage = null
+                        ready = false
+                        player.stop()
+                        player.play()
+                    }
                 }
                 if (recoveryMessage != null) Text(recoveryMessage.orEmpty(), color = Color.White)
                 if (ended) Text("Playback finished", color = Color.White)

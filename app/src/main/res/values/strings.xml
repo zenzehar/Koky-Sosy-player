@@ -508,4 +508,8 @@
     <string name="settings_buffer_balanced">Balanced (5 s VLC cache) · Recommended</string>
     <string name="settings_buffer_stable">Stable (8 s VLC cache)</string>
     <string name="settings_buffer_large">Large (12 s VLC cache) · Higher memory use</string>
+    <string name="settings_player_engine_title">Default movie and series player</string>
+    <string name="settings_player_engine_help">Choose the player used for the next movie or episode. VLC is the default. Media3 can work better on some streams but may reject unsupported containers.</string>
+    <string name="settings_player_engine_vlc">VLC (default)</string>
+    <string name="settings_player_engine_media3">Media3 / ExoPlayer</string>
 </resources>

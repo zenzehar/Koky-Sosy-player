@@ -275,6 +275,20 @@ class AppSettings private constructor(context: Context) {
         _playbackBufferPreset.value = preset
     }
 
+    /** Preferred engine for Movies and Series. Internal, SMB and growing recordings use Media3. */
+    enum class VodPlaybackEngine { VLC, MEDIA3 }
+    private val _vodPlaybackEngine = MutableStateFlow(
+        runCatching {
+            VodPlaybackEngine.valueOf(prefs.getString(KEY_VOD_ENGINE, "VLC") ?: "VLC")
+        }.getOrDefault(VodPlaybackEngine.VLC)
+    )
+    val vodPlaybackEngine: StateFlow<VodPlaybackEngine> = _vodPlaybackEngine.asStateFlow()
+
+    fun setVodPlaybackEngine(engine: VodPlaybackEngine) {
+        prefs.edit().putString(KEY_VOD_ENGINE, engine.name).apply()
+        _vodPlaybackEngine.value = engine
+    }
+
     private val _playerResizeMode = MutableStateFlow(prefs.getInt(KEY_RESIZE_MODE, 0))
     val playerResizeMode: StateFlow<Int> = _playerResizeMode.asStateFlow()
 
@@ -483,6 +497,7 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_LAST_CHANNEL = "last_channel_id"
         private const val KEY_RESIZE_MODE = "player_resize_mode"
         private const val KEY_PLAYBACK_BUFFER_PRESET = "playback_buffer_preset"
+        private const val KEY_VOD_ENGINE = "vod_player_engine"
         private const val KEY_LANGUAGE = "language_tag"
 
         /**

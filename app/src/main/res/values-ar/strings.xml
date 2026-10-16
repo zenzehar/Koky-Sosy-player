@@ -441,4 +441,8 @@
     <string name="settings_buffer_balanced">متوازن (٥ ثوانٍ في VLC) · موصى به</string>
     <string name="settings_buffer_stable">ثابت (٨ ثوانٍ في VLC)</string>
     <string name="settings_buffer_large">كبير (١٢ ثانية في VLC) · استهلاك ذاكرة أعلى</string>
+    <string name="settings_player_engine_title">مشغّل الأفلام والمسلسلات الافتراضي</string>
+    <string name="settings_player_engine_help">اختر المشغّل عند فتح الفيلم أو الحلقة التالية. VLC هو الافتراضي، وقد يعمل Media3 بشكل أفضل مع بعض البثوث، لكنه قد يرفض بعض الصيغ.</string>
+    <string name="settings_player_engine_vlc">VLC (افتراضي)</string>
+    <string name="settings_player_engine_media3">Media3 / ExoPlayer</string>
 </resources>
