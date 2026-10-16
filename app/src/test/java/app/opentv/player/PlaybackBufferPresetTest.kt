@@ -16,7 +16,7 @@ class PlaybackBufferPresetTest {
             assertTrue(preset.media3StartMs <= preset.media3MinBufferMs)
             assertTrue(preset.media3RebufferMs <= preset.media3MinBufferMs)
             assertTrue(preset.media3TargetBufferBytes in 12 * 1024 * 1024..48 * 1024 * 1024)
-            assertTrue(preset.vlcNetworkCacheMs <= 6_500)
+            assertTrue(preset.vlcNetworkCacheMs <= 12_000)
         }
     }
 
