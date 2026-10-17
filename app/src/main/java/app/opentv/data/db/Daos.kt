@@ -669,6 +669,12 @@ interface EpisodeDao {
         ORDER BY season ASC, episodeNumber ASC LIMIT 1""")
     suspend fun nextAfter(sourceId: Long, seriesId: String, season: Int, number: Int): Episode?
 
+    /** Previous episode, traversing season boundaries on the same provider/series. */
+    @Query("""SELECT * FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId
+        AND (season < :season OR (season = :season AND episodeNumber < :number))
+        ORDER BY season DESC, episodeNumber DESC LIMIT 1""")
+    suspend fun previousBefore(sourceId: Long, seriesId: String, season: Int, number: Int): Episode?
+
     @Query("SELECT * FROM episodes WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Episode?
 
