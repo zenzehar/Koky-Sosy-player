@@ -1,3 +1,14 @@
+## v0.1.11.1 targeted UI/backup regression plan
+
+1. Install on a phone: app icon appears in the normal app drawer and opens the app. Confirm Android TV/Fire TV icon also exists and brand matches splash.
+2. Cold-launch with a saved provider: display branded splash until provider database is loaded, then Home directly (no unbranded spinner/dot in between).
+3. On an episode, controls show Previous / -10 sec / Play-Pause / +10 sec / Next plus Autoplay toggle. D-pad center on video or seek timeline pauses/resumes. Pressing center while a command button is focused activates that button, and the existing seek D-pad/hold and resume positions behave exactly like v0.1.11.0. Test first/last episodes, across-season navigation, movies without episode controls.
+4. Play the known stable episode **اللعبة S01E05** continuously and repeat seeks/Back to verify the restored v0.1.11.0 VLC engine hasn't been disturbed.
+5. Export provider credentials with a passphrase of at least 8 characters from Settings to Documents; confirm file is encrypted, cannot be decoded as plain text, and provider login is restorable using file and passphrase. Test wrong passphrase and verify current providers are not overwritten.
+6. Before uninstall/reinstall or clearing data, keep backup file in a user-controlled location and record the passphrase. Debug signing changes may block in-place upgrades; don't delete an existing install without first verifying the backup.
+7. Return to the user for the absent transport reference photo and whether the Continue Watching item was missing or improperly displayed.
+8. Screensaver suppression during playback was accepted at v0.1.11.0 and must remain unchanged.
+
 ## v0.1.11.0 hybrid playback rollback test
 
 - Baseline VOD player source: v0.1.9 snapshot `72347c8d` (source rollback); not v0.1.10.3, since its success claim was withdrawn.
