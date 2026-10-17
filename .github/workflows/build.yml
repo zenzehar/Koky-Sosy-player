@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'experiment/v0.1.11.0-v019-playback-restored'
+      github.head_ref == 'feature/v0.1.11.1-controls-mobile-brand-backup'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.0-tv-rollback-test \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.0_TV_rollback.apk" \
+          gh release create v0.1.11.1-tv-ui-preview \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.1_TV_preview.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.0 TV playback rollback (hardware test pending)" \
-            --notes "UNVERIFIED EXPERIMENT. Restores v0.1.9 VLC 3.6.1 playback and seeking inside v0.1.10.9's newer UI, cast, resume and QR diagnostics. No provider credentials in APK. TV playback and screensaver untested; debug signature may differ from previous installations." \
+            --title "Koky & Sosy v0.1.11.1 TV UI preview (hardware test pending)" \
+            --notes "UNAPPROVED UI PREVIEW based on user-approved v0.1.11.0 VLC/seek baseline. Adds episode UI buttons, Android mobile launcher icon, refined logo, combined splash, and user-owned encrypted provider backup. Exact screenshot styling needs reference photo. Debug APK signing may differ from previous versions." \
             --prerelease

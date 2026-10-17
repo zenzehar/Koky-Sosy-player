@@ -72,6 +72,7 @@ import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.isRunningOnTelevision
 import app.opentv.ui.SourcesViewModel
+import app.opentv.ui.settings.CredentialBackupControls
 import app.opentv.ui.channels.readClipboardText
 
 /**
@@ -102,6 +103,21 @@ fun AddSourceScreen(
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
     var usePhone by remember { mutableStateOf(false) }
+    var restoreBackup by remember { mutableStateOf(false) }
+
+    if (restoreBackup) {
+        Column(
+            Modifier.fillMaxSize().padding(36.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Restore your providers after reinstalling", style = MaterialTheme.typography.headlineSmall)
+            CredentialBackupControls(allowExport = false, onRestored = onFinished)
+            OutlinedButton(onClick = { restoreBackup = false }) {
+                Text("Return to login")
+            }
+        }
+        return
+    }
 
     if (usePhone) {
         PhonePairingScreen(
@@ -227,7 +243,11 @@ fun AddSourceScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("LOGIN BY PHONE")
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { restoreBackup = true }) {
+                Text("RESTORE LOGIN BACKUP")
+            }
+            Spacer(Modifier.height(9.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (choice in SourceKind.entries) {
                     OutlinedButton(

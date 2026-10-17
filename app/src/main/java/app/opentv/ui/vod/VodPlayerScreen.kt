@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -175,6 +177,19 @@ fun VodPlayerScreen(
     val tracks: Tracks = if (usingVlc) Tracks.EMPTY
         else controller.tracks.collectAsState().value
 
+    // Episode navigation belongs to the catalog, outside the already-approved seek engine.
+    var previousEpisode by remember(mediaKey) {
+        mutableStateOf<app.opentv.data.model.Episode?>(null)
+    }
+    var followingEpisode by remember(mediaKey) {
+        mutableStateOf<app.opentv.data.model.Episode?>(null)
+    }
+    LaunchedEffect(mediaKey) {
+        val id = mediaKey.takeIf { it.startsWith("ep:") }
+            ?.removePrefix("ep:")?.toLongOrNull()
+        previousEpisode = id?.let { graph.catalogRepository.previousEpisode(it) }
+        followingEpisode = id?.let { graph.catalogRepository.nextEpisode(it) }
+    }
     var paused by remember { mutableStateOf(false) }
     var media3Diagnostic by remember { mutableStateOf<String?>(null) }
     fun showMedia3Diagnostic() {
@@ -463,6 +478,19 @@ fun VodPlayerScreen(
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
             onBack = onBack,
             onTryMedia3 = { usingVlc = false },
+            showEpisodeControls = mediaKey.startsWith("ep:"),
+            previousEpisodeAvailable = previousEpisode != null,
+            nextEpisodeAvailable = followingEpisode != null,
+            onPreviousEpisode = {
+                previousEpisode?.let { target ->
+                    scope.launch { savePosition(); onNextEpisode(target) }
+                }
+            },
+            onNextEpisodeClick = {
+                followingEpisode?.let { target ->
+                    scope.launch { savePosition(); onNextEpisode(target) }
+                }
+            },
             onEnded = { naturalEnd() },
             suspendPlayback = screenSaverSuspended,
             onProgress = { pos, dur ->
@@ -495,6 +523,15 @@ fun VodPlayerScreen(
             .onPreviewKeyEvent { event ->
                 when {
                     event.key == Key.Back || event.key == Key.Escape -> false
+                    event.type == KeyEventType.KeyDown && !controlsVisible &&
+                        (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) {
+                            paused = !paused
+                            controller.player.playWhenReady = !paused
+                        }
+                        reveal()
+                        true
+                    }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
                     event.type == KeyEventType.KeyDown -> { interaction++; false }
                     else -> false
@@ -627,39 +664,50 @@ fun VodPlayerScreen(
 
                 Spacer(Modifier.height(10.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
-                        if (growingRec) seekRelative(-10_000) else controller.seekBackward(); interaction++
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                ) {
+                    if (mediaKey.startsWith("ep:")) {
+                        VodChip(Icons.Filled.SkipPrevious, "Previous episode") {
+                            previousEpisode?.let { target ->
+                                scope.launch { savePosition(); onNextEpisode(target) }
+                            }
+                        }
                     }
-                    Spacer(Modifier.width(10.dp))
+                    VodChip(Icons.Filled.FastRewind, "−10s") {
+                        if (growingRec) seekRelative(-10_000) else controller.seekBackward()
+                        interaction++
+                    }
                     VodChip(
                         icon = if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                        label = if (paused) stringResource(R.string.common_play) else stringResource(R.string.player_pause),
+                        label = if (paused) "Play" else "Pause",
                         focusRequester = barFocus,
                     ) {
                         paused = !paused
                         controller.player.playWhenReady = !paused
                         interaction++
                     }
-                    Spacer(Modifier.width(10.dp))
-                    VodChip(Icons.Filled.FastForward, stringResource(R.string.player_forward)) {
-                        if (growingRec) seekRelative(10_000) else controller.seekForward(); interaction++
-                    }
-                    Spacer(Modifier.width(20.dp))
-                    VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {
-                        vodPanel = if (vodPanel == VodPanel.SUBTITLES) VodPanel.NONE else VodPanel.SUBTITLES
+                    VodChip(Icons.Filled.FastForward, "+10s") {
+                        if (growingRec) seekRelative(10_000) else controller.seekForward()
                         interaction++
                     }
-                    Spacer(Modifier.width(10.dp))
-                    VodChip(Icons.Filled.Audiotrack, stringResource(R.string.player_audio)) {
-                        vodPanel = if (vodPanel == VodPanel.AUDIO) VodPanel.NONE else VodPanel.AUDIO
-                        interaction++
+                    if (mediaKey.startsWith("ep:")) {
+                        VodChip(Icons.Filled.SkipNext, "Next episode") {
+                            followingEpisode?.let { target ->
+                                scope.launch { savePosition(); onNextEpisode(target) }
+                            }
+                        }
+                        VodChip(
+                            if (autoplay) Icons.Filled.Check else Icons.Filled.PlayArrow,
+                            if (autoplay) "Autoplay: On" else "Autoplay: Off",
+                        ) {
+                            settings.setSeriesAutoplay(!autoplay)
+                            interaction++
+                        }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = ::showMedia3Diagnostic) {
-                    Text("Diagnostics QR")
-                }
+
             }
         }
         media3Diagnostic?.let { report ->

@@ -1,3 +1,21 @@
+# v0.1.11.1 TV UI preview — based exclusively on approved v0.1.11.0
+
+## Implemented
+- Add missing normal `android.intent.category.LAUNCHER` category while retaining TV `LEANBACK_LAUNCHER`, so the same APK appears in phone app drawers.
+- Add a pre-Android-26 legacy launcher vector for minSdk 23 and refresh adaptive foreground, TV banner, and in-app splash with matching original K/S midnight/teal/orchid design.
+- Keep the existing brand splash visible until the SourcesViewModel has loaded the saved providers, avoiding the second unbranded single-dot progress screen between splash and home.
+- Add manual previous/next episode lookup across season boundaries; show Previous, ±10s, Pause/Play, Next and Autoplay controls in episode playback. D-pad Select/Enter toggles playback while hidden controls/seek timeline are focused. Extra engine/diagnostic actions are removed from the routine VLC transport but remain accessible on VLC error / Settings. Movie playback omits series controls.
+- **Do NOT replace or change the approved v0.1.11.0 VLC playback lifecycle, LibVLC 3.6.1 settings, native seeking, or long-hold seeking policy.** Changes to its Compose transport/key mapping are UI behaviour only.
+- Add a passphrase-protected AES-GCM provider credential backup file through Android Storage Access Framework. User chooses a file location outside app-private storage and restores it on first-run login or Settings. This avoids retyping provider credentials after uninstall, but **requires** keeping the encrypted file and its passphrase; automatic silent external credentials persistence is not possible across uninstall without third-party backups. No plaintext provider passwords in the external file; tampering/wrong passwords rejected; existing provider entries not overwritten.
+- Added backup roundtrip/tamper tests and previous-episode DAO function.
+
+## Pending before user acceptance
+- **Control reference photograph is not available as an attachment in this turn.** The controls have been simplified per written requirements, but their final styling must be matched to the photo once reattached.
+- **Continue Watching report is ambiguous:** user wrote that a title *had* a resume position but *was* in Continue Watching, which is normal; clarify whether the title was actually **missing** from Continue Watching or showing incorrectly. Do not alter proven resume logic speculatively.
+- Credential backup is manual, not a shared silent folder; Android can delete any app-owned folder on uninstall. Android TV file picker availability varies by OS/device.
+- New APK signing may still differ from prior CI builds. Do not claim in-place update compatibility.
+- Do not merge draft PR or mark new milestone before real device approval.
+
 # v0.1.11.0 TV test — v0.1.9 playback restored, modern features preserved
 
 **Purpose:** User asked to branch the latest feature-rich app, retaining all non-playback enhancements but reverting playback to its last uncontested working version. v0.1.10.3 acceptance was later explicitly withdrawn, so the baseline is **milestone/v0.1.9-tv-approved** at `72347c8dc5102ad3c937fd1a4cfa1f8199506c85`.
