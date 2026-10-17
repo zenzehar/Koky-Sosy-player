@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import app.opentv.core.AppSettings
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -80,10 +82,17 @@ fun VlcFallbackScreen(
     onTryMedia3: () -> Unit = {},
     onProgress: (Long, Long) -> Unit = { _, _ -> },
     onEnded: () -> Unit = {},
+    showEpisodeControls: Boolean = false,
+    previousEpisodeAvailable: Boolean = false,
+    nextEpisodeAvailable: Boolean = false,
+    onPreviousEpisode: () -> Unit = {},
+    onNextEpisodeClick: () -> Unit = {},
     // Keep the newer screensaver lifecycle hook even though the VLC engine is v0.1.9.
     suspendPlayback: Boolean = false,
 ) {
     val context = LocalContext.current
+    val preferences = remember { AppSettings.get(context) }
+    val autoplay by preferences.seriesAutoplay.collectAsState()
     val scope = rememberCoroutineScope()
     val libvlc = remember(streamUrl) {
         LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
@@ -113,6 +122,11 @@ fun VlcFallbackScreen(
     val seekFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
+    fun togglePlayback() {
+        if (paused) player.play() else player.pause()
+        paused = !paused
+        showControls()
+    }
     fun showReport() {
         PlaybackDiagnostics.event(context, "REPORT", persistNow = true)
         diagnosticText = PlaybackDiagnostics.capture(context)
@@ -304,9 +318,11 @@ fun VlcFallbackScreen(
                 } else when (event.key) {
                     Key.DirectionLeft -> { seekTo(positionMs - 10_000L); true }
                     Key.DirectionRight -> { seekTo(positionMs + 10_000L); true }
-                    Key.DirectionUp, Key.DirectionDown, Key.Enter, Key.DirectionCenter -> {
-                        showControls(); true
+                    Key.DirectionCenter, Key.Enter -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) togglePlayback()
+                        true
                     }
+                    Key.DirectionUp, Key.DirectionDown -> { showControls(); true }
                     else -> false
                 }
             }
@@ -425,7 +441,9 @@ fun VlcFallbackScreen(
                                             seekTo(previewMs)
                                             scrubbing = false
                                             seekHeldDirection = null
-                                        } else showControls()
+                                        } else if (event.nativeKeyEvent.repeatCount == 0) {
+                                            togglePlayback()
+                                        }
                                         true
                                     }
                                     else -> false
@@ -487,23 +505,29 @@ fun VlcFallbackScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TvVlcButton("−10s", enabled = player.isSeekable) { seekTo(positionMs - 10_000L) }
-                    TvVlcButton(if (paused) "Play" else "Pause", modifier = Modifier.focusRequester(pauseFocus)) {
-                        if (paused) player.play() else player.pause()
-                        paused = !paused
-                        showControls()
+                    if (showEpisodeControls) {
+                        TvVlcButton("⏮ Previous", enabled = previousEpisodeAvailable,
+                            onClick = onPreviousEpisode)
                     }
+                    TvVlcButton("−10s", enabled = player.isSeekable) { seekTo(positionMs - 10_000L) }
+                    TvVlcButton(if (paused) "▶ Play" else "Ⅱ Pause",
+                        modifier = Modifier.focusRequester(pauseFocus),
+                        onClick = ::togglePlayback)
                     TvVlcButton("+10s", enabled = player.isSeekable) { seekTo(positionMs + 10_000L) }
-                    TvVlcButton("Back", onClick = onBack)
+                    if (showEpisodeControls) {
+                        TvVlcButton("Next ⏭", enabled = nextEpisodeAvailable,
+                            onClick = onNextEpisodeClick)
+                    }
                 }
-                // Extra actions keep the proven v0.1.9 seek/play row unchanged.
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TvVlcButton("Try Media3", onClick = onTryMedia3)
-                    TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
-                    TvVlcButton("Diagnostics QR", onClick = ::showReport)
+                // Keep the viewer-facing bar minimal. Diagnostic QR is available in Settings.
+                // Engine fallbacks stay available on the error screen, not during normal viewing.
+                if (showEpisodeControls) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TvVlcButton(if (autoplay) "Autoplay next: ON" else "Autoplay next: OFF") {
+                            preferences.setSeriesAutoplay(!autoplay)
+                            showControls()
+                        }
+                    }
                 }
                 if (ended) Text("Playback finished", color = Color.White)
             }
