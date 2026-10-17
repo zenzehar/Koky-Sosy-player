@@ -478,6 +478,7 @@ fun VodPlayerScreen(
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
             onBack = onBack,
             onTryMedia3 = { usingVlc = false },
+            showEpisodeControls = mediaKey.startsWith("ep:"),
             previousEpisodeAvailable = previousEpisode != null,
             nextEpisodeAvailable = followingEpisode != null,
             onPreviousEpisode = {
