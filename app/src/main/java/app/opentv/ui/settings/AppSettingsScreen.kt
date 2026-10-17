@@ -219,6 +219,11 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
 
         Spacer(Modifier.height(16.dp))
 
+        SettingsSection("Provider login backup (survives reinstall)") {
+            CredentialBackupControls(allowExport = true)
+        }
+        Spacer(Modifier.height(16.dp))
+
         SettingsSection(stringResource(R.string.settings_section_playback)) {
             OutlinedButton(onClick = {
                 diagnosticReport = PlaybackDiagnostics.lastReport(context)
