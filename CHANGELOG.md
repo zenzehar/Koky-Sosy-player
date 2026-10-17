@@ -1,3 +1,15 @@
+# v0.1.11.2 TV alpha — cinematic video player overlay
+
+**Reference:** Exact user-supplied Arabic 16:9 player screenshot, 18 October 2026.
+**Baseline:** Branch based on v0.1.11.1, preserving the user-approved v0.1.11.0 golden milestone.
+
+- New shared screenshot-matched cinematic chrome for LibVLC and Media3: upper-left large title (Arabic supported), episode number, pill-shaped time; upper-right dark pill with bright-blue autoplay Switch; middle-low control strip with five dark rounded icon buttons (previous/rewind 10s/central pause/forward 10s/next), white annotation captions and glowing center focus.
+- Blue seek timeline with white thumb and elapsed/total labels across the bottom. Native VLC left/right seeking, hold acceleration, seekTo, lifecycle and LibVLC 3.6.1 are unchanged. Media3 slider seek callbacks remain unchanged. Changes are visual layouts only plus existing episode button callbacks.
+- Movies show three buttons without episode/autoplay features.
+- No embedded movie still: live video remains displayed behind translucent overlay; screenshot is a design reference only.
+- v0.1.11.1 provider backup, logo/mobile launcher, splash and Continue Watching remain unchanged.
+- Test on a real TV required. No merge or milestone approval yet. Debug APK signing may be incompatible with previous installations.
+
 # v0.1.11.1 TV UI preview — based exclusively on approved v0.1.11.0
 
 ## Implemented
