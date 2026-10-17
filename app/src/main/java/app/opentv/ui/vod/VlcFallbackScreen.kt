@@ -396,8 +396,9 @@ fun VlcFallbackScreen(
                 }
                 // The complete approved v0.1.11.0 seek-preview and hold logic is embedded
                 // unchanged in this timeline. Only its placement and paint have changed.
-                    Row(
+                Row(
                     modifier = Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
                         .padding(horizontal = 36.dp, vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
