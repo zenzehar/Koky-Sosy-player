@@ -249,6 +249,11 @@ class CatalogRepository(
         episodeDao.nextAfter(current.sourceId, current.seriesId, current.season, current.episodeNumber)
     }
 
+    suspend fun previousEpisode(id: Long): Episode? = withContext(Dispatchers.IO) {
+        val current = episodeDao.byId(id) ?: return@withContext null
+        episodeDao.previousBefore(current.sourceId, current.seriesId, current.season, current.episodeNumber)
+    }
+
     suspend fun movieByStreamUrl(url: String): Movie? = movieDao.byStreamUrl(url)
 
     suspend fun episodeByStreamUrl(url: String): Episode? = episodeDao.byStreamUrl(url)
