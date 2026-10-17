@@ -597,53 +597,41 @@ fun VodPlayerScreen(
             visible = controlsVisible,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                    // Keep the controls clear of the phone/tablet system nav bar (and the side nav
-                    // bar / display cutout in landscape). Zero on a TV, so the 10-foot layout is
-                    // unchanged; the gradient above stays full-bleed to the screen edge.
+            Box(
+                Modifier.fillMaxSize()
                     .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
-                    )
-                    .padding(horizontal = 28.dp, vertical = 20.dp),
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                        ),
+                    ),
             ) {
-                if (vodPanel != VodPanel.NONE) {
-                    TrackPanel(
-                        panel = vodPanel,
-                        controller = controller,
-                        tracks = tracks,
-                        firstFocus = panelFocus,
-                        onDone = { vodPanel = VodPanel.NONE; interaction++ },
+                CinematicScrim()
+                CinematicTitle(
+                    rawTitle = title,
+                    isEpisode = mediaKey.startsWith("ep:"),
+                    elapsedText = formatDuration(if (scrubbing) scrubValue.toLong() else positionMs),
+                    durationText = formatDuration(durationMs),
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(start = 46.dp, top = 44.dp),
+                )
+                if (mediaKey.startsWith("ep:")) {
+                    CinematicAutoplay(
+                        enabled = autoplay,
+                        onChange = { settings.setSeriesAutoplay(it); interaction++ },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                            .padding(end = 40.dp, top = 42.dp),
                     )
-                    Spacer(Modifier.height(16.dp))
                 }
-
-                if (growingRec) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.FiberManualRecord,
-                            contentDescription = null,
-                            tint = Color(0xFFE53935),
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            stringResource(R.string.rec_watching_live_badge),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFE53935),
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
-                Text(title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Spacer(Modifier.height(8.dp))
-
+                // Preserve the approved Media3 relative seek and Slider callbacks unchanged.
                 // Seek bar with times either side. Left/right on the remote scrubs.
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 36.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
                     Slider(
@@ -656,58 +644,57 @@ fun VodPlayerScreen(
                             scrubbing = false
                             interaction++
                         },
+                        colors = androidx.compose.material3.SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = CinemaBlue,
+                            inactiveTrackColor = CinemaTrack,
+                        ),
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(formatDuration(durationMs), color = Color.White)
                 }
-
-                Spacer(Modifier.height(10.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
-                ) {
-                    if (mediaKey.startsWith("ep:")) {
-                        VodChip(Icons.Filled.SkipPrevious, "Previous episode") {
-                            previousEpisode?.let { target ->
-                                scope.launch { savePosition(); onNextEpisode(target) }
-                            }
+                CinematicTransport(
+                    isEpisode = mediaKey.startsWith("ep:"),
+                    paused = paused,
+                    previousEnabled = previousEpisode != null,
+                    nextEnabled = followingEpisode != null,
+                    onPrevious = {
+                        previousEpisode?.let { target ->
+                            scope.launch { savePosition(); onNextEpisode(target) }
                         }
-                    }
-                    VodChip(Icons.Filled.FastRewind, "−10s") {
+                    },
+                    onRewind = {
                         if (growingRec) seekRelative(-10_000) else controller.seekBackward()
                         interaction++
-                    }
-                    VodChip(
-                        icon = if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                        label = if (paused) "Play" else "Pause",
-                        focusRequester = barFocus,
-                    ) {
+                    },
+                    onTogglePause = {
                         paused = !paused
                         controller.player.playWhenReady = !paused
                         interaction++
-                    }
-                    VodChip(Icons.Filled.FastForward, "+10s") {
+                    },
+                    onForward = {
                         if (growingRec) seekRelative(10_000) else controller.seekForward()
                         interaction++
-                    }
-                    if (mediaKey.startsWith("ep:")) {
-                        VodChip(Icons.Filled.SkipNext, "Next episode") {
-                            followingEpisode?.let { target ->
-                                scope.launch { savePosition(); onNextEpisode(target) }
-                            }
+                    },
+                    onNext = {
+                        followingEpisode?.let { target ->
+                            scope.launch { savePosition(); onNextEpisode(target) }
                         }
-                        VodChip(
-                            if (autoplay) Icons.Filled.Check else Icons.Filled.PlayArrow,
-                            if (autoplay) "Autoplay: On" else "Autoplay: Off",
-                        ) {
-                            settings.setSeriesAutoplay(!autoplay)
-                            interaction++
-                        }
-                    }
+                    },
+                    pauseRequester = barFocus,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = 76.dp),
+                )
+                if (vodPanel != VodPanel.NONE) {
+                    TrackPanel(
+                        panel = vodPanel,
+                        controller = controller,
+                        tracks = tracks,
+                        firstFocus = panelFocus,
+                        onDone = { vodPanel = VodPanel.NONE; interaction++ },
+                    )
                 }
-
             }
         }
         media3Diagnostic?.let { report ->
