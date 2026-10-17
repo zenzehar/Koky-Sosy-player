@@ -110,11 +110,17 @@ class MainActivity : ComponentActivity() {
             var recoveredCrash by remember {
                 mutableStateOf(PlaybackDiagnostics.recoveredCrash(applicationContext))
             }
-            var brandSplashVisible by remember { mutableStateOf(true) }
+            // Initialise the same SourcesViewModel Activity scope as OpenTvApp BEFORE
+            // hiding the splash. This avoids exposing the extra single-dot spinner
+            // while Room loads the saved provider list after a cold launch.
+            val bootSourcesViewModel: SourcesViewModel = viewModel()
+            val bootSources by bootSourcesViewModel.ui.collectAsState()
+            var splashMinElapsed by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 delay(850)
-                brandSplashVisible = false
+                splashMinElapsed = true
             }
+            val brandSplashVisible = !splashMinElapsed || !bootSources.loaded
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
             val darkTheme = when (themeMode) {
