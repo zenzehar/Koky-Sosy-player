@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forward10
@@ -110,7 +111,7 @@ internal fun CinematicTitle(
 ) {
     val parts = remember(rawTitle, isEpisode) { CinematicTitleParts.parse(rawTitle, isEpisode) }
     Column(
-        modifier = modifier,
+        modifier = modifier.widthIn(max = 520.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
         horizontalAlignment = Alignment.Start,
     ) {
