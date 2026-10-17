@@ -1,3 +1,12 @@
+## v0.1.11.2 cinematic player acceptance tests
+
+1. Play Arabic series episode اللعبة S01E05 and open overlay. Match reference: upper-left title/episode/time, upper-right autoplay switch, five lower-center controls with labels, bright-blue progress bar with white thumb at bottom and dark transparent gradient.
+2. Remote: press Up/Down to traverse timeline and buttons, left/right tap to seek ±10 seconds, hold to accelerate, center click to pause/resume. Confirm exact original v0.1.11.0 VLC seeking behaviour remains.
+3. Prev/Next episode including season boundaries, first/last episode disabled, autoplay toggle persistent. Movies have only three transport buttons.
+4. Video plays smoothly for 10–20 min without added stalls; Back and resume work after seek and early startup. Media3 fallback and recordings retain their seek behaviour.
+5. Phone in landscape doesn't clip controls; login backup and branded startup still work as in v0.1.11.1.
+6. Screenshot match remains subject to real-device visual review; this is not yet approved. Golden branch and original release remain preserved.
+
 ## v0.1.11.1 targeted UI/backup regression plan
 
 1. Install on a phone: app icon appears in the normal app drawer and opens the app. Confirm Android TV/Fire TV icon also exists and brand matches splash.

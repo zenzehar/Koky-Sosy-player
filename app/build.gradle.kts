@@ -14,8 +14,8 @@ android {
         applicationId = "tv.kokysosy.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.1.11.1-tv-ui-preview"
+        versionCode = 23
+        versionName = "0.1.11.2-tv-cinematic-preview"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()

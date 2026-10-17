@@ -18,6 +18,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.width
@@ -364,172 +369,183 @@ fun VlcFallbackScreen(
             }
         }
         if (controlsVisible) {
-            Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    .padding(horizontal = 26.dp, vertical = 14.dp),
+            Box(
+                Modifier.fillMaxSize()
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                        ),
+                    ),
             ) {
-                Text(title, color = Color.White, maxLines = 1, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    if (timelineFocused) "SEEK  •  Left/Right ±10s  •  Hold to accelerate  •  Down for buttons"
-                    else "Press Up to focus the timeline",
-                    color = if (timelineFocused) Color.White else Color.LightGray,
+                CinematicScrim()
+                CinematicTitle(
+                    rawTitle = title,
+                    isEpisode = showEpisodeControls,
+                    elapsedText = clock(if (scrubbing) previewMs else positionMs),
+                    durationText = if (durationMs > 0L) clock(durationMs) else "--:--",
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(start = 46.dp, top = 44.dp),
                 )
-                Spacer(Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(clock(if (scrubbing) previewMs else positionMs), color = Color.White)
-                    Box(
-                        modifier = Modifier.weight(1f).padding(horizontal = 14.dp).height(48.dp)
-                            .focusRequester(seekFocus)
-                            .onFocusChanged { timelineFocused = it.isFocused }
-                            .onPreviewKeyEvent { event ->
-                                val direction = when (event.key) {
-                                    Key.DirectionLeft -> SeekDirection.BACKWARD
-                                    Key.DirectionRight -> SeekDirection.FORWARD
-                                    else -> null
-                                }
-                                if (direction != null) {
-                                    if (event.type == KeyEventType.KeyDown) {
-                                        if (player.isSeekable && durationMs > 0L) {
-                                            if (seekHeldDirection != direction) {
-                                                seekOriginMs = positionMs
-                                                seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
-                                                seekHeldDirection = direction
-                                                previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
-                                            } else {
-                                                val heldMs = (
-                                                    android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs
-                                                ).coerceAtLeast(0L)
-                                                val accelerated = TvSeekPolicy.heldPreview(
-                                                    seekOriginMs, heldMs, direction, durationMs,
-                                                )
-                                                val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
-                                                previewMs = if (direction == SeekDirection.FORWARD) {
-                                                    max(firstTap, accelerated)
-                                                } else {
-                                                    min(firstTap, accelerated)
-                                                }
-                                            }
-                                            scrubbing = true
-                                            showControls()
-                                        }
-                                        true
-                                    } else if (event.type == KeyEventType.KeyUp) {
-                                        if (scrubbing) {
-                                            seekTo(previewMs)
-                                            scrubbing = false
-                                        }
-                                        seekHeldDirection = null
-                                        true
-                                    } else false
-                                } else when {
-                                    event.type == KeyEventType.KeyDown &&
-                                        event.key == Key.DirectionDown -> {
-                                        if (scrubbing) {
-                                            seekTo(previewMs)
-                                            scrubbing = false
-                                            seekHeldDirection = null
-                                        }
-                                        pauseFocus.requestFocus()
-                                        showControls()
-                                        true
-                                    }
-                                    event.type == KeyEventType.KeyDown &&
-                                        (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
-                                        if (scrubbing) {
-                                            seekTo(previewMs)
-                                            scrubbing = false
-                                            seekHeldDirection = null
-                                        } else if (event.nativeKeyEvent.repeatCount == 0) {
-                                            togglePlayback()
-                                        }
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            }
-                            .border(
-                                width = if (timelineFocused) 3.dp else 0.dp,
-                                color = Color.White,
-                                shape = RoundedCornerShape(12.dp),
-                            )
-                            .semantics {
-                                contentDescription = "Seek timeline. Left and right seek by ten seconds; hold to accelerate. Down moves to playback buttons."
-                            }
-                            .focusable(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Canvas(Modifier.fillMaxWidth().height(18.dp).padding(horizontal = 8.dp)) {
-                            val centerY = size.height / 2f
-                            val startX = 7.dp.toPx()
-                            val endX = size.width - startX
-                            drawLine(
-                                color = Color.White.copy(alpha = 0.32f),
-                                start = androidx.compose.ui.geometry.Offset(startX, centerY),
-                                end = androidx.compose.ui.geometry.Offset(endX, centerY),
-                                strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round,
-                            )
-                            val fraction = if (durationMs > 0L) {
-                                (if (scrubbing) previewMs else positionMs)
-                                    .coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()
-                            } else 0f
-                            val playheadX = startX + (endX - startX) * fraction
-                            drawLine(
-                                color = if (timelineFocused) Color.White else Color(0xFFBBC6FF),
-                                start = androidx.compose.ui.geometry.Offset(startX, centerY),
-                                end = androidx.compose.ui.geometry.Offset(playheadX, centerY),
-                                strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round,
-                            )
-                            drawCircle(
-                                color = if (timelineFocused) Color.White else Color(0xFFBCC5FF),
-                                radius = if (timelineFocused) 8.dp.toPx() else 5.dp.toPx(),
-                                center = androidx.compose.ui.geometry.Offset(playheadX, centerY),
-                            )
-                        }
-                    }
-                    Text(
-                        if (durationMs > 0L) clock(durationMs) else "--:--",
-                        color = Color.White,
+                if (showEpisodeControls) {
+                    CinematicAutoplay(
+                        enabled = autoplay,
+                        onChange = { preferences.setSeriesAutoplay(it); showControls() },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                            .padding(end = 40.dp, top = 42.dp),
                     )
                 }
+                // The complete approved v0.1.11.0 seek-preview and hold logic is embedded
+                // unchanged in this timeline. Only its placement and paint have changed.
                 Row(
-                    modifier = Modifier.onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyDown &&
-                            event.key == Key.DirectionUp) {
-                            seekFocus.requestFocus()
-                            showControls()
-                            true
-                        } else false
-                    },
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 36.dp, vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (showEpisodeControls) {
-                        TvVlcButton("⏮ Previous", enabled = previousEpisodeAvailable,
-                            onClick = onPreviousEpisode)
-                    }
-                    TvVlcButton("−10s", enabled = player.isSeekable) { seekTo(positionMs - 10_000L) }
-                    TvVlcButton(if (paused) "▶ Play" else "Ⅱ Pause",
-                        modifier = Modifier.focusRequester(pauseFocus),
-                        onClick = ::togglePlayback)
-                    TvVlcButton("+10s", enabled = player.isSeekable) { seekTo(positionMs + 10_000L) }
-                    if (showEpisodeControls) {
-                        TvVlcButton("Next ⏭", enabled = nextEpisodeAvailable,
-                            onClick = onNextEpisodeClick)
-                    }
-                }
-                // Keep the viewer-facing bar minimal. Diagnostic QR is available in Settings.
-                // Engine fallbacks stay available on the error screen, not during normal viewing.
-                if (showEpisodeControls) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TvVlcButton(if (autoplay) "Autoplay next: ON" else "Autoplay next: OFF") {
-                            preferences.setSeriesAutoplay(!autoplay)
-                            showControls()
+                        Text(clock(if (scrubbing) previewMs else positionMs), color = Color.White)
+                        Box(
+                            modifier = Modifier.weight(1f).padding(horizontal = 14.dp).height(48.dp)
+                                .focusRequester(seekFocus)
+                                .onFocusChanged { timelineFocused = it.isFocused }
+                                .onPreviewKeyEvent { event ->
+                                    val direction = when (event.key) {
+                                        Key.DirectionLeft -> SeekDirection.BACKWARD
+                                        Key.DirectionRight -> SeekDirection.FORWARD
+                                        else -> null
+                                    }
+                                    if (direction != null) {
+                                        if (event.type == KeyEventType.KeyDown) {
+                                            if (player.isSeekable && durationMs > 0L) {
+                                                if (seekHeldDirection != direction) {
+                                                    seekOriginMs = positionMs
+                                                    seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
+                                                    seekHeldDirection = direction
+                                                    previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                                                } else {
+                                                    val heldMs = (
+                                                        android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs
+                                                    ).coerceAtLeast(0L)
+                                                    val accelerated = TvSeekPolicy.heldPreview(
+                                                        seekOriginMs, heldMs, direction, durationMs,
+                                                    )
+                                                    val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                                                    previewMs = if (direction == SeekDirection.FORWARD) {
+                                                        max(firstTap, accelerated)
+                                                    } else {
+                                                        min(firstTap, accelerated)
+                                                    }
+                                                }
+                                                scrubbing = true
+                                                showControls()
+                                            }
+                                            true
+                                        } else if (event.type == KeyEventType.KeyUp) {
+                                            if (scrubbing) {
+                                                seekTo(previewMs)
+                                                scrubbing = false
+                                            }
+                                            seekHeldDirection = null
+                                            true
+                                        } else false
+                                    } else when {
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionDown -> {
+                                            if (scrubbing) {
+                                                seekTo(previewMs)
+                                                scrubbing = false
+                                                seekHeldDirection = null
+                                            }
+                                            pauseFocus.requestFocus()
+                                            showControls()
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
+                                            if (scrubbing) {
+                                                seekTo(previewMs)
+                                                scrubbing = false
+                                                seekHeldDirection = null
+                                            } else if (event.nativeKeyEvent.repeatCount == 0) {
+                                                togglePlayback()
+                                            }
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                }
+                                .border(
+                                    width = if (timelineFocused) 1.dp else 0.dp,
+                                    color = CinemaBlue,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                .semantics {
+                                    contentDescription = "Seek timeline. Left and right seek by ten seconds; hold to accelerate. Down moves to playback buttons."
+                                }
+                                .focusable(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Canvas(Modifier.fillMaxWidth().height(18.dp).padding(horizontal = 8.dp)) {
+                                val centerY = size.height / 2f
+                                val startX = 7.dp.toPx()
+                                val endX = size.width - startX
+                                drawLine(
+                                    color = CinemaTrack,
+                                    start = androidx.compose.ui.geometry.Offset(startX, centerY),
+                                    end = androidx.compose.ui.geometry.Offset(endX, centerY),
+                                    strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round,
+                                )
+                                val fraction = if (durationMs > 0L) {
+                                    (if (scrubbing) previewMs else positionMs)
+                                        .coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()
+                                } else 0f
+                                val playheadX = startX + (endX - startX) * fraction
+                                drawLine(
+                                    color = CinemaBlue,
+                                    start = androidx.compose.ui.geometry.Offset(startX, centerY),
+                                    end = androidx.compose.ui.geometry.Offset(playheadX, centerY),
+                                    strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round,
+                                )
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = if (timelineFocused) 8.dp.toPx() else 5.dp.toPx(),
+                                    center = androidx.compose.ui.geometry.Offset(playheadX, centerY),
+                                )
+                            }
                         }
+                        Text(
+                            if (durationMs > 0L) clock(durationMs) else "--:--",
+                            color = Color.White,
+                        )
                     }
+                CinematicTransport(
+                    isEpisode = showEpisodeControls,
+                    paused = paused,
+                    previousEnabled = previousEpisodeAvailable,
+                    nextEnabled = nextEpisodeAvailable,
+                    onPrevious = onPreviousEpisode,
+                    onRewind = { seekTo(positionMs - 10_000L) },
+                    onTogglePause = ::togglePlayback,
+                    onForward = { seekTo(positionMs + 10_000L) },
+                    onNext = onNextEpisodeClick,
+                    pauseRequester = pauseFocus,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = 76.dp)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionUp) {
+                                seekFocus.requestFocus()
+                                showControls()
+                                true
+                            } else false
+                        },
+                )
+                if (ended) {
+                    Text(
+                        "Playback finished",
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
                 }
-                if (ended) Text("Playback finished", color = Color.White)
             }
         }
     }
