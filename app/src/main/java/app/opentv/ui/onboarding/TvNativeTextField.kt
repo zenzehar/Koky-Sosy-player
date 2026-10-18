@@ -58,6 +58,9 @@ fun TvNativeTextField(
     var editing by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
     var hasReceivedEditFocus by remember { mutableStateOf(false) }
+    // Never force focus onto every idle text input on composition. Only a user click
+    // enters editing; idle focus is restored after genuinely leaving edit mode.
+    var hasEnteredEditMode by remember { mutableStateOf(false) }
     val idleRequester = remember { FocusRequester() }
     val editRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -76,9 +79,10 @@ fun TvNativeTextField(
     LaunchedEffect(editing) {
         withFrameNanos { }
         if (editing) {
+            hasEnteredEditMode = true
             runCatching { editRequester.requestFocus() }
             keyboard?.show()
-        } else {
+        } else if (hasEnteredEditMode) {
             keyboard?.hide()
             runCatching { idleRequester.requestFocus() }
         }
