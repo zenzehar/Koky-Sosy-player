@@ -44,6 +44,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import app.opentv.data.work.VodSectionSyncWorker
+import app.opentv.data.work.LiveSectionSyncWorker
 import app.opentv.core.AppSettings
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
@@ -95,6 +96,7 @@ fun KokyDashboardScreen(
 ) {
     val initialFocus = remember { FocusRequester() }
     // Dedicated D-pad focus targets for both independent refresh bars.
+    val liveBarFocus = remember { FocusRequester() }
     val movieBarFocus = remember { FocusRequester() }
     val seriesBarFocus = remember { FocusRequester() }
     val context = LocalContext.current
@@ -105,6 +107,14 @@ fun KokyDashboardScreen(
     val providerIds = remember(providers) {
         providers.filter { it.enabled && it.kind == SourceKind.XTREAM }.map { it.id }
     }
+    // Live refresh includes Xtream, M3U and Stalker providers.
+    val liveProviderIds = remember(providers) {
+        providers.filter { it.enabled }.map { it.id }
+    }
+    val liveRevision by userSettings.liveSectionRevision.collectAsState()
+    val liveLastSync = remember(liveRevision, liveProviderIds) {
+        userSettings.lastLiveSectionSynced(liveProviderIds)
+    }
     val updateRevision by userSettings.vodSectionRevision.collectAsState()
     val movieLastSync = remember(updateRevision, providerIds) {
         userSettings.lastVodSectionSynced(false, providerIds)
@@ -112,6 +122,10 @@ fun KokyDashboardScreen(
     val seriesLastSync = remember(updateRevision, providerIds) {
         userSettings.lastVodSectionSynced(true, providerIds)
     }
+    val liveWork by remember(context) {
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow(LiveSectionSyncWorker.workName())
+    }.collectAsState(initial = emptyList<WorkInfo>())
     val movieWork by remember(context) {
         WorkManager.getInstance(context)
             .getWorkInfosForUniqueWorkFlow(VodSectionSyncWorker.workName(false, null))
@@ -120,14 +134,24 @@ fun KokyDashboardScreen(
         WorkManager.getInstance(context)
             .getWorkInfosForUniqueWorkFlow(VodSectionSyncWorker.workName(true, null))
     }.collectAsState(initial = emptyList<WorkInfo>())
+    val manualLive = liveWork.firstOrNull { !it.state.isFinished }
     val manualMovies = movieWork.firstOrNull { !it.state.isFinished }
     val manualSeries = seriesWork.firstOrNull { !it.state.isFinished }
+    val runningFullLive = update.phase == CatalogueGate.Phase.LIVE
     val runningFullMovies = update.phase == CatalogueGate.Phase.MOVIES
     val runningFullSeries = update.phase == CatalogueGate.Phase.SERIES
     val fullUpdateActive = update.phase in setOf(
         CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
         CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
         CatalogueGate.Phase.BUILDING,
+    )
+    val liveFooter = VodTileUpdate(
+        isSeries = false, isLive = true, lastSyncedAt = liveLastSync,
+        inProgress = manualLive != null || runningFullLive,
+        progress = if (manualLive != null) manualLive.progress.getInt("percent", 0)
+            else (update.liveFraction * 100).toInt(),
+        failed = liveWork.firstOrNull()?.state == WorkInfo.State.FAILED,
+        enabled = liveProviderIds.isNotEmpty() && manualLive == null && !fullUpdateActive,
     )
     val movieFooter = VodTileUpdate(
         isSeries = false, lastSyncedAt = movieLastSync,
@@ -206,6 +230,10 @@ fun KokyDashboardScreen(
                 label = "LIVE TV", icon = Icons.Filled.LiveTv,
                 locked = !liveReady, loading = gated && update.phase == CatalogueGate.Phase.LIVE,
                 ready = gated && liveReady, progress = if (liveReady) 1f else update.liveFraction,
+                vodUpdate = liveFooter,
+                vodBarFocus = liveBarFocus,
+                vodPeerFocus = movieBarFocus,
+                onVodRefresh = { LiveSectionSyncWorker.refresh(context) },
                 shades = listOf(Color(0xFF31CEA1), Color(0xFF3442C8)),
                 modifier = Modifier.weight(1f).fillMaxHeight().focusRequester(initialFocus),
                 onClick = if (hasSources) onLive else onAddProvider,
@@ -410,6 +438,7 @@ private fun DashboardTile(
 
 private data class VodTileUpdate(
     val isSeries: Boolean,
+    val isLive: Boolean = false,
     val lastSyncedAt: Long,
     val inProgress: Boolean,
     val progress: Int,
@@ -465,7 +494,7 @@ private fun DashboardVodUpdateBar(
     ) {
         Text(
             when {
-                state.inProgress -> "Updating ${if (state.isSeries) "Series" else "Movies"} · ${state.progress.coerceIn(0, 100)}%"
+                state.inProgress -> "Updating ${if (state.isLive) "Live TV" else if (state.isSeries) "Series" else "Movies"} · ${state.progress.coerceIn(0, 100)}%"
                 else -> "Updated: $time"
             },
             color = Color.White,
@@ -483,7 +512,7 @@ private fun DashboardVodUpdateBar(
         }
         Icon(
             Icons.Filled.Refresh,
-            contentDescription = "Refresh ${if (state.isSeries) "Series" else "Movies"} catalogue",
+            contentDescription = "Refresh ${if (state.isLive) "Live TV" else if (state.isSeries) "Series" else "Movies"} catalogue",
             tint = Color.White.copy(alpha = if (state.enabled) 1f else .45f),
             modifier = Modifier.size(19.dp),
         )
