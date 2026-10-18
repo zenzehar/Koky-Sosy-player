@@ -16,17 +16,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import app.opentv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -45,6 +48,10 @@ import android.content.Context
 import android.widget.Toast
 import app.opentv.R
 import app.opentv.core.AppSettings
+import app.opentv.player.PlaybackBufferPreset
+import app.opentv.player.VlcPlaybackMode
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.data.work.SyncWorker
@@ -55,7 +62,7 @@ import app.opentv.data.work.SyncWorker
  * [AppSettings] and takes effect immediately.
  */
 @Composable
-fun AppSettingsScreen(onBack: () -> Unit) {
+fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val context = LocalContext.current
     val settings = remember { AppSettings.get(context) }
     val themeMode by settings.themeMode.collectAsState()
@@ -70,6 +77,12 @@ fun AppSettingsScreen(onBack: () -> Unit) {
     val moviesEnabled by settings.moviesEnabled.collectAsState()
     val seriesEnabled by settings.seriesEnabled.collectAsState()
     val refreshHours by settings.catalogueRefreshHours.collectAsState()
+    val playbackBuffer by settings.playbackBufferPreset.collectAsState()
+    val vlcMode by settings.vlcPlaybackMode.collectAsState()
+    var diagnosticReport by remember { mutableStateOf<String?>(null) }
+    var refreshMenuOpen by remember { mutableStateOf(false) }
+    var languageMenuOpen by remember { mutableStateOf(false) }
+    var languageSearch by remember { mutableStateOf("") }
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -125,12 +138,35 @@ fun AppSettingsScreen(onBack: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium)
             Text("Opening Movies or Series uses saved titles; manual Update is always available.",
                 style = MaterialTheme.typography.bodySmall)
-            for (hours in listOf(0, 1, 3, 6, 12, 24)) {
-                ThemeOption(
-                    if (hours == 0) "Off — manual update only"
-                    else "Every " + hours + (if (hours == 1) " hour" else " hours"),
-                    refreshHours == hours,
-                ) { settings.setCatalogueRefreshHours(hours) }
+            val refreshOptions = listOf(0, 1, 3, 6, 12, 24)
+            val refreshLabel = if (refreshHours == 0) "Off — manual update only"
+                else "Every " + refreshHours +
+                    (if (refreshHours == 1) " hour" else " hours")
+            OutlinedButton(
+                onClick = { refreshMenuOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("$refreshLabel  ▾") }
+            if (refreshMenuOpen) {
+                AlertDialog(
+                    onDismissRequest = { refreshMenuOpen = false },
+                    title = { Text("Catalogue update frequency") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            refreshOptions.forEach { hours ->
+                                val label = if (hours == 0) "Off — manual update only"
+                                    else "Every $hours " +
+                                        (if (hours == 1) "hour" else "hours")
+                                ThemeOption(label, refreshHours == hours) {
+                                    settings.setCatalogueRefreshHours(hours)
+                                    refreshMenuOpen = false
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { refreshMenuOpen = false }) { Text("Close") }
+                    },
+                )
             }
             Spacer(Modifier.height(16.dp))
             Text(
@@ -165,18 +201,62 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_language)) {
-            ThemeOption(stringResource(R.string.settings_language_system), language.isBlank()) {
-                changeLanguage(context, settings, "")
-            }
-            // Each language is listed in its own name (endonym), the convention users expect.
-            OpenTvLanguages.forEach { (tag, name) ->
-                ThemeOption(name, language == tag) { changeLanguage(context, settings, tag) }
-            }
-            Spacer(Modifier.height(4.dp))
+            val selectedName = if (language.isBlank()) stringResource(R.string.settings_language_system)
+                else OpenTvLanguages.firstOrNull { it.first == language }?.second ?: language
+            OutlinedButton(
+                onClick = { languageSearch = ""; languageMenuOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("$selectedName  ▾") }
             Text(
                 stringResource(R.string.settings_language_note),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (languageMenuOpen) {
+            val systemName = stringResource(R.string.settings_language_system)
+            val matching = OpenTvLanguages.filter { (tag, name) ->
+                languageSearch.isBlank() ||
+                    name.contains(languageSearch, ignoreCase = true) ||
+                    tag.contains(languageSearch, ignoreCase = true)
+            }
+            AlertDialog(
+                onDismissRequest = { languageMenuOpen = false },
+                title = { Text(stringResource(R.string.settings_section_language)) },
+                text = {
+                    Column(Modifier.fillMaxWidth()) {
+                        TvNativeTextField(
+                            value = languageSearch,
+                            onValueChange = { languageSearch = it },
+                            label = "Search languages — OK to type",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(max = 350.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (languageSearch.isBlank() ||
+                                systemName.contains(languageSearch, ignoreCase = true)) {
+                                ThemeOption(systemName, language.isBlank()) {
+                                    languageMenuOpen = false
+                                    changeLanguage(context, settings, "")
+                                }
+                            }
+                            matching.forEach { (tag, name) ->
+                                ThemeOption(name, language == tag) {
+                                    languageMenuOpen = false
+                                    changeLanguage(context, settings, tag)
+                                }
+                            }
+                            if (matching.isEmpty()) Text("No matching languages")
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { languageMenuOpen = false }) { Text("Close") }
+                },
             )
         }
 
@@ -212,7 +292,59 @@ fun AppSettingsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
+        SettingsSection("Provider logins across reinstall") {
+            DeviceCredentialVaultControls()
+            Spacer(Modifier.height(12.dp))
+            CredentialBackupControls(allowExport = true)
+        }
+        Spacer(Modifier.height(16.dp))
+
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            OutlinedButton(onClick = {
+                diagnosticReport = PlaybackDiagnostics.lastReport(context)
+            }) {
+                Text("Show latest diagnostic QR (temporary test tool)")
+            }
+            Text(
+                "Scan this QR with your phone after playback issues or a crash. " +
+                    "The last report is saved even if you close the app.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                stringResource(R.string.settings_vlc_mode_help),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            BufferPresetRow(
+                label = stringResource(R.string.settings_vlc_mode_native),
+                selected = vlcMode == VlcPlaybackMode.NATIVE,
+                onSelect = { settings.setVlcPlaybackMode(VlcPlaybackMode.NATIVE) },
+            )
+            BufferPresetRow(
+                label = stringResource(R.string.settings_vlc_mode_tuned),
+                selected = vlcMode == VlcPlaybackMode.TUNED,
+                onSelect = { settings.setVlcPlaybackMode(VlcPlaybackMode.TUNED) },
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                stringResource(R.string.settings_playback_buffer_help),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PlaybackBufferPreset.entries.forEach { preset ->
+                BufferPresetRow(
+                    label = when (preset) {
+                        PlaybackBufferPreset.FAST -> stringResource(R.string.settings_buffer_fast)
+                        PlaybackBufferPreset.BALANCED -> stringResource(R.string.settings_buffer_balanced)
+                        PlaybackBufferPreset.STABLE -> stringResource(R.string.settings_buffer_stable)
+                        PlaybackBufferPreset.LARGE -> stringResource(R.string.settings_buffer_large)
+                    },
+                    selected = playbackBuffer == preset,
+                    onSelect = { settings.setPlaybackBufferPreset(preset) },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
             ToggleRow(
                 title = stringResource(R.string.settings_subtitles_title),
                 subtitle = stringResource(R.string.settings_subtitles_subtitle),
@@ -229,11 +361,17 @@ fun AppSettingsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
-        TmdbKeySection(settings)
+        TmdbKeySection(settings, onOpenWebManager)
 
         Spacer(Modifier.height(16.dp))
 
         SleepTimerSection()
+    }
+    diagnosticReport?.let { report ->
+        PlaybackDiagnosticsDialog(
+            report = report,
+            onDismiss = { diagnosticReport = null },
+        )
     }
 }
 
@@ -243,7 +381,7 @@ fun AppSettingsScreen(onBack: () -> Unit) {
  * default, so the feature is off until opted into.
  */
 @Composable
-private fun TmdbKeySection(settings: AppSettings) {
+private fun TmdbKeySection(settings: AppSettings, onOpenWebManager: () -> Unit) {
     val context = LocalContext.current
     val savedKey by settings.tmdbApiKey.collectAsState()
     val savedToken by settings.tmdbReadToken.collectAsState()
@@ -252,25 +390,27 @@ private fun TmdbKeySection(settings: AppSettings) {
     val savedMessage = stringResource(R.string.settings_tmdb_saved)
 
     SettingsSection(stringResource(R.string.settings_section_metadata)) {
+        OutlinedButton(onClick = onOpenWebManager) {
+            Text("Enter TMDB credentials from phone (show QR code)")
+        }
+        Spacer(Modifier.height(8.dp))
         Text(
             stringResource(R.string.settings_tmdb_note),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
+        TvNativeTextField(
             value = field,
             onValueChange = { field = it.trim() },
-            singleLine = true,
-            label = { Text(stringResource(R.string.settings_tmdb_key_label)) },
+            label = stringResource(R.string.settings_tmdb_key_label),
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
+        TvNativeTextField(
             value = tokenField,
             onValueChange = { tokenField = it.trim() },
-            singleLine = true,
-            label = { Text("TMDB API Read Access Token (optional)") },
+            label = "TMDB API Read Access Token (optional)",
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
@@ -404,6 +544,21 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) { content() }
+    }
+}
+
+@Composable
+private fun BufferPresetRow(label: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .selectable(selected = selected, onClick = onSelect)
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // One focus target for D-pad navigation. Avoid duplicate click handlers on the radio.
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Text(label, style = MaterialTheme.typography.titleMedium)
     }
 }
 

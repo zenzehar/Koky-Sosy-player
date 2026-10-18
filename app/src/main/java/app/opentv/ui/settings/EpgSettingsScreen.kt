@@ -108,19 +108,17 @@ fun EpgSettingsScreen(
                 } else {
                     Card {
                         Column(Modifier.padding(16.dp)) {
-                            OutlinedTextField(
+                            app.opentv.ui.onboarding.TvNativeTextField(
                                 value = newName,
                                 onValueChange = { newName = it },
-                                label = { Text(stringResource(R.string.epg_name_optional)) },
-                                singleLine = true,
+                                label = stringResource(R.string.epg_name_optional),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
+                            app.opentv.ui.onboarding.TvNativeTextField(
                                 value = newUrl,
                                 onValueChange = { newUrl = it },
-                                label = { Text(stringResource(R.string.epg_xmltv_url)) },
-                                singleLine = true,
+                                label = stringResource(R.string.epg_xmltv_url),
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             Spacer(Modifier.height(12.dp))

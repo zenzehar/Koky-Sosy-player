@@ -61,6 +61,10 @@ class SyncWorker(
                 }) {
                     throw IllegalStateException("Movie catalogue unavailable; previous library retained")
                 }
+                if (source.kind == app.opentv.data.model.SourceKind.XTREAM &&
+                    graph.settings.moviesEnabled.value) {
+                    graph.settings.markVodSectionSynced(false, source.id, System.currentTimeMillis())
+                }
             }
             CatalogueGate.moviesDone()
             StatusBus.set("Updating Series…", 2f / 3f)
@@ -69,6 +73,10 @@ class SyncWorker(
                     CatalogueGate.seriesImportProgress((index + progress) / sources.size)
                 }) {
                     throw IllegalStateException("Series catalogue unavailable; previous library retained")
+                }
+                if (source.kind == app.opentv.data.model.SourceKind.XTREAM &&
+                    graph.settings.seriesEnabled.value) {
+                    graph.settings.markVodSectionSynced(true, source.id, System.currentTimeMillis())
                 }
             }
             // Keep VOD locked through the final EPG/index-build stage.

@@ -261,6 +261,31 @@ class AppSettings private constructor(context: Context) {
      * constant (0 = Fit). Persisted so the choice survives leaving the player, which testers asked
      * for — picking Fill every single time you open a channel gets old fast.
      */
+    /** Configures bounded buffering at the NEXT playback session (not while a stream is decoding).
+     * Default Balanced retains quick starts without allocating a large native cache on Fire TV.
+     */
+    /** Native VLC defaults match the standalone player that successfully plays this provider. */
+    private val _vlcPlaybackMode = MutableStateFlow(
+        app.opentv.player.VlcPlaybackMode.fromSaved(prefs.getString(KEY_VLC_PLAYBACK_MODE, null))
+    )
+    val vlcPlaybackMode: StateFlow<app.opentv.player.VlcPlaybackMode> = _vlcPlaybackMode.asStateFlow()
+
+    fun setVlcPlaybackMode(mode: app.opentv.player.VlcPlaybackMode) {
+        prefs.edit().putString(KEY_VLC_PLAYBACK_MODE, mode.name).apply()
+        _vlcPlaybackMode.value = mode
+    }
+
+    private val _playbackBufferPreset = MutableStateFlow(
+        app.opentv.player.PlaybackBufferPreset.fromSaved(prefs.getString(KEY_PLAYBACK_BUFFER_PRESET, null))
+    )
+    val playbackBufferPreset: StateFlow<app.opentv.player.PlaybackBufferPreset> =
+        _playbackBufferPreset.asStateFlow()
+
+    fun setPlaybackBufferPreset(preset: app.opentv.player.PlaybackBufferPreset) {
+        prefs.edit().putString(KEY_PLAYBACK_BUFFER_PRESET, preset.name).apply()
+        _playbackBufferPreset.value = preset
+    }
+
     private val _playerResizeMode = MutableStateFlow(prefs.getInt(KEY_RESIZE_MODE, 0))
     val playerResizeMode: StateFlow<Int> = _playerResizeMode.asStateFlow()
 
@@ -398,6 +423,34 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getLong(KEY_VOD_SYNCED_AT, 0L)
         set(value) { prefs.edit().putLong(KEY_VOD_SYNCED_AT, value).apply() }
 
+    /** Last SUCCESSFUL refresh per VOD type and provider. Independent of live/EPG.
+     * Flow is a cheap invalidation signal for bottom-bars and paged SQL results.
+     */
+    private val _vodSectionRevision = MutableStateFlow(0L)
+    val vodSectionRevision: StateFlow<Long> = _vodSectionRevision.asStateFlow()
+
+    fun markVodSectionSynced(isSeries: Boolean, sourceId: Long, whenMillis: Long) {
+        require(sourceId > 0L && whenMillis > 0L)
+        val type = if (isSeries) "series" else "movies"
+        prefs.edit().putLong("vod_${type}_source_${sourceId}_synced", whenMillis).apply()
+        _vodSectionRevision.value = _vodSectionRevision.value + 1L
+    }
+
+    /**
+     * Show the last time the visible provider was refreshed.
+     * For All providers the oldest successful stamp is the honest 'all current as of'
+     * time; never stamp a failed partial refresh as successful.
+     */
+    fun lastVodSectionSynced(isSeries: Boolean, sourceIds: List<Long>): Long {
+        if (sourceIds.isEmpty()) return 0L
+        val type = if (isSeries) "series" else "movies"
+        val saved = sourceIds.map { prefs.getLong("vod_${type}_source_${it}_synced", 0L) }
+        if (saved.all { it > 0L }) return saved.minOrNull() ?: 0L
+        // Existing installations had one shared VOD stamp before per-type tracking.
+        // Only use it when NO per-provider section-specific stamps exist.
+        return if (saved.all { it == 0L }) vodSyncedAtMillis else 0L
+    }
+
     /**
      * The user's own TMDB API key (v3 auth), stored on-device only exactly like provider
      * credentials, used to fill in artwork/metadata a provider left blank. Blank = the TMDB
@@ -468,6 +521,8 @@ class AppSettings private constructor(context: Context) {
         private const val KEY_CONTENT_SERIES = "content_series"
         private const val KEY_LAST_CHANNEL = "last_channel_id"
         private const val KEY_RESIZE_MODE = "player_resize_mode"
+        private const val KEY_PLAYBACK_BUFFER_PRESET = "playback_buffer_preset"
+        private const val KEY_VLC_PLAYBACK_MODE = "vlc_playback_mode"
         private const val KEY_LANGUAGE = "language_tag"
 
         /**

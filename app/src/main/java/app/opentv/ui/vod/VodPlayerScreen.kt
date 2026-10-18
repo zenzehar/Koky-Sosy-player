@@ -7,6 +7,15 @@ package app.opentv.ui.vod
 
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -44,6 +53,8 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -94,6 +105,8 @@ import app.opentv.core.ServiceLocator
 import app.opentv.core.SleepTimer
 import app.opentv.core.findActivity
 import app.opentv.player.PlayerController
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -131,18 +144,25 @@ fun VodPlayerScreen(
     // little differently in the transport: the "length" is how much has been recorded so far, which
     // keeps growing, and seeking is bounded to that recorded extent.
     val growingRec = remember(streamUrl) { streamUrl.startsWith("optvrec://") }
-    // The SMB source lets a recording stored on a NAS play and seek in-app; harmless for the
-    // http/file URLs of ordinary VOD.
-    val controller = remember {
-        PlayerController(
-            context, scope, graph.streamingHttpClient, subtitlesEnabled = false,
-            smbDataSourceFactory = app.opentv.player.SmbDataSource.Factory(graph.settings),
-            // Lets an `optvrec://<id>` recording play while it's still being written.
-            growingDataSourceFactory =
-                app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
-            liveRecording = growingRec,
-        )
+    // HTTP VOD prefers VLC. Do not allocate an idle Media3 ExoPlayer on every VLC movie/episode.
+    // On low-RAM sticks its native renderer, track selector and buffers are unnecessary overhead.
+    var usingVlc by remember(streamUrl) {
+        mutableStateOf(!growingRec && streamUrl.startsWith("http", true))
     }
+    var vlcEverTried by remember(streamUrl) { mutableStateOf(usingVlc) }
+    // The SMB and growing recording data sources are initialised only when actually needed.
+    val media3Holder = remember {
+        lazy(LazyThreadSafetyMode.NONE) {
+            PlayerController(
+                context, scope, graph.streamingHttpClient, subtitlesEnabled = false,
+                smbDataSourceFactory = app.opentv.player.SmbDataSource.Factory(graph.settings),
+                growingDataSourceFactory =
+                    app.opentv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
+                liveRecording = growingRec,
+            )
+        }
+    }
+    val controller by media3Holder
     // Skip forward/back within the recorded portion. For a growing recording ExoPlayer won't report
     // the item as seekable (no fixed length), so we seek directly, clamped to what's on disk.
     fun seekRelative(deltaMs: Long) {
@@ -151,14 +171,90 @@ fun VodPlayerScreen(
         else (p.duration.takeIf { it > 0 } ?: Long.MAX_VALUE)
         p.seekTo((p.currentPosition + deltaMs).coerceIn(0L, ceiling))
     }
-    val state by controller.state.collectAsState()
-    val tracks by controller.tracks.collectAsState()
+    // Subscribe to Media3 only while it is selected; VLC owns its own player state and tracks.
+    val state: PlayerController.State = if (usingVlc) PlayerController.State.Idle
+        else controller.state.collectAsState().value
+    val tracks: Tracks = if (usingVlc) Tracks.EMPTY
+        else controller.tracks.collectAsState().value
 
+    // Episode navigation belongs to the catalog, outside the already-approved seek engine.
+    var previousEpisode by remember(mediaKey) {
+        mutableStateOf<app.opentv.data.model.Episode?>(null)
+    }
+    var followingEpisode by remember(mediaKey) {
+        mutableStateOf<app.opentv.data.model.Episode?>(null)
+    }
+    LaunchedEffect(mediaKey) {
+        val id = mediaKey.takeIf { it.startsWith("ep:") }
+            ?.removePrefix("ep:")?.toLongOrNull()
+        previousEpisode = id?.let { graph.catalogRepository.previousEpisode(it) }
+        followingEpisode = id?.let { graph.catalogRepository.nextEpisode(it) }
+    }
     var paused by remember { mutableStateOf(false) }
-    // For HTTP IPTV VOD, use VLC first: Media3 frequently rejects provider containers.
-    // Growing/internal/SMB recordings retain Media3's specialised data sources.
-    var usingVlc by remember(streamUrl) { mutableStateOf(!growingRec && streamUrl.startsWith("http", true)) }
-    var vlcEverTried by remember(streamUrl) { mutableStateOf(usingVlc) }
+    var media3Diagnostic by remember { mutableStateOf<String?>(null) }
+    fun showMedia3Diagnostic() {
+        PlaybackDiagnostics.event(context, "REPORT", persistNow = true)
+        media3Diagnostic = PlaybackDiagnostics.capture(context)
+    }
+
+    var screenSaverSuspended by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        fun pauseForSaver() {
+            if (!app.opentv.core.PipState.inPip.value) {
+                screenSaverSuspended = true
+                if (media3Holder.isInitialized()) {
+                    runCatching { controller.player.pause() }
+                }
+                paused = true
+                app.opentv.core.PipState.isPlaying = false
+            }
+        }
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF, Intent.ACTION_DREAMING_STARTED -> pauseForSaver()
+                    Intent.ACTION_SCREEN_ON, Intent.ACTION_DREAMING_STOPPED -> {
+                        screenSaverSuspended = false
+                        // Reassert TV keep-awake after dreaming; do not auto-play.
+                        context.findActivity()?.window?.addFlags(
+                            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                        )
+                        view.keepScreenOn = true
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
+        }
+        runCatching {
+            ContextCompat.registerReceiver(
+                context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> pauseForSaver()
+                Lifecycle.Event.ON_RESUME -> {
+                    screenSaverSuspended = false
+                    context.findActivity()?.window?.addFlags(
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                    )
+                    view.keepScreenOn = true
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
     var resumeLoaded by remember(mediaKey) { mutableStateOf(false) }
     var resumeFromMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
@@ -172,14 +268,19 @@ fun VodPlayerScreen(
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
+    val autoplayFocus = remember { FocusRequester() }
+    val timelineFocus = remember { FocusRequester() }
+    var timelineFocused by remember { mutableStateOf(false) }
+    var autoplayFocused by remember { mutableStateOf(false) }
+    var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
 
     fun reveal() { controlsVisible = true; interaction++ }
 
     suspend fun savePosition() {
         if (advanced.get()) return
-        val player = controller.player
-        val pos = if (usingVlc) positionMs else player.currentPosition
-        val dur = if (usingVlc) durationMs else player.duration.takeIf { it > 0 } ?: 0L
+        val pos = if (usingVlc) positionMs else controller.player.currentPosition
+        val dur = if (usingVlc) durationMs
+            else controller.player.duration.takeIf { it > 0 } ?: 0L
         if (dur <= 0L) return
         if (pos > 5_000) {
             graph.playbackPositions.upsert(
@@ -229,6 +330,27 @@ fun VodPlayerScreen(
     }
 
     // Media3 is used for local/recorded content and certain fallback streams.
+    LaunchedEffect(usingVlc) {
+        if (!usingVlc) {
+            PlaybackDiagnostics.begin("Media3", "EXO")
+            PlaybackDiagnostics.event(context, "MEDIA3_START", persistNow = true)
+        }
+    }
+    LaunchedEffect(state, usingVlc) {
+        if (!usingVlc) {
+            when (val current = state) {
+                is PlayerController.State.Error ->
+                    PlaybackDiagnostics.event(
+                        context, "MEDIA3_ERROR", current.errorCode ?: -1, persistNow = true,
+                    )
+                is PlayerController.State.Buffering ->
+                    PlaybackDiagnostics.event(context, "MEDIA3_STATE", 1, persistNow = true)
+                is PlayerController.State.Playing ->
+                    PlaybackDiagnostics.event(context, "MEDIA3_STATE", 2)
+                else -> Unit
+            }
+        }
+    }
     LaunchedEffect(mediaKey, usingVlc) {
         if (usingVlc) return@LaunchedEffect
         while (isActive && !advanced.get()) {
@@ -247,11 +369,36 @@ fun VodPlayerScreen(
         window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         view.keepScreenOn = true
         onDispose {
+            PlaybackDiagnostics.event(
+                context, if (usingVlc) "VLC_EXIT" else "MEDIA3_EXIT",
+                persistNow = true,
+            )
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.keepScreenOn = false
-            // Do not cancel the pending final history write with the UI scope.
-            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { savePosition() }
-            controller.release()
+            // IMPORTANT: Media3 player getters must run on their application/main
+            // thread and must never be read after release(). Earlier versions launched
+            // savePosition() on IO and immediately released the player, which could crash
+            // Android on Back from VOD. Snapshot first, persist only captured primitives.
+            val endingPos = if (usingVlc) positionMs else
+                runCatching { controller.player.currentPosition }.getOrDefault(0L)
+            val endingDuration = if (usingVlc) durationMs else
+                runCatching { controller.player.duration.takeIf { it > 0L } ?: 0L }.getOrDefault(0L)
+            val endingProfile = settings.activeProfileId.value
+            val endingIsComplete = advanced.get()
+            if (!endingIsComplete && endingPos > 5_000L && endingDuration > 0L) {
+                val snapshot = app.opentv.data.model.PlaybackPosition(
+                    profileId = endingProfile,
+                    mediaKey = mediaKey,
+                    positionMillis = endingPos,
+                    durationMillis = endingDuration,
+                    updatedAtMillis = System.currentTimeMillis(),
+                )
+                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    runCatching { graph.playbackPositions.upsert(snapshot) }
+                        .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
+                }
+            }
+            if (media3Holder.isInitialized()) controller.release()
             scope.cancel()
         }
     }
@@ -311,6 +458,7 @@ fun VodPlayerScreen(
                 // can skip ahead) is what's been read into the buffer.
                 durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
                 else controller.player.duration.takeIf { it > 0 } ?: 0
+                PlaybackDiagnostics.sample(positionMs, durationMs, 0)
             }
             delay(500)
         }
@@ -331,7 +479,13 @@ fun VodPlayerScreen(
     LaunchedEffect(controlsVisible, vodPanel) {
         if (controlsVisible) {
             delay(40)
-            runCatching { if (vodPanel != VodPanel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
+            runCatching {
+                if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
+                else {
+                    barFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.CONTROLS
+                }
+            }
         } else {
             runCatching { rootFocus.requestFocus() }
         }
@@ -355,21 +509,40 @@ fun VodPlayerScreen(
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
             onBack = onBack,
             onTryMedia3 = { usingVlc = false },
+            showEpisodeControls = mediaKey.startsWith("ep:"),
+            previousEpisodeAvailable = previousEpisode != null,
+            nextEpisodeAvailable = followingEpisode != null,
+            onPreviousEpisode = {
+                previousEpisode?.let { target ->
+                    scope.launch { savePosition(); onNextEpisode(target) }
+                }
+            },
+            onNextEpisodeClick = {
+                followingEpisode?.let { target ->
+                    scope.launch { savePosition(); onNextEpisode(target) }
+                }
+            },
             onEnded = { naturalEnd() },
+            suspendPlayback = screenSaverSuspended,
             onProgress = { pos, dur ->
                 positionMs = pos
                 durationMs = dur
                 if (!advanced.get() && pos > 5_000L && dur > 0L) {
-                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                        graph.playbackPositions.upsert(
-                            app.opentv.data.model.PlaybackPosition(
-                                profileId = settings.activeProfileId.value,
-                                mediaKey = mediaKey,
-                                positionMillis = pos,
-                                durationMillis = dur,
-                                updatedAtMillis = System.currentTimeMillis(),
-                            ),
-                        )
+                    // Capture active profile and position on the UI thread, then persist only
+                    // immutable values on IO, never touch player or settings after teardown.
+                    val snapshot = app.opentv.data.model.PlaybackPosition(
+                        profileId = settings.activeProfileId.value,
+                        mediaKey = mediaKey,
+                        positionMillis = pos,
+                        durationMillis = dur,
+                        updatedAtMillis = System.currentTimeMillis(),
+                    )
+                    // Reuse the screen-owned coroutine scope. The former code allocated a
+                    // new untracked SupervisorJob on every progress tick (every 10 seconds).
+                    // Final exit progress still uses the independent bounded onDispose save.
+                    scope.launch(Dispatchers.IO) {
+                        runCatching { graph.playbackPositions.upsert(snapshot) }
+                            .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
                     }
                 }
             },
@@ -381,7 +554,34 @@ fun VodPlayerScreen(
             .onPreviewKeyEvent { event ->
                 when {
                     event.key == Key.Back || event.key == Key.Escape -> false
+                    event.type == KeyEventType.KeyDown && !controlsVisible &&
+                        (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) {
+                            paused = !paused
+                            controller.player.playWhenReady = !paused
+                        }
+                        reveal()
+                        true
+                    }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
+                    event.type == KeyEventType.KeyDown && controlsVisible &&
+                        (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+                        val next = moveCinematicFocus(
+                            focusLevel, mediaKey.startsWith("ep:"),
+                            up = event.key == Key.DirectionUp,
+                        )
+                        if (next == focusLevel) false
+                        else {
+                            focusLevel = next
+                            when (next) {
+                                CinematicFocusLevel.AUTOPLAY -> autoplayFocus.requestFocus()
+                                CinematicFocusLevel.CONTROLS -> barFocus.requestFocus()
+                                CinematicFocusLevel.SEEK -> timelineFocus.requestFocus()
+                            }
+                            reveal()
+                            true
+                        }
+                    }
                     event.type == KeyEventType.KeyDown -> { interaction++; false }
                     else -> false
                 }
@@ -406,6 +606,8 @@ fun VodPlayerScreen(
                     )
                 }
             },
+            // Drop Media3's view reference before the native/decoder teardown.
+            onRelease = { playerView -> playerView.player = null },
         )
 
         when (val current = state) {
@@ -432,6 +634,8 @@ fun VodPlayerScreen(
                         Text(current.message, color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center)
                         Spacer(Modifier.height(24.dp))
                         Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = ::showMedia3Diagnostic) { Text("Scan error diagnostics QR") }
                     }
                 }
 
@@ -442,53 +646,46 @@ fun VodPlayerScreen(
             visible = controlsVisible,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                    // Keep the controls clear of the phone/tablet system nav bar (and the side nav
-                    // bar / display cutout in landscape). Zero on a TV, so the 10-foot layout is
-                    // unchanged; the gradient above stays full-bleed to the screen edge.
+            Box(
+                Modifier.fillMaxSize()
                     .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
-                    )
-                    .padding(horizontal = 28.dp, vertical = 20.dp),
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                        ),
+                    ),
             ) {
-                if (vodPanel != VodPanel.NONE) {
-                    TrackPanel(
-                        panel = vodPanel,
-                        controller = controller,
-                        tracks = tracks,
-                        firstFocus = panelFocus,
-                        onDone = { vodPanel = VodPanel.NONE; interaction++ },
+                CinematicScrim()
+                CinematicTitle(
+                    rawTitle = title,
+                    isEpisode = mediaKey.startsWith("ep:"),
+                    elapsedText = formatDuration(if (scrubbing) scrubValue.toLong() else positionMs),
+                    durationText = formatDuration(durationMs),
+                    modifier = Modifier.align(Alignment.TopStart)
+                        .padding(start = 46.dp, top = 44.dp),
+                )
+                if (mediaKey.startsWith("ep:")) {
+                    CinematicAutoplay(
+                        enabled = autoplay,
+                        onChange = { settings.setSeriesAutoplay(it); interaction++ },
+                        focusRequester = autoplayFocus,
+                        onFocusChanged = {
+                            autoplayFocused = it
+                            if (it) focusLevel = CinematicFocusLevel.AUTOPLAY
+                        },
+                        modifier = Modifier.align(Alignment.TopEnd)
+                            .padding(end = 40.dp, top = 42.dp),
                     )
-                    Spacer(Modifier.height(16.dp))
                 }
-
-                if (growingRec) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.FiberManualRecord,
-                            contentDescription = null,
-                            tint = Color(0xFFE53935),
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            stringResource(R.string.rec_watching_live_badge),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFE53935),
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                }
-                Text(title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                Spacer(Modifier.height(8.dp))
-
+                // Preserve the approved Media3 relative seek and Slider callbacks unchanged.
                 // Seek bar with times either side. Left/right on the remote scrubs.
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 36.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
                     Slider(
@@ -501,44 +698,69 @@ fun VodPlayerScreen(
                             scrubbing = false
                             interaction++
                         },
-                        modifier = Modifier.weight(1f),
+                        colors = androidx.compose.material3.SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = CinemaBlue,
+                            inactiveTrackColor = CinemaTrack,
+                        ),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(timelineFocus)
+                            .onFocusChanged {
+                                timelineFocused = it.isFocused
+                                if (it.isFocused) focusLevel = CinematicFocusLevel.SEEK
+                            },
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(formatDuration(durationMs), color = Color.White)
                 }
-
-                Spacer(Modifier.height(10.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    VodChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind)) {
-                        if (growingRec) seekRelative(-15_000) else controller.seekBackward(); interaction++
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    VodChip(
-                        icon = if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                        label = if (paused) stringResource(R.string.common_play) else stringResource(R.string.player_pause),
-                        focusRequester = barFocus,
-                    ) {
+                CinematicTransport(
+                    isEpisode = mediaKey.startsWith("ep:"),
+                    paused = paused,
+                    previousEnabled = previousEpisode != null,
+                    nextEnabled = followingEpisode != null,
+                    onPrevious = {
+                        previousEpisode?.let { target ->
+                            scope.launch { savePosition(); onNextEpisode(target) }
+                        }
+                    },
+                    onRewind = {
+                        if (growingRec) seekRelative(-10_000) else controller.seekBackward()
+                        interaction++
+                    },
+                    onTogglePause = {
                         paused = !paused
                         controller.player.playWhenReady = !paused
                         interaction++
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    VodChip(Icons.Filled.FastForward, stringResource(R.string.player_forward)) {
-                        if (growingRec) seekRelative(15_000) else controller.seekForward(); interaction++
-                    }
-                    Spacer(Modifier.width(20.dp))
-                    VodChip(Icons.Filled.ClosedCaption, stringResource(R.string.player_subtitles)) {
-                        vodPanel = if (vodPanel == VodPanel.SUBTITLES) VodPanel.NONE else VodPanel.SUBTITLES
+                    },
+                    onForward = {
+                        if (growingRec) seekRelative(10_000) else controller.seekForward()
                         interaction++
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    VodChip(Icons.Filled.Audiotrack, stringResource(R.string.player_audio)) {
-                        vodPanel = if (vodPanel == VodPanel.AUDIO) VodPanel.NONE else VodPanel.AUDIO
-                        interaction++
-                    }
+                    },
+                    onNext = {
+                        followingEpisode?.let { target ->
+                            scope.launch { savePosition(); onNextEpisode(target) }
+                        }
+                    },
+                    pauseRequester = barFocus,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = 74.dp),
+                )
+                if (vodPanel != VodPanel.NONE) {
+                    TrackPanel(
+                        panel = vodPanel,
+                        controller = controller,
+                        tracks = tracks,
+                        firstFocus = panelFocus,
+                        onDone = { vodPanel = VodPanel.NONE; interaction++ },
+                    )
                 }
             }
+        }
+        media3Diagnostic?.let { report ->
+            PlaybackDiagnosticsDialog(
+                report = report,
+                onDismiss = { media3Diagnostic = null },
+            )
         }
     }
 }

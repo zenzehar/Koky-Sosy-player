@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -58,13 +59,25 @@ fun TvNativeTextField(
     var editing by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
     var hasReceivedEditFocus by remember { mutableStateOf(false) }
+    // Never force focus onto every idle text input on composition. Only a user click
+    // enters editing; idle focus is restored after genuinely leaving edit mode.
+    var hasEnteredEditMode by remember { mutableStateOf(false) }
     val idleRequester = remember { FocusRequester() }
     val editRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    // Disable the framework's built-in idle focus/press decoration. Login focus is drawn exclusively below.
+    val idleInteractionSource = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(if (smartersStyle) 5.dp else 7.dp)
     val frameColor = if (smartersStyle) Color(0xFFFFDB63) else Color(0xFF69DFF6)
-    val bg = if (smartersStyle) Color(0xFFE6BDCB) else Color(0xFF171F36)
-    val foreground = if (smartersStyle) Color(0xFF1A1520) else Color.White
+    // Login fields sit flush with the page when idle. The pale pink panel and
+    // yellow frame appear ONLY when the particular field receives remote focus.
+    val loginActive = editing || focused
+    val bg = if (smartersStyle) {
+        if (loginActive) Color(0xFFE6BDCB) else Color.Transparent
+    } else Color(0xFF171F36)
+    val foreground = if (smartersStyle) {
+        if (loginActive) Color(0xFF1A1520) else Color.White
+    } else Color.White
     val height = if (smartersStyle) 64.dp else 61.dp
 
     LaunchedEffect(initialFocus) {
@@ -76,9 +89,10 @@ fun TvNativeTextField(
     LaunchedEffect(editing) {
         withFrameNanos { }
         if (editing) {
+            hasEnteredEditMode = true
             runCatching { editRequester.requestFocus() }
             keyboard?.show()
-        } else {
+        } else if (hasEnteredEditMode) {
             keyboard?.hide()
             runCatching { idleRequester.requestFocus() }
         }
@@ -108,7 +122,7 @@ fun TvNativeTextField(
                     focusedTextColor = foreground,
                     unfocusedTextColor = foreground,
                     focusedBorderColor = frameColor,
-                    unfocusedBorderColor = frameColor,
+                    unfocusedBorderColor = Color.Transparent,
                 ),
                 shape = shape,
                 modifier = Modifier.fillMaxWidth().height(height)
@@ -128,9 +142,10 @@ fun TvNativeTextField(
                     .background(bg, shape)
                     .focusRequester(idleRequester)
                     .onFocusChanged { focused = it.isFocused }
-                    .border(if (focused) 3.dp else 1.dp,
-                        if (focused) frameColor else foreground.copy(alpha = 0.32f), shape)
-                    .clickable {
+                    // Do not create any border draw node while idle; only the active field
+                    // may have the explicit yellow/blue TV focus outline.
+                    .then(if (focused) Modifier.border(3.dp, frameColor, shape) else Modifier)
+                    .clickable(interactionSource = idleInteractionSource, indication = null) {
                         hasReceivedEditFocus = false
                         editing = true
                     }

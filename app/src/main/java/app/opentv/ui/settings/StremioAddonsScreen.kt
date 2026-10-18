@@ -126,14 +126,13 @@ fun StremioAddonsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
-        OutlinedTextField(
+        app.opentv.ui.onboarding.TvNativeTextField(
             value = input,
             onValueChange = {
                 input = it
                 if (status !is StremioAddonsViewModel.Status.Idle) viewModel.clearStatus()
             },
-            label = { Text(stringResource(R.string.addons_url_label)) },
-            singleLine = true,
+            label = stringResource(R.string.addons_url_label),
             modifier = Modifier.fillMaxWidth().widthIn(max = 760.dp),
         )
 

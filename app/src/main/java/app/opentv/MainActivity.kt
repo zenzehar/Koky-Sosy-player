@@ -87,6 +87,8 @@ import app.opentv.ui.vod.PersonScreen
 import app.opentv.ui.vod.SeriesDetailScreen
 import app.opentv.ui.vod.VodPlayerScreen
 import app.opentv.update.UpdateGate
+import app.opentv.diagnostics.PlaybackDiagnostics
+import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
 
 class MainActivity : ComponentActivity() {
 
@@ -98,16 +100,27 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Set up the crash breadcrumb before any source loading or Compose playback.
+        PlaybackDiagnostics.install(applicationContext)
         enableEdgeToEdge()
         handlePlayIntent(intent)
         val isTelevision = isRunningOnTelevision(this)
 
         setContent {
-            var brandSplashVisible by remember { mutableStateOf(true) }
+            var recoveredCrash by remember {
+                mutableStateOf(PlaybackDiagnostics.recoveredCrash(applicationContext))
+            }
+            // Initialise the same SourcesViewModel Activity scope as OpenTvApp BEFORE
+            // hiding the splash. This avoids exposing the extra single-dot spinner
+            // while Room loads the saved provider list after a cold launch.
+            val bootSourcesViewModel: SourcesViewModel = viewModel()
+            val bootSources by bootSourcesViewModel.ui.collectAsState()
+            var splashMinElapsed by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 delay(850)
-                brandSplashVisible = false
+                splashMinElapsed = true
             }
+            val brandSplashVisible = !splashMinElapsed || !bootSources.loaded
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
             val darkTheme = when (themeMode) {
@@ -121,8 +134,20 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    if (brandSplashVisible) BrandSplash()
-                    else OpenTvApp(isTelevision = isTelevision)
+                    Box(Modifier.fillMaxSize()) {
+                        if (brandSplashVisible) BrandSplash()
+                        else OpenTvApp(isTelevision = isTelevision)
+                        if (!brandSplashVisible && recoveredCrash != null) {
+                            PlaybackDiagnosticsDialog(
+                                report = recoveredCrash.orEmpty(),
+                                afterCrash = true,
+                                onDismiss = {
+                                    PlaybackDiagnostics.acknowledgeCrash(applicationContext)
+                                    recoveredCrash = null
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -498,7 +523,10 @@ private fun OpenTvApp(isTelevision: Boolean) {
             }
 
             composable(Routes.APP_SETTINGS) {
-                AppSettingsScreen(onBack = { navController.popBackStack() })
+                AppSettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenWebManager = { navController.navigate(Routes.WEB_MANAGER) },
+                )
             }
 
             composable(Routes.PLAYER) { entry ->

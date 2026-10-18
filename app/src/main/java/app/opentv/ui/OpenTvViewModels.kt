@@ -14,6 +14,7 @@ import app.opentv.data.model.Channel
 import app.opentv.data.model.EpgFeed
 import app.opentv.data.model.LiveStreamFormat
 import app.opentv.data.model.Movie
+import app.opentv.data.model.Episode
 import app.opentv.data.model.PlaybackPosition
 import app.opentv.data.model.Profile
 import app.opentv.data.model.Programme
@@ -93,6 +94,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
+            graph.sourceRepository.restoreDeviceLoginsIfAvailable()
             graph.sourceRepository.observeAll().collect { sources ->
                 _ui.value = _ui.value.copy(sources = sources, loaded = true)
             }
@@ -198,7 +200,10 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun delete(source: Source) {
-        viewModelScope.launch { graph.catalogRepository.deleteSource(source.id) }
+        viewModelScope.launch {
+            graph.catalogRepository.deleteSource(source.id)
+            graph.sourceRepository.syncDeviceLogins()
+        }
     }
 
     /**
@@ -836,6 +841,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun resetEpisodeProgress(episodeId: Long) {
+        viewModelScope.launch {
+            graph.playbackPositions.deleteKeys(
+                settings.activeProfileId.value, listOf("ep:${episodeId}")
+            )
+        }
+    }
+
     fun resetMovieProgress(movieId: Long) {
         viewModelScope.launch { resetLogicalMovie(movieId, settings.activeProfileId.value) }
     }
@@ -1126,6 +1139,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Loads a series, lazily enriching backdrop/cast/genre on first open. See CatalogRepository.seriesDetail. */
     suspend fun seriesDetail(id: Long): Series? = graph.catalogRepository.seriesDetail(id)
+    suspend fun movieCastPortraits(movie: Movie): List<app.opentv.data.remote.TmdbCastPortrait> =
+        graph.catalogRepository.movieCastPortraits(movie)
     suspend fun seriesCastPortraits(series: Series): List<app.opentv.data.remote.TmdbCastPortrait> =
         graph.catalogRepository.seriesCastPortraits(series)
 
@@ -1143,6 +1158,23 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     /** The active profile's saved resume position for a movie/episode, or null — drives Resume vs Watch now. */
     suspend fun resumePosition(mediaKey: String): PlaybackPosition? =
         graph.playbackPositions.get(settings.activeProfileId.value, mediaKey)
+
+    /** One latest incomplete episode per series, independent of selected VOD category. */
+    suspend fun latestResumeEpisode(series: Series): Episode? {
+        val positions = graph.playbackPositions.forProfile(settings.activeProfileId.value)
+            .asSequence()
+            .filter { it.mediaKey.startsWith("ep:") && !it.isFinished }
+            .sortedByDescending { it.updatedAtMillis }
+        for (entry in positions) {
+            val episodeId = entry.mediaKey.removePrefix("ep:").toLongOrNull() ?: continue
+            val episode = graph.catalogRepository.episode(episodeId) ?: continue
+            if (episode.sourceId == series.sourceId && episode.seriesId == series.seriesId) {
+                return episode
+            }
+        }
+        return null
+    }
+
 
     /** Collapses quality variants of a movie list for a browse grid. See CatalogRepository.collapseVariants. */
     fun collapseVariants(movies: List<Movie>): List<MovieVariantGroup> =

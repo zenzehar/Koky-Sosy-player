@@ -210,12 +210,48 @@ class CatalogRepository(
     suspend fun episode(id: Long): Episode? = episodeDao.byId(id)
 
     /** The next episode may belong to the next season; source and series must match. */
+    /** Persist cast names from TMDB in the local title catalogue. Images use Coil's disk cache. */
+    suspend fun movieCastPortraits(movie: Movie): List<app.opentv.data.remote.TmdbCastPortrait> =
+        withContext(Dispatchers.IO) {
+            val cast = tmdb.movieCastPortraits(movie.name, movie.year, movie.tmdbId)
+            if (cast.isNotEmpty()) {
+                movieDao.byId(movie.id)?.let { original ->
+                    val merged = mergedCast(original.cast, cast.map { it.name })
+                    if (merged != original.cast) movieDao.upsertAll(listOf(original.copy(cast = merged)))
+                }
+            }
+            cast
+        }
+
     suspend fun seriesCastPortraits(series: Series): List<app.opentv.data.remote.TmdbCastPortrait> =
-        withContext(Dispatchers.IO) { tmdb.seriesCastPortraits(series.name, series.year, series.tmdbId) }
+        withContext(Dispatchers.IO) {
+            val cast = tmdb.seriesCastPortraits(series.name, series.year, series.tmdbId)
+            if (cast.isNotEmpty()) {
+                seriesDao.byId(series.id)?.let { original ->
+                    val merged = mergedCast(original.cast, cast.map { it.name })
+                    if (merged != original.cast) seriesDao.upsertAll(listOf(original.copy(cast = merged)))
+                }
+            }
+            cast
+        }
+
+    private fun mergedCast(original: String?, discovered: List<String>): String? {
+        val names = linkedMapOf<String, String>()
+        (original.orEmpty().split(',', '|') + discovered).forEach { entry ->
+            val name = entry.trim()
+            if (name.isNotEmpty() && names.size < 100) names.putIfAbsent(name.lowercase(), name)
+        }
+        return names.values.joinToString(", ").ifBlank { null }
+    }
 
     suspend fun nextEpisode(id: Long): Episode? = withContext(Dispatchers.IO) {
         val current = episodeDao.byId(id) ?: return@withContext null
         episodeDao.nextAfter(current.sourceId, current.seriesId, current.season, current.episodeNumber)
+    }
+
+    suspend fun previousEpisode(id: Long): Episode? = withContext(Dispatchers.IO) {
+        val current = episodeDao.byId(id) ?: return@withContext null
+        episodeDao.previousBefore(current.sourceId, current.seriesId, current.season, current.episodeNumber)
     }
 
     suspend fun movieByStreamUrl(url: String): Movie? = movieDao.byStreamUrl(url)
@@ -380,7 +416,7 @@ class CatalogRepository(
      * they act in, movies they directed and series they act in, de-duplicating movies that credit the
      * same person as both actor and director. Movies (best-rated first) lead, then series.
      */
-    suspend fun titlesWithPerson(name: String, perKind: Int = 40): List<PersonTitle> =
+    suspend fun titlesWithPerson(name: String, perKind: Int = 350): List<PersonTitle> =
         withContext(Dispatchers.IO) {
             val query = name.trim()
             if (query.isEmpty()) return@withContext emptyList()
@@ -388,6 +424,71 @@ class CatalogRepository(
             val movies = LinkedHashMap<Long, Movie>()
             for (m in movieDao.moviesWithActor(query, perKind)) movies[m.id] = m
             for (m in movieDao.moviesByDirector(query, perKind)) movies.putIfAbsent(m.id, m)
+
+            // Provider credits can be incomplete or transliterated. TMDB person filmography
+            // supplies candidate IDs/names, then we match ONLY titles already in the user's
+            // local library. This does not import external or unavailable titles.
+            if (tmdb.isConfigured()) {
+                val credits = runCatching { tmdb.personCredits(query) }.getOrNull()
+                if (credits != null) {
+                    val filmIds = credits.movies.map { it.id }.toSet()
+                    val showIds = credits.series.map { it.id }.toSet()
+                    val movieYear = credits.movies.associate { it.title.trim().lowercase() to it.year }
+                    val seriesYear = credits.series.associate { it.title.trim().lowercase() to it.year }
+
+                    // A few small SQL batches, no eager full-catalogue materialization.
+                    val matchedMovies = LinkedHashMap<Long, Movie>()
+                    for (batch in filmIds.toList().chunked(80)) {
+                        movieDao.byTmdbIds(batch).forEach { matchedMovies[it.id] = it }
+                    }
+                    for (batch in movieYear.keys.toList().chunked(80)) {
+                        movieDao.byExactNames(batch).forEach { candidate ->
+                            val tmdbYear = movieYear[candidate.name.trim().lowercase()]
+                            if (tmdbYear == null || candidate.year == null ||
+                                kotlin.math.abs(candidate.year - tmdbYear) <= 1) {
+                                matchedMovies[candidate.id] = candidate
+                            }
+                        }
+                    }
+                    for (candidate in matchedMovies.values) {
+                        movies.putIfAbsent(candidate.id, candidate)
+                        // Cache membership on the title so next visit works without an API call.
+                        if (candidate.cast.orEmpty().split(',').none { it.trim().equals(query, ignoreCase = true) }) {
+                            movieDao.upsertAll(listOf(candidate.copy(cast = mergedCast(candidate.cast, listOf(query)))))
+                        }
+                    }
+
+                    val matchedSeries = LinkedHashMap<Long, Series>()
+                    for (batch in showIds.toList().chunked(80)) {
+                        seriesDao.byTmdbIds(batch).forEach { matchedSeries[it.id] = it }
+                    }
+                    for (batch in seriesYear.keys.toList().chunked(80)) {
+                        seriesDao.byExactNames(batch).forEach { candidate ->
+                            val tmdbYear = seriesYear[candidate.name.trim().lowercase()]
+                            if (tmdbYear == null || candidate.year == null ||
+                                kotlin.math.abs(candidate.year - tmdbYear) <= 1) {
+                                matchedSeries[candidate.id] = candidate
+                            }
+                        }
+                    }
+                    matchedSeries.values.forEach { candidate ->
+                        if (candidate.cast.orEmpty().split(',').none { it.trim().equals(query, ignoreCase = true) }) {
+                            seriesDao.upsertAll(listOf(candidate.copy(cast = mergedCast(candidate.cast, listOf(query)))))
+                        }
+                    }
+                    // Continue below with updated film/series collections, avoiding duplicates.
+                    val orderedMovies = movies.values.sortedWith(
+                        compareByDescending<Movie> { it.rating ?: -1.0 }.thenByDescending { it.addedMillis },
+                    )
+                    val allSeries = LinkedHashMap<Long, Series>()
+                    for (item in seriesDao.seriesWithActor(query, perKind)) allSeries[item.id] = item
+                    for (item in matchedSeries.values) allSeries.putIfAbsent(item.id, item)
+                    return@withContext buildList(orderedMovies.size + allSeries.size) {
+                        orderedMovies.forEach { add(PersonTitle.MovieItem(it)) }
+                        allSeries.values.forEach { add(PersonTitle.SeriesItem(it)) }
+                    }
+                }
+            }
 
             val orderedMovies = movies.values.sortedWith(
                 compareByDescending<Movie> { it.rating ?: -1.0 }.thenByDescending { it.addedMillis },
@@ -462,7 +563,7 @@ class CatalogRepository(
                     posterUrl = result.posterUrl ?: meta.posterUrl,
                     backdropUrl = result.backdropUrl ?: meta.backdropUrl,
                     plot = result.plot ?: meta.overview,
-                    cast = result.cast ?: meta.cast,
+                    cast = mergedCast(result.cast, meta.cast.orEmpty().split(',')),
                     director = result.director ?: meta.director,
                     genre = result.genre ?: meta.genre,
                     tmdbId = result.tmdbId ?: meta.tmdbId,
@@ -508,7 +609,7 @@ class CatalogRepository(
                     posterUrl = result.posterUrl ?: meta.posterUrl,
                     backdropUrl = result.backdropUrl ?: meta.backdropUrl,
                     plot = result.plot ?: meta.overview,
-                    cast = result.cast ?: meta.cast,
+                    cast = mergedCast(result.cast, meta.cast.orEmpty().split(',')),
                     genre = result.genre ?: meta.genre,
                     tmdbId = result.tmdbId ?: meta.tmdbId,
                     rating = result.rating ?: meta.rating,
@@ -667,7 +768,20 @@ class CatalogRepository(
             val chunks = movies.chunked(100)
             if (chunks.isEmpty()) onProgress(1f)
             chunks.forEachIndexed { index, batch ->
-                movieDao.upsertAll(batch)
+                val existing = movieDao.bySourceStreamIds(source.id, batch.map { it.streamId })
+                    .associateBy { it.streamId }
+                movieDao.upsertAll(batch.map { fresh ->
+                    val previous = existing[fresh.streamId]
+                    if (previous == null) fresh else fresh.copy(
+                        id = previous.id, favourite = previous.favourite,
+                        cast = mergedCast(previous.cast, fresh.cast.orEmpty().split(',')),
+                        tmdbId = fresh.tmdbId ?: previous.tmdbId,
+                        backdropUrl = fresh.backdropUrl ?: previous.backdropUrl,
+                        plot = fresh.plot ?: previous.plot,
+                        director = fresh.director ?: previous.director,
+                        genre = fresh.genre ?: previous.genre,
+                    )
+                })
                 // Last 1% is reserved for the fully completed phase.
                 onProgress((index + 1f) / chunks.size * 0.99f)
             }
@@ -690,7 +804,19 @@ class CatalogRepository(
             val chunks = series.chunked(100)
             if (chunks.isEmpty()) onProgress(1f)
             chunks.forEachIndexed { index, batch ->
-                seriesDao.upsertAll(batch)
+                val existing = seriesDao.bySourceSeriesIds(source.id, batch.map { it.seriesId })
+                    .associateBy { it.seriesId }
+                seriesDao.upsertAll(batch.map { fresh ->
+                    val previous = existing[fresh.seriesId]
+                    if (previous == null) fresh else fresh.copy(
+                        id = previous.id, favourite = previous.favourite,
+                        cast = mergedCast(previous.cast, fresh.cast.orEmpty().split(',')),
+                        tmdbId = fresh.tmdbId ?: previous.tmdbId,
+                        backdropUrl = fresh.backdropUrl ?: previous.backdropUrl,
+                        plot = fresh.plot ?: previous.plot,
+                        genre = fresh.genre ?: previous.genre,
+                    )
+                })
                 onProgress((index + 1f) / chunks.size * 0.99f)
             }
             true

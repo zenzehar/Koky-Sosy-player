@@ -72,6 +72,8 @@ import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.isRunningOnTelevision
 import app.opentv.ui.SourcesViewModel
+import app.opentv.ui.settings.CredentialBackupControls
+import app.opentv.ui.settings.DeviceCredentialVaultControls
 import app.opentv.ui.channels.readClipboardText
 
 /**
@@ -102,6 +104,22 @@ fun AddSourceScreen(
     // Editing an existing provider always uses the direct form (the fields are pre-filled, and there
     // is nothing to pair); only a fresh add on a TV offers the phone-pairing QR first.
     var usePhone by remember { mutableStateOf(false) }
+    var restoreBackup by remember { mutableStateOf(false) }
+
+    if (restoreBackup) {
+        Column(
+            Modifier.fillMaxSize().padding(36.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Restore your providers after reinstalling", style = MaterialTheme.typography.headlineSmall)
+            DeviceCredentialVaultControls(onRestored = onFinished)
+            CredentialBackupControls(allowExport = false, onRestored = onFinished)
+            OutlinedButton(onClick = { restoreBackup = false }) {
+                Text("Return to login")
+            }
+        }
+        return
+    }
 
     if (usePhone) {
         PhonePairingScreen(
@@ -136,6 +154,8 @@ fun AddSourceScreen(
     var showAdvanced by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     var focusedLeft by remember { mutableStateOf("") }
+    var restoreFocused by remember { mutableStateOf(false) }
+    var testFocused by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
@@ -209,7 +229,10 @@ fun AddSourceScreen(
                 },
                 colors = whiteButtonColors,
                 modifier = Modifier.width(200.dp).height(49.dp)
-                    .onFocusChanged { if (it.isFocused) focusedLeft = "vpn" }
+                    .onFocusChanged { 
+                        if (it.isFocused) focusedLeft = "vpn"
+                        else if (focusedLeft == "vpn") focusedLeft = ""
+                    }
                     .border(if (focusedLeft == "vpn") 3.dp else 0.dp,
                         Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) { Text("CONNECT VPN") }
@@ -219,7 +242,10 @@ fun AddSourceScreen(
                 enabled = isTelevision,
                 colors = whiteButtonColors,
                 modifier = Modifier.width(200.dp).height(49.dp)
-                    .onFocusChanged { if (it.isFocused) focusedLeft = "phone" }
+                    .onFocusChanged { 
+                        if (it.isFocused) focusedLeft = "phone"
+                        else if (focusedLeft == "phone") focusedLeft = ""
+                    }
                     .border(if (focusedLeft == "phone") 3.dp else 0.dp,
                         Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
@@ -227,13 +253,27 @@ fun AddSourceScreen(
                 Spacer(Modifier.width(8.dp))
                 Text("LOGIN BY PHONE")
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { restoreBackup = true },
+                border = null,
+                modifier = Modifier.onFocusChanged { restoreFocused = it.isFocused }
+                    .border(if (restoreFocused) 2.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+            ) {
+                Text("RESTORE LOGIN BACKUP")
+            }
+            Spacer(Modifier.height(9.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 for (choice in SourceKind.entries) {
                     OutlinedButton(
                         onClick = { kind = choice },
+                        border = null,
                         modifier = Modifier
-                            .onFocusChanged { if (it.isFocused) focusedLeft = choice.name }
+                            .onFocusChanged {
+                                if (it.isFocused) focusedLeft = choice.name
+                                else if (focusedLeft == choice.name) focusedLeft = ""
+                            }
                             .border(if (focusedLeft == choice.name) 3.dp else 0.dp,
                                 Color(0xFFFFE177), RoundedCornerShape(8.dp)),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -253,7 +293,10 @@ fun AddSourceScreen(
             TextButton(
                 onClick = { showAdvanced = !showAdvanced },
                 modifier = Modifier
-                    .onFocusChanged { if (it.isFocused) focusedLeft = "advanced" }
+                    .onFocusChanged { 
+                        if (it.isFocused) focusedLeft = "advanced"
+                        else if (focusedLeft == "advanced") focusedLeft = ""
+                    }
                     .border(if (focusedLeft == "advanced") 3.dp else 0.dp,
                         Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
@@ -360,6 +403,10 @@ fun AddSourceScreen(
             OutlinedButton(
                 onClick = { viewModel.test(draft()) },
                 enabled = canSubmit && !ui.testing && !ui.syncing,
+                border = null,
+                modifier = Modifier.onFocusChanged { testFocused = it.isFocused }
+                    .border(if (testFocused) 2.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
                 if (ui.testing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("TEST CONNECTION", color = Color.White, fontSize = 12.sp)
