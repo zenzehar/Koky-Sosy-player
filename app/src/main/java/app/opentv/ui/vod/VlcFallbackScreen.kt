@@ -124,6 +124,8 @@ fun VlcFallbackScreen(
     var interaction by remember { mutableIntStateOf(0) }
     val rootFocus = remember { FocusRequester() }
     val pauseFocus = remember { FocusRequester() }
+    val autoplayFocus = remember { FocusRequester() }
+    var autoplayFocused by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
@@ -308,12 +310,26 @@ fun VlcFallbackScreen(
                     // Do not rely solely on spatial focus traversal between Compose rows.
                     when (event.key) {
                         Key.DirectionUp -> {
-                            if (!timelineFocused) { seekFocus.requestFocus(); showControls(); true }
-                            else false
+                            when {
+                                showEpisodeControls && timelineFocused -> {
+                                    autoplayFocus.requestFocus(); showControls(); true
+                                }
+                                !timelineFocused && !autoplayFocused -> {
+                                    seekFocus.requestFocus(); showControls(); true
+                                }
+                                else -> false
+                            }
                         }
                         Key.DirectionDown -> {
-                            if (timelineFocused) { pauseFocus.requestFocus(); showControls(); true }
-                            else false
+                            when {
+                                showEpisodeControls && autoplayFocused -> {
+                                    seekFocus.requestFocus(); showControls(); true
+                                }
+                                timelineFocused -> {
+                                    pauseFocus.requestFocus(); showControls(); true
+                                }
+                                else -> false
+                            }
                         }
                         else -> {
                             if (event.key != Key.Back && event.key != Key.Escape) interaction++
@@ -390,6 +406,8 @@ fun VlcFallbackScreen(
                     CinematicAutoplay(
                         enabled = autoplay,
                         onChange = { preferences.setSeriesAutoplay(it); showControls() },
+                        focusRequester = autoplayFocus,
+                        onFocusChanged = { autoplayFocused = it },
                         modifier = Modifier.align(Alignment.TopEnd)
                             .padding(end = 40.dp, top = 42.dp),
                     )
@@ -529,7 +547,7 @@ fun VlcFallbackScreen(
                     onNext = onNextEpisodeClick,
                     pauseRequester = pauseFocus,
                     modifier = Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = 76.dp)
+                        .padding(bottom = 74.dp)
                         .onPreviewKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionUp) {

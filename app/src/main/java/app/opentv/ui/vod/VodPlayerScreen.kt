@@ -248,6 +248,8 @@ fun VodPlayerScreen(
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
+    val autoplayFocus = remember { FocusRequester() }
+    var autoplayFocused by remember { mutableStateOf(false) }
 
     fun reveal() { controlsVisible = true; interaction++ }
 
@@ -533,6 +535,20 @@ fun VodPlayerScreen(
                         true
                     }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
+                    event.type == KeyEventType.KeyDown &&
+                        controlsVisible && mediaKey.startsWith("ep:") &&
+                        event.key == Key.DirectionUp && !autoplayFocused -> {
+                        autoplayFocus.requestFocus()
+                        reveal()
+                        true
+                    }
+                    event.type == KeyEventType.KeyDown &&
+                        controlsVisible && autoplayFocused &&
+                        event.key == Key.DirectionDown -> {
+                        barFocus.requestFocus()
+                        reveal()
+                        true
+                    }
                     event.type == KeyEventType.KeyDown -> { interaction++; false }
                     else -> false
                 }
@@ -620,6 +636,8 @@ fun VodPlayerScreen(
                     CinematicAutoplay(
                         enabled = autoplay,
                         onChange = { settings.setSeriesAutoplay(it); interaction++ },
+                        focusRequester = autoplayFocus,
+                        onFocusChanged = { autoplayFocused = it },
                         modifier = Modifier.align(Alignment.TopEnd)
                             .padding(end = 40.dp, top = 42.dp),
                     )
@@ -684,7 +702,7 @@ fun VodPlayerScreen(
                     },
                     pauseRequester = barFocus,
                     modifier = Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = 76.dp),
+                        .padding(bottom = 74.dp),
                 )
                 if (vodPanel != VodPanel.NONE) {
                     TrackPanel(

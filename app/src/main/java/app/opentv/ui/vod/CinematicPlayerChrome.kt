@@ -8,6 +8,7 @@ package app.opentv.ui.vod
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,10 +39,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -143,25 +143,34 @@ internal fun CinematicTitle(
     }
 }
 
-/** Reference: single pill at the top right, no extra autoplay button in transport. */
+/** Top-right switch is one D-pad focus target, not an unfocusable Row + inner Switch. */
 @Composable
 internal fun CinematicAutoplay(
     enabled: Boolean,
     onChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    onFocusChanged: (Boolean) -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(23.dp)
     Row(
         modifier = modifier
-            .shadow(8.dp, RoundedCornerShape(23.dp))
-            .clip(RoundedCornerShape(23.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF0F141F), Color(0xFF1C2534))))
-            .onFocusChanged { focused = it.isFocused }
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged {
+                focused = it.hasFocus
+                onFocusChanged(it.hasFocus)
+            }
+            .clip(shape)
+            .background(Brush.horizontalGradient(listOf(Color(0xE60F141F), Color(0xE61C2534))))
             .border(
-                if (focused) 2.dp else 1.dp,
-                if (focused) CinemaBlue else Color.White.copy(alpha = .2f),
-                RoundedCornerShape(23.dp),
+                width = if (focused) 2.dp else 1.dp,
+                color = if (focused) CinemaBlue else Color.White.copy(alpha = .2f),
+                shape = shape,
             )
+            // toggleable makes the WHOLE pill a keyboard/TV remote focus target.
+            // Switch has no independent focus/click target, avoiding remote dead ends.
+            .toggleable(value = enabled, role = Role.Switch, onValueChange = onChange)
             .padding(start = 16.dp, end = 9.dp, top = 3.dp, bottom = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -169,7 +178,7 @@ internal fun CinematicAutoplay(
         Text("Autoplay next episode", color = Color.White, fontSize = 15.sp)
         Switch(
             checked = enabled,
-            onCheckedChange = onChange,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedTrackColor = Color(0xFF1786FF),
                 checkedThumbColor = Color.White,
@@ -177,12 +186,16 @@ internal fun CinematicAutoplay(
                 uncheckedThumbColor = Color.White,
                 uncheckedBorderColor = Color(0xFF616B7C),
             ),
-            modifier = Modifier.semantics { contentDescription = "Autoplay next episode" },
+            modifier = Modifier.semantics { contentDescription = "Autoplay status" },
         )
     }
 }
 
-/** Exactly five buttons for episodes, three for films. No additional standard-view buttons. */
+/**
+ * Exactly five symbols for episodes, three for films. No labels, stems or dots.
+ * Buttons align along one baseline and sit immediately above the seek timeline.
+ * The visual treatment never changes VLC/Media3 player timing or seek implementation.
+ */
 @Composable
 internal fun CinematicTransport(
     isEpisode: Boolean,
@@ -199,107 +212,66 @@ internal fun CinematicTransport(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(13.dp),
-        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(19.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (isEpisode) {
-            CinematicControl(
-                icon = Icons.Filled.SkipPrevious, caption = "Previous\nepisode",
-                enabled = previousEnabled, onClick = onPrevious,
-            )
+            CinematicControl(Icons.Filled.SkipPrevious, "Previous episode",
+                enabled = previousEnabled, onClick = onPrevious)
         }
+        CinematicControl(Icons.Filled.Replay10, "Rewind 10 seconds", onClick = onRewind)
         CinematicControl(
-            icon = Icons.Filled.Replay10, caption = "Rewind\n10 seconds",
-            enabled = true, onClick = onRewind,
+            if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+            if (paused) "Resume" else "Pause",
+            focusRequester = pauseRequester,
+            onClick = onTogglePause,
         )
-        CinematicControl(
-            icon = if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-            caption = if (paused) "Resume\n(D-pad click)" else "Pause / Resume\n(D-pad click)",
-            main = true, focusRequester = pauseRequester, onClick = onTogglePause,
-        )
-        CinematicControl(
-            icon = Icons.Filled.Forward10, caption = "Forward\n10 seconds",
-            enabled = true, onClick = onForward,
-        )
+        CinematicControl(Icons.Filled.Forward10, "Forward 10 seconds", onClick = onForward)
         if (isEpisode) {
-            CinematicControl(
-                icon = Icons.Filled.SkipNext, caption = "Next\nepisode",
-                enabled = nextEnabled, onClick = onNext,
-            )
+            CinematicControl(Icons.Filled.SkipNext, "Next episode",
+                enabled = nextEnabled, onClick = onNext)
         }
     }
 }
 
+/** Focus/click target matches the *exact* 74dp rounded-square button surface. */
 @Composable
 private fun CinematicControl(
     icon: ImageVector,
-    caption: String,
+    label: String,
     enabled: Boolean = true,
-    main: Boolean = false,
     focusRequester: FocusRequester? = null,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(24.dp)
-    val emphasized = main || focused
-    val ring = if (focused) Color.White else CinemaPaleBlue
-    Column(
+    val shape = RoundedCornerShape(22.dp)
+    // 0.26 opacity = 74% transparent. Focus never increases fill past 30%.
+    val fill = if (focused) Color(0xFF1A2435).copy(alpha = 0.30f)
+        else Color(0xFF1A2435).copy(alpha = CinemaButtonFillAlpha)
+    Box(
         modifier = Modifier
-            .width(if (main) 94.dp else 84.dp)
-            .alpha(if (enabled) 1f else 0.38f)
+            .size(74.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
-            .clickable(enabled = enabled, onClick = onClick)
-            .semantics { contentDescription = caption.replace("\n", " ") },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(if (main) 77.dp else 69.dp)
-                .shadow(
-                    elevation = if (emphasized) 15.dp else 7.dp,
-                    shape = shape,
-                    ambientColor = if (emphasized) CinemaBlue else Color.Black,
-                    spotColor = if (emphasized) CinemaBlue else Color.Black,
-                )
-                .clip(shape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF303643), CinemaPanel, Color(0xFF151B26)),
-                    ),
-                )
-                .border(
-                    width = if (emphasized) 2.5.dp else 1.dp,
-                    color = if (emphasized) ring else Color.White.copy(alpha = .19f),
-                    shape = shape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(if (main) 39.dp else 33.dp),
+            .clip(shape)
+            .background(fill)
+            .border(
+                width = if (focused) 2.5.dp else 1.dp,
+                color = if (focused) CinemaBlue else Color.White.copy(alpha = 0.27f),
+                shape = shape,
             )
-        }
-        Spacer(Modifier.size(6.dp))
-        Box(
-            Modifier.size(width = 1.dp, height = 10.dp)
-                .background(Color.White.copy(alpha = .85f)),
-        )
-        Box(
-            Modifier.size(4.dp)
-                .clip(RoundedCornerShape(50))
-                .background(Color.White),
-        )
-        Spacer(Modifier.size(4.dp))
-        Text(
-            caption,
-            color = Color.White,
-            textAlign = TextAlign.Center,
-            fontSize = 12.sp,
-            lineHeight = 15.sp,
-            maxLines = 2,
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
+            modifier = Modifier.size(35.dp),
         )
     }
 }
+
+/** Background fill opacity: 26%, giving at least 70% transparency. */
+internal const val CinemaButtonFillAlpha = 0.26f
