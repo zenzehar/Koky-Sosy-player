@@ -6,6 +6,9 @@
 package app.opentv.data.repo
 
 import app.opentv.data.db.SourceDao
+import android.content.Context
+import app.opentv.core.PersistentDeviceCredentials
+import kotlinx.coroutines.flow.first
 import app.opentv.data.model.Source
 import app.opentv.data.model.SourceKind
 import app.opentv.data.remote.StalkerApi
@@ -21,6 +24,7 @@ class SourceRepository(
     private val dao: SourceDao,
     private val api: XtreamApi,
     private val stalkerApi: StalkerApi,
+    private val appContext: Context,
 ) {
     private val validationClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -43,13 +47,33 @@ class SourceRepository(
 
     suspend fun byId(id: Long): Source? = dao.byId(id)
 
+    /** Restore only when the database has no configured providers. Never overwrite existing. */
+    suspend fun restoreDeviceLoginsIfAvailable(): Int = withContext(Dispatchers.IO) {
+        if (dao.observeAll().first().isNotEmpty()) return@withContext 0
+        val saved = PersistentDeviceCredentials.read(appContext) ?: return@withContext 0
+        var imported = 0
+        for (source in saved) {
+            val normalised = source.copy(id = 0, url = normaliseUrl(source.url, source.kind))
+            if (normalised.url.isNotBlank()) { dao.insert(normalised); imported++ }
+        }
+        if (imported > 0) PersistentDeviceCredentials.setEnabled(appContext, true)
+        imported
+    }
+
+    /** Encrypted shared vault updates after each successful provider edit, if opted in. */
+    suspend fun syncDeviceLogins(): Boolean = withContext(Dispatchers.IO) {
+        PersistentDeviceCredentials.write(appContext, dao.observeAll().first())
+    }
+
     suspend fun save(source: Source): Long = withContext(Dispatchers.IO) {
         val normalised = source.copy(url = normaliseUrl(source.url, source.kind))
-        if (source.id == 0L) dao.insert(normalised)
+        val id = if (source.id == 0L) dao.insert(normalised)
         else {
             dao.update(normalised)
             source.id
         }
+        syncDeviceLogins()
+        id
     }
 
     /** Checks the details work before the user is committed to them. */
