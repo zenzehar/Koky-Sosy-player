@@ -22,6 +22,10 @@ class GoogleHistorySyncWorker(context: Context, params: WorkerParameters) :
 
     companion object {
         fun enqueue(context: Context) {
+            // Do not allocate persistent WorkManager jobs for viewers who have
+            // never opted into Google cloud history syncing.
+            val cloud = GoogleDriveCloudSync.get(context)
+            if (!cloud.configured || !cloud.status.value.connected) return
             val task = OneTimeWorkRequestBuilder<GoogleHistorySyncWorker>()
                 .setInitialDelay(20, TimeUnit.SECONDS)
                 .setConstraints(Constraints.Builder()
