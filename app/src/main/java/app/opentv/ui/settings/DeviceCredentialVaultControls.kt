@@ -68,7 +68,7 @@ fun DeviceCredentialVaultControls(onRestored: () -> Unit = {}) {
         }
     }
     Column(
-        verticalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.Dp(9f)),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text("Keep logins across uninstall (device vault)")
