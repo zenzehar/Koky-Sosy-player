@@ -6,6 +6,9 @@ package app.opentv.ui.vod
 
 import android.net.Uri
 import android.content.Intent
+import android.content.Context
+import android.os.PowerManager
+import app.opentv.isRunningOnTelevision
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -248,6 +251,22 @@ fun VlcFallbackScreen(
             }
             delay(500)
         }
+    }
+
+    // Some television firmwares ignore KEEP_SCREEN_ON on a SurfaceView while video is
+    // decoding. Use a TV-only screen wake lock as a secondary safeguard, releasing it
+    // immediately when playback pauses, ends, or this composable leaves composition.
+    @Suppress("DEPRECATION")
+    DisposableEffect(ready, paused, ended, suspendPlayback) {
+        val wakeLock = if (ready && !paused && !ended && !suspendPlayback &&
+            isRunningOnTelevision(context)) {
+            runCatching {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK,
+                    "KokySosy:VodPlayback").apply { acquire() }
+            }.getOrNull()
+        } else null
+        onDispose { runCatching { if (wakeLock?.isHeld == true) wakeLock.release() } }
     }
 
     // Retain the modern screensaver pause hook without replacing v0.1.9 playback internals.
