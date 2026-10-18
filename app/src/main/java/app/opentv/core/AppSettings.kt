@@ -423,6 +423,34 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getLong(KEY_VOD_SYNCED_AT, 0L)
         set(value) { prefs.edit().putLong(KEY_VOD_SYNCED_AT, value).apply() }
 
+    /** Last SUCCESSFUL refresh per VOD type and provider. Independent of live/EPG.
+     * Flow is a cheap invalidation signal for bottom-bars and paged SQL results.
+     */
+    private val _vodSectionRevision = MutableStateFlow(0L)
+    val vodSectionRevision: StateFlow<Long> = _vodSectionRevision.asStateFlow()
+
+    fun markVodSectionSynced(isSeries: Boolean, sourceId: Long, whenMillis: Long) {
+        require(sourceId > 0L && whenMillis > 0L)
+        val type = if (isSeries) "series" else "movies"
+        prefs.edit().putLong("vod_${type}_source_${sourceId}_synced", whenMillis).apply()
+        _vodSectionRevision.value = _vodSectionRevision.value + 1L
+    }
+
+    /**
+     * Show the last time the visible provider was refreshed.
+     * For All providers the oldest successful stamp is the honest 'all current as of'
+     * time; never stamp a failed partial refresh as successful.
+     */
+    fun lastVodSectionSynced(isSeries: Boolean, sourceIds: List<Long>): Long {
+        if (sourceIds.isEmpty()) return 0L
+        val type = if (isSeries) "series" else "movies"
+        val saved = sourceIds.map { prefs.getLong("vod_${type}_source_${it}_synced", 0L) }
+        if (saved.all { it > 0L }) return saved.minOrNull() ?: 0L
+        // Existing installations had one shared VOD stamp before per-type tracking.
+        // Only use it when NO per-provider section-specific stamps exist.
+        return if (saved.all { it == 0L }) vodSyncedAtMillis else 0L
+    }
+
     /**
      * The user's own TMDB API key (v3 auth), stored on-device only exactly like provider
      * credentials, used to fill in artwork/metadata a provider left blank. Blank = the TMDB
