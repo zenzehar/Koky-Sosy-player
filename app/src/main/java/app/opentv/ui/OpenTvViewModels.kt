@@ -153,6 +153,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
                 is CatalogRepository.SyncResult.Success -> {
+                    graph.settings.markLiveSectionSynced(saved.id, System.currentTimeMillis())
                     _ui.value = _ui.value.copy(
                         syncing = false,
                         syncMessage = "Loaded ${result.channelCount} channels. The guide is " +
@@ -169,9 +170,15 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 if (!graph.catalogRepository.syncMoviesPhase(saved, CatalogueGate::moviesImportProgress)) {
                     throw IllegalStateException("Movie update failed")
                 }
+                if (saved.kind == SourceKind.XTREAM && graph.settings.moviesEnabled.value) {
+                    graph.settings.markVodSectionSynced(false, saved.id, System.currentTimeMillis())
+                }
                 CatalogueGate.moviesDone()
                 if (!graph.catalogRepository.syncSeriesPhase(saved, CatalogueGate::seriesImportProgress)) {
                     throw IllegalStateException("Series update failed")
+                }
+                if (saved.kind == SourceKind.XTREAM && graph.settings.seriesEnabled.value) {
+                    graph.settings.markVodSectionSynced(true, saved.id, System.currentTimeMillis())
                 }
                 CatalogueGate.finalizing()
                 val summary = StatusBus.during("Building the TV guide…") {
