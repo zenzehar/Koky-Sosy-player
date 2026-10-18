@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.4-focus-dream-vault-language'
+      github.head_ref == 'fix/v0.1.11.5-three-level-focus-login-backup'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.4-tv-recovery-test \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.4_TV_recovery.apk" \
+          gh release create v0.1.11.5-tv-navigation-preview \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.5_TV_navigation.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.4 TV recovery test (hardware test pending)" \
-            --notes "UNAPPROVED TV RECOVERY TEST: fixes D-pad Down from timeline, adds native VLC buffering vs stall spinner, attempts video surface rebind after dream, searchable language picker, optional encrypted device Documents credential vault and file-picker-free manual backups. Real TV acceptance pending, all-files permission opt-in, reinstall across different signing keys may break auto recovery." \
+            --title "Koky & Sosy v0.1.11.5 TV navigation preview (hardware test pending)" \
+            --notes "UNAPPROVED UI TEST: 3 remote focus levels Top Autoplay/Middle Controls/Bottom Seek; searchable update frequency; TV granted-permission encrypted manual backup bypasses broken document picker; Watch/Resume default title focus; invisible login borders until focus. Preserves v0.1.11.4 buffering and pending screensaver test; no playback or seek engine changes. Hardware acceptance pending." \
             --prerelease
