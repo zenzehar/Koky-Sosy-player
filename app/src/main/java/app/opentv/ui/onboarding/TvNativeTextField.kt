@@ -66,8 +66,15 @@ fun TvNativeTextField(
     val keyboard = LocalSoftwareKeyboardController.current
     val shape = RoundedCornerShape(if (smartersStyle) 5.dp else 7.dp)
     val frameColor = if (smartersStyle) Color(0xFFFFDB63) else Color(0xFF69DFF6)
-    val bg = if (smartersStyle) Color(0xFFE6BDCB) else Color(0xFF171F36)
-    val foreground = if (smartersStyle) Color(0xFF1A1520) else Color.White
+    // Login fields sit flush with the page when idle. The pale pink panel and
+    // yellow frame appear ONLY when the particular field receives remote focus.
+    val loginActive = editing || focused
+    val bg = if (smartersStyle) {
+        if (loginActive) Color(0xFFE6BDCB) else Color.Transparent
+    } else Color(0xFF171F36)
+    val foreground = if (smartersStyle) {
+        if (loginActive) Color(0xFF1A1520) else Color.White
+    } else Color.White
     val height = if (smartersStyle) 64.dp else 61.dp
 
     LaunchedEffect(initialFocus) {
