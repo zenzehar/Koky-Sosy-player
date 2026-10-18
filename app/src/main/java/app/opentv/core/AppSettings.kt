@@ -423,6 +423,25 @@ class AppSettings private constructor(context: Context) {
         get() = prefs.getLong(KEY_VOD_SYNCED_AT, 0L)
         set(value) { prefs.edit().putLong(KEY_VOD_SYNCED_AT, value).apply() }
 
+    /** Live channel-list freshness is independent of Movies and Series.
+     * A failed source is never stamped, and the oldest stamp is shown for
+     * multiple enabled providers so the UI never claims a partial success.
+     */
+    private val _liveSectionRevision = MutableStateFlow(0L)
+    val liveSectionRevision: StateFlow<Long> = _liveSectionRevision.asStateFlow()
+
+    fun markLiveSectionSynced(sourceId: Long, whenMillis: Long) {
+        require(sourceId > 0L && whenMillis > 0L)
+        prefs.edit().putLong("live_source_${sourceId}_synced", whenMillis).apply()
+        _liveSectionRevision.value = _liveSectionRevision.value + 1L
+    }
+
+    fun lastLiveSectionSynced(sourceIds: List<Long>): Long {
+        if (sourceIds.isEmpty()) return 0L
+        val saved = sourceIds.map { prefs.getLong("live_source_${it}_synced", 0L) }
+        return if (saved.all { it > 0L }) saved.minOrNull() ?: 0L else 0L
+    }
+
     /** Last SUCCESSFUL refresh per VOD type and provider. Independent of live/EPG.
      * Flow is a cheap invalidation signal for bottom-bars and paged SQL results.
      */
