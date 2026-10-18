@@ -1,3 +1,13 @@
+v0.1.11.4 TV Tests
+
+1. D-pad controls -> Up seek -> Up autoplay -> Down seek -> Down buttons, then repeat. No bounce.
+2. Play episode 20+ minutes and check OEM screensaver suppression. If screensaver fires, check video and audio after resume. Report whether VLC_VIDEO_REBOUND appeared in diagnostic QR. This is not yet physically proven.
+3. Watch stutter: rotating VLC spinner says Buffering X% on network buffer; different message says Playback stalled (not VLC buffering) if clock stops without buffering. Media3 retains existing spinner.
+4. Display settings: one language dropdown with searchable filtered language list and system-default choice.
+5. Settings shared credential vault requires explicit user granting of broad file access; on permission-capable Android 11+ devices enable device vault and save encrypted file in Documents/KokySosy. On a new install permission must be re-granted and changing the signing certificate can invalidate decryption. Never uninstall solely relying on this feature until actual successful restore is tested.
+6. If no TV document picker (screenshot), grant device folder access then export manual passphrase-encrypted file, and restore it with the same password, without any system picker.
+7. Factory reset should delete a recognized shared vault before clearing private data; check other app functionality and protect v0.1.11.0 golden branch.
+
 ## v0.1.11.3 remote/navigation polish test
 
 1. Play a series: verify **five icon-only buttons**, NO caption/dot/connector, consistent equal 74dp rounded squares, and transparent enough to see the video underneath. Pause is NOT highlighted when another button has focus; the border matches the focused button's exact geometry, not a surrounding column.
