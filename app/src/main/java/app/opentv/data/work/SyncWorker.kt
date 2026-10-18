@@ -47,8 +47,10 @@ class SyncWorker(
                 when (val result = graph.catalogRepository.syncLive(source, now) { fraction ->
                     CatalogueGate.liveImportProgress((index + fraction) / sources.size)
                 }) {
-                    is CatalogRepository.SyncResult.Success ->
+                    is CatalogRepository.SyncResult.Success -> {
                         Log.i(TAG, "Live: ${result.channelCount} channels")
+                        graph.settings.markLiveSectionSynced(source.id, System.currentTimeMillis())
+                    }
                     is CatalogRepository.SyncResult.Failed ->
                         throw IllegalStateException("Live TV: ${result.reason}")
                 }
