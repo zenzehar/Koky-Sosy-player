@@ -342,13 +342,13 @@ private fun DashboardTile(
     )
     Box(
         modifier.clip(shape)
-            .onFocusChanged { focused = it.hasFocus }
             .border(if (focused) 3.dp else 0.dp, Color.White, shape),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier.fillMaxSize().background(Brush.verticalGradient(shades))
                 .focusRequester(tileFocus)
+            .onFocusChanged { focused = it.isFocused }
             .focusProperties { if (vodUpdate != null) down = barFocus }
             // TV focus search sometimes skips overlaid footer rows geometrically.
             .onPreviewKeyEvent { event ->
