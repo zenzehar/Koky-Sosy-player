@@ -73,6 +73,7 @@ import app.opentv.data.model.SourceKind
 import app.opentv.isRunningOnTelevision
 import app.opentv.ui.SourcesViewModel
 import app.opentv.ui.settings.CredentialBackupControls
+import app.opentv.ui.settings.DeviceCredentialVaultControls
 import app.opentv.ui.channels.readClipboardText
 
 /**
