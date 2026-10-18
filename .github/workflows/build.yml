@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.7-login-focus-outline'
+      github.head_ref == 'fix/v0.1.11.8-tv-focus-backup-diagnostics'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.7-login-focus-outline \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.7_TV_login_focus.apk" \
+          gh release create v0.1.11.8-tv-focus-backup-diagnostics \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.8_TV_focus_backup.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.7 frameless login preview (hardware test pending)" \
-            --notes "UNAPPROVED TV TEST: suppresses framework idle focus decoration on login inputs and mounts outline only when that field is actually focused; restores plain gradient/white text for idle login fields. All v0.1.11.6 behavior otherwise unchanged; playback and seeking remain unmodified. Screensaver remains untested." \
+            --title "Koky & Sosy v0.1.11.8 TV remote refresh and login preview (hardware test pending)" \
+            --notes "UNAPPROVED TV TEST: login controls draw a focus border only while focused (no idle hairlines), the Movies and Series Home refresh bars join the explicit remote D-pad sequence, and encrypted backup shows verified write status with safe B01-B07 diagnostics. v0.1.11.0 playback and seeking code unchanged. Screensaver test pending." \
             --prerelease
