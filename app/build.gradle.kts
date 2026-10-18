@@ -14,14 +14,18 @@ android {
         applicationId = "tv.kokysosy.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 32
-        versionName = "0.1.11.11-startup-refresh"
+        versionCode = 33
+        versionName = "0.1.11.12-google-cloud-sync"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
         val tmdbReadToken = providers.environmentVariable("TMDB_READ_TOKEN").orNull.orEmpty()
         buildConfigField("String", "TMDB_DEFAULT_KEY", "\""+ tmdbKey + "\"")
         buildConfigField("String", "TMDB_DEFAULT_READ_TOKEN", "\"" + tmdbReadToken + "\"")
+        val googleClientId = providers.environmentVariable("GOOGLE_TV_CLIENT_ID").orNull.orEmpty()
+        val googleClientSecret = providers.environmentVariable("GOOGLE_TV_CLIENT_SECRET").orNull.orEmpty()
+        buildConfigField("String", "GOOGLE_TV_CLIENT_ID", "\"" + googleClientId + "\"")
+        buildConfigField("String", "GOOGLE_TV_CLIENT_SECRET", "\"" + googleClientSecret + "\"")
     }
 
     signingConfigs {
