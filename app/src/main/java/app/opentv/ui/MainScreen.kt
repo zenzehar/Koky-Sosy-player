@@ -132,16 +132,13 @@ fun MainScreen(
     // returning from a series recreates the screen on the default LIVE tab.
     var tab by rememberSaveable { mutableStateOf(homeTab) }
     var showDashboard by rememberSaveable { mutableStateOf(true) }
-    val catalogueStatus by CatalogueGate.state.collectAsState()
-    val catalogueGated = CatalogueGate.due(settings) || catalogueStatus.phase in setOf(
-        CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
-        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
-        CatalogueGate.Phase.BUILDING, CatalogueGate.Phase.FAILED)
-    // Browsing SAVED Movies and Series must never depend on the live/full sync gate.
-    // The Room upsert works in the background and the catalog remains accessible.
+    // All saved catalogues remain browsable during independent/full background
+    // WorkManager updates. A stale full-catalogue timestamp must NEVER lock
+    // Live TV after its own successful refresh (v0.1.11.9 hardware regression).
+    // An empty Live guide already has its own recoverable loading/error state.
     fun allowTab(candidate: Tab): Boolean = when (candidate) {
         Tab.MOVIES, Tab.SHOWS, Tab.RECORDINGS -> true
-        Tab.LIVE -> !catalogueGated || catalogueStatus.completed >= 1
+        Tab.LIVE -> liveEnabled
     }
 
     // If the selected tab gets hidden (its type toggled off while it's open), drop back to the
