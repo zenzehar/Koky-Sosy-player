@@ -224,11 +224,10 @@ private fun PinSection(
 
 @Composable
 private fun PinField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
+    app.opentv.ui.onboarding.TvNativeTextField(
         value = value,
         onValueChange = onChange,
-        label = { Text(label) },
-        singleLine = true,
+        label = label,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
         modifier = Modifier.width(160.dp),
