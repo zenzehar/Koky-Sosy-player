@@ -60,6 +60,8 @@ import kotlinx.coroutines.delay
 import app.opentv.ui.BrandSplash
 import app.opentv.core.AppSettings
 import app.opentv.data.work.SyncWorker
+import app.opentv.data.work.LiveSectionSyncWorker
+import app.opentv.data.work.CatalogueGate
 import app.opentv.core.ServiceLocator
 import app.opentv.data.parser.displayTitle
 import app.opentv.ui.MainScreen
@@ -289,7 +291,15 @@ private fun OpenTvApp(isTelevision: Boolean) {
     val launchContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(sourcesUi.loaded) {
         if (sourcesUi.loaded && sourcesUi.sources.any { it.enabled }) {
-            SyncWorker.refreshAtLaunch(launchContext)
+            val settings = AppSettings.get(launchContext)
+            // The full-catalogue launcher includes Live TV; never race a second
+            // channel import against it. If the full catalogue is fresh but Live
+            // has no stamp (or is stale), refresh just Live instead.
+            if (CatalogueGate.due(settings)) {
+                SyncWorker.refreshAtLaunch(launchContext)
+            } else {
+                LiveSectionSyncWorker.refreshAtLaunch(launchContext)
+            }
         }
     }
 

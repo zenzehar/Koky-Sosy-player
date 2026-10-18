@@ -64,6 +64,23 @@ class LiveSectionSyncWorker(context: Context, params: WorkerParameters) :
 
         fun workName(): String = WORK_NAME
 
+        /** Backfill/stale-refresh Live TV on launch ONLY when the full catalogue
+         * update is not due. Do not race a second sync against SyncWorker.
+         * The user's existing 'update on launch' setting also governs this.
+         */
+        suspend fun refreshAtLaunch(context: Context) {
+            val graph = ServiceLocator.get(context.applicationContext)
+            val hours = graph.settings.catalogueRefreshHours.value
+            if (hours <= 0 || !graph.settings.liveEnabled.value) return
+            val sourceIds = graph.sourceRepository.enabled().map { it.id }
+            if (sourceIds.isEmpty()) return
+            val lastSuccess = graph.settings.lastLiveSectionSynced(sourceIds)
+            val now = System.currentTimeMillis()
+            if (lastSuccess > 0L && now >= lastSuccess &&
+                now - lastSuccess < hours * 3_600_000L) return
+            refresh(context)
+        }
+
         fun refresh(context: Context) {
             val request = OneTimeWorkRequestBuilder<LiveSectionSyncWorker>()
                 .setConstraints(Constraints.Builder()

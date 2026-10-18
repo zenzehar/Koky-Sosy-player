@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.9-seek-queue-live-refresh'
+      github.head_ref == 'fix/v0.1.11.10-live-access-precise-seek'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.9-seek-live-refresh \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.9_TV_seek_live_refresh.apk" \
+          gh release create v0.1.11.10-live-access-precise-seek \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.10_TV_live_access_precise_seek.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.9 TV seek and Live update preview (hardware test pending)" \
-            --notes "UNAPPROVED TV TEST from user-approved v0.1.11.8: cumulative +/-10 sec seeks ignore temporarily stale native VLC clock readings; independent Live TV Home-card update bar and last-successful provider timestamp with remote navigation. No replacement of LibVLC 3.6.1, decoding, caching, or approved player layout. Screensaver still untested." \
+            --title "Koky & Sosy v0.1.11.10 TV Live access and precise seek preview (hardware test pending)" \
+            --notes "UNAPPROVED TV TEST: fixes v0.1.11.9 Live TV stuck WAITING by removing obsolete full-catalogue lock from Dashboard and navigation; keeps existing channels available while updating. Adds fallback per-type Live automatic refresh on launch when stale, without racing full refresh. Requests precise (not keyframe-fast) LibVLC seeking for +/-10s and resume while retaining bounded seek-clock reconciliation. Stable v0.1.11.8 milestone untouched. Screensaver remains untested." \
             --prerelease
