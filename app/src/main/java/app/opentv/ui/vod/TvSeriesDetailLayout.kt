@@ -104,6 +104,7 @@ internal fun TvSeriesDetailLayout(
     var playFocused by remember { mutableStateOf(false) }
     var seasonFocused by remember { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
+    var initialActionFocused by remember(seriesId) { mutableStateOf(false) }
     val playedFocus = remember { FocusRequester() }
     val episodeListState = rememberLazyListState()
     val preferences = remember { AppSettings.get(viewModel.getApplication()) }
@@ -151,11 +152,18 @@ internal fun TvSeriesDetailLayout(
         if (selectedSeason == -1 && saved != null) selectedSeason = saved.season
         if (saved != null) lastPlayedEpisode = saved.id
     }
-    // Avoid force-focusing lazy episode items during a player popBackStack transition.
-    // Requesters can detach while the LazyColumn is rebuilding, especially on Fire TV.
-    LaunchedEffect(seriesId) {
-        kotlinx.coroutines.delay(110L)
-        runCatching { playFocus.requestFocus() }
+    // The primary Play/Resume button is disabled until the episodes are loaded.
+    // Focus it only once when enabled, without stealing focus again on season changes.
+    LaunchedEffect(seriesId, playEpisode?.id) {
+        if (!initialActionFocused && playEpisode != null) {
+            repeat(8) {
+                kotlinx.coroutines.delay(85L)
+                if (runCatching { playFocus.requestFocus() }.getOrDefault(false)) {
+                    initialActionFocused = true
+                    return@LaunchedEffect
+                }
+            }
+        }
     }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF080C24))) {
