@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -27,6 +30,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import app.opentv.ui.onboarding.TvNativeTextField
+import app.opentv.sync.GoogleDriveCloudSync
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +67,7 @@ fun SyncScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp, vertical = 24.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -78,6 +88,7 @@ fun SyncScreen(
             ModeChip(stringResource(R.string.sync_share_from_here), mode == Mode.SHARE) { mode = Mode.SHARE }
             ModeChip(stringResource(R.string.sync_receive), mode == Mode.RECEIVE) { mode = Mode.RECEIVE }
             ModeChip(stringResource(R.string.sync_nas), mode == Mode.NAS) { mode = Mode.NAS }
+            ModeChip("Google Drive", mode == Mode.GOOGLE) { mode = Mode.GOOGLE }
         }
         Spacer(Modifier.height(20.dp))
 
@@ -85,11 +96,101 @@ fun SyncScreen(
             Mode.SHARE -> SharePane(viewModel)
             Mode.RECEIVE -> ReceivePane(viewModel)
             Mode.NAS -> NasPane(viewModel)
+            Mode.GOOGLE -> GoogleCloudPane()
         }
     }
 }
 
-private enum class Mode { SHARE, RECEIVE, NAS }
+private enum class Mode { SHARE, RECEIVE, NAS, GOOGLE }
+
+
+/** Explicit opt-in: no Google account is contacted until the viewer chooses Connect. */
+@Composable
+private fun GoogleCloudPane() {
+    val context = LocalContext.current
+    val cloud = remember(context) { GoogleDriveCloudSync.get(context) }
+    val status by cloud.status.collectAsState()
+    val scope = rememberCoroutineScope()
+    var passphrase by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf<GoogleDriveCloudSync.DeviceCode?>(null) }
+    var message by remember { mutableStateOf("") }
+
+    Card {
+        Column(
+            Modifier.padding(20.dp).widthIn(max = 760.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Private Google Drive history sync", style = MaterialTheme.typography.titleMedium)
+            Text("Continue Watching and watch history only. No provider passwords, account tokens, " +
+                "movies, recordings or stream files are uploaded. History is encrypted before upload. " +
+                "Use the SAME cloud passphrase on every TV and phone.")
+            Text(if (status.connected) "Connected" else "Not connected")
+            Text(status.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!cloud.configured) {
+                Text("Google TV OAuth is not configured in this test build. " +
+                    "Set GOOGLE_TV_CLIENT_ID and GOOGLE_TV_CLIENT_SECRET in the repository's " +
+                    "GitHub Actions secrets, then rebuild.", color = MaterialTheme.colorScheme.error)
+            } else if (!status.connected) {
+                TvNativeTextField(
+                    value = passphrase, onValueChange = { passphrase = it },
+                    label = "Cloud encryption passphrase (12+ characters)",
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Remember this passphrase. It cannot be recovered from Google Drive. " +
+                    "Entering a different one on another device will prevent its sync.")
+                Button(
+                    enabled = !status.busy && passphrase.length >= 12,
+                    onClick = {
+                        scope.launch {
+                            message = ""
+                            try {
+                                val challenge = cloud.requestDeviceCode()
+                                code = challenge
+                                cloud.completeLogin(challenge, passphrase)
+                                passphrase = ""
+                                code = null
+                                message = "Connected and initial sync attempted."
+                            } catch (_: Exception) {
+                                message = "Google authorisation failed or expired. " +
+                                    "Check the account, allowed testers and the same cloud passphrase."
+                            }
+                        }
+                    },
+                ) { Text("Connect Google account") }
+                code?.let { auth ->
+                    Text("Using your phone, open this address:", style = MaterialTheme.typography.titleSmall)
+                    Text(auth.url, style = MaterialTheme.typography.titleMedium)
+                    Text("Enter the exact code:", style = MaterialTheme.typography.titleSmall)
+                    Text(auth.code, style = MaterialTheme.typography.headlineMedium)
+                    Text("The TV will continue automatically once you approve access.")
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(enabled = !status.busy, onClick = {
+                        scope.launch {
+                            message = if (cloud.sync()) "History sync complete."
+                                else "Sync failed. Check connection and cloud passphrase."
+                        }
+                    }) { Text("Sync now") }
+                    OutlinedButton(onClick = { cloud.disconnect(); message = "Disconnected on this device." }) {
+                        Text("Disconnect")
+                    }
+                }
+                Text("While the app is running, history syncs approximately every 60 seconds " +
+                    "and after the next launch when internet access is available.")
+            }
+            if (message.isNotEmpty()) Text(message)
+            if (status.lastSuccessMillis > 0L) {
+                Text("Last successful sync: " +
+                    java.text.DateFormat.getDateTimeInstance().format(
+                        java.util.Date(status.lastSuccessMillis),
+                    ),
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun SharePane(viewModel: SyncViewModel) {

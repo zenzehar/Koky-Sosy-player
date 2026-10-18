@@ -20,6 +20,8 @@ jobs:
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+      # OAuth credentials are intentionally NOT injected into public CI artifacts.
+      # Configure a private trusted build after approval; APKs cannot keep client secrets.
 
     steps:
       - uses: actions/checkout@v4

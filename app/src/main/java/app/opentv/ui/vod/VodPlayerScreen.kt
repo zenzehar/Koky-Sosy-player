@@ -100,6 +100,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import app.opentv.data.work.GoogleHistorySyncWorker
 import app.opentv.R
 import app.opentv.core.ServiceLocator
 import app.opentv.core.SleepTimer
@@ -292,6 +293,7 @@ fun VodPlayerScreen(
                     updatedAtMillis = System.currentTimeMillis(),
                 ),
             )
+            GoogleHistorySyncWorker.enqueue(context)
         }
     }
 
@@ -394,8 +396,10 @@ fun VodPlayerScreen(
                     updatedAtMillis = System.currentTimeMillis(),
                 )
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                    runCatching { graph.playbackPositions.upsert(snapshot) }
-                        .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
+                    runCatching {
+                        graph.playbackPositions.upsert(snapshot)
+                        GoogleHistorySyncWorker.enqueue(context)
+                    }.onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
                 }
             }
             if (media3Holder.isInitialized()) controller.release()
@@ -541,8 +545,10 @@ fun VodPlayerScreen(
                     // new untracked SupervisorJob on every progress tick (every 10 seconds).
                     // Final exit progress still uses the independent bounded onDispose save.
                     scope.launch(Dispatchers.IO) {
-                        runCatching { graph.playbackPositions.upsert(snapshot) }
-                            .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
+                        runCatching {
+                            graph.playbackPositions.upsert(snapshot)
+                            GoogleHistorySyncWorker.enqueue(context)
+                        }.onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
                     }
                 }
             },
