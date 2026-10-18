@@ -112,6 +112,7 @@ fun AddSourceScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Restore your providers after reinstalling", style = MaterialTheme.typography.headlineSmall)
+            DeviceCredentialVaultControls(onRestored = onFinished)
             CredentialBackupControls(allowExport = false, onRestored = onFinished)
             OutlinedButton(onClick = { restoreBackup = false }) {
                 Text("Return to login")
