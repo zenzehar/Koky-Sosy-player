@@ -33,10 +33,10 @@ class VodSectionSyncWorker(context: Context, params: WorkerParameters) : Corouti
         try {
             sources.forEachIndexed { index, source ->
                 val success = if (series) graph.catalogRepository.syncSeriesPhase(source) { progress ->
-                    setProgress(Data.Builder().putInt("percent",
+                    setProgressAsync(Data.Builder().putInt("percent",
                         ((index + progress) / sources.size * 100).toInt()).build())
                 } else graph.catalogRepository.syncMoviesPhase(source) { progress ->
-                    setProgress(Data.Builder().putInt("percent",
+                    setProgressAsync(Data.Builder().putInt("percent",
                         ((index + progress) / sources.size * 100).toInt()).build())
                 }
                 if (!success) {
