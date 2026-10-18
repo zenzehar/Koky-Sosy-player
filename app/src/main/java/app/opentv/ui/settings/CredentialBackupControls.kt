@@ -89,10 +89,16 @@ fun CredentialBackupControls(
                     PersistentDeviceCredentials.saveManualBackup(context, encrypted)
                 }
             }.getOrDefault(false)
-            status = if (success) "Encrypted backup saved in ${PersistentDeviceCredentials.manualLocationLabel()}." +
-                " Keep your passphrase separately."
-            else "Cannot save to shared Documents. Grant device-folder permission above first."
-            if (success) passphrase = ""
+            if (success) {
+                passphrase = ""
+                report("Backup saved successfully",
+                    "Encrypted provider backup saved at: " +
+                        PersistentDeviceCredentials.manualLocationLabel() +
+                        ". This file survives app uninstall. Keep the passphrase safe.")
+            } else report("Backup failed",
+                "Couldn't write the encrypted backup at " +
+                    PersistentDeviceCredentials.manualLocationLabel() +
+                    ". Check All files access and available space.")
             busy = false
         }
     }
@@ -118,10 +124,16 @@ fun CredentialBackupControls(
                     imported
                 }
             }
-            status = if (result.isSuccess)
-                "Manual device backup restored without retyping provider credentials."
-            else "Manual restore unavailable. Grant folder access and check passphrase/file."
-            if (result.isSuccess) { passphrase = ""; onRestored() }
+            if (result.isSuccess) {
+                passphrase = ""
+                report("Restore successful",
+                    "Restored " + result.getOrNull() + " new provider(s) from " +
+                        PersistentDeviceCredentials.manualLocationLabel() +
+                        ". Existing providers were not overwritten.", restored = true)
+            } else report("Restore failed",
+                "No readable encrypted backup at " +
+                    PersistentDeviceCredentials.manualLocationLabel() +
+                    ". Check the file, passphrase and storage permission.")
             busy = false
         }
     }
@@ -142,10 +154,11 @@ fun CredentialBackupControls(
                         sources.size
                     }
                 }
-                status = if (ok.isSuccess) {
+                if (ok.isSuccess) {
                     passphrase = ""
-                    "Encrypted backup saved. Keep the file and passphrase separately."
-                } else "Backup failed. Choose an accessible file location and try again."
+                    report("Backup saved", "Saved encrypted backup to selected file: " +
+                        uri.toString())
+                } else report("Backup failed", "Unable to write the selected document.")
                 busy = false
             }
         }
@@ -186,11 +199,12 @@ fun CredentialBackupControls(
                 }
                 if (result.isSuccess) {
                     passphrase = ""
-                    status = "Provider credentials restored. Existing providers were not overwritten."
-                    onRestored()
+                    report("Restore successful",
+                        "Providers restored from selected document without overwriting existing ones.",
+                        restored = true)
                 } else {
                     // No raw exception messages: files and providers can contain credentials.
-                    status = "Restore failed. Check your backup file and passphrase."
+                    report("Restore failed", "Check the selected file and its passphrase.")
                 }
                 busy = false
             }
@@ -232,11 +246,12 @@ fun CredentialBackupControls(
                         else if (!isRunningOnTelevision(context) && supportsCreateDocument) {
                             try { exporter.launch("Koky-Sosy-provider-backup.kspc") }
                             catch (_: Exception) {
-                                status = "Document picker is unavailable on this TV. " +
-                                    "Grant shared device-folder access above."
+                                report("No document picker", "Grant device folder access above.")
                             }
-                        } else status = "Grant shared device-folder access above to " +
-                            "export a manual encrypted backup on this TV."
+                        } else report("Storage permission required",
+                            "Grant All files access using Device vault above. " +
+                                "The export file will be saved at " +
+                                PersistentDeviceCredentials.manualLocationLabel())
                     },
                 ) { Text("Export encrypted logins") }
             }
@@ -252,11 +267,11 @@ fun CredentialBackupControls(
                     else if (!isRunningOnTelevision(context) && supportsOpenDocument) {
                         try { importer.launch(arrayOf("application/octet-stream", "*/*")) }
                         catch (_: Exception) {
-                            status = "Document picker is unavailable on this TV. " +
-                                "Grant shared device-folder access above."
+                            report("No document picker", "Grant device folder access above.")
                         }
-                    } else status = "Grant shared device-folder access above to " +
-                        "restore the encrypted device backup."
+                    } else report("Storage permission required",
+                        "Grant All files access using Device vault above, then restore from " +
+                            PersistentDeviceCredentials.manualLocationLabel())
                 },
             ) { Text("Restore logins from file") }
         }
