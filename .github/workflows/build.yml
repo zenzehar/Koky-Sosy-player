@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.6-dashboard-refresh-backup-input'
+      github.head_ref == 'fix/v0.1.11.7-login-focus-outline'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.6-tv-home-refresh-backup \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.6_TV_home_refresh.apk" \
+          gh release create v0.1.11.7-login-focus-outline \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.7_TV_login_focus.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.6 TV home refresh/backup preview (hardware test pending)" \
-            --notes "UNAPPROVED TV TEST: independent VOD refresh/date bars relocated to Movies/Series HOME tiles; VOD remains accessible during updates; backup gives explicit TV modal feedback/path; Settings IME only on click, not focus; unfocused RHS login fields visually frameless. Retains v0.1.11.5 playback and seeking; screensaver remains untested." \
+            --title "Koky & Sosy v0.1.11.7 frameless login preview (hardware test pending)" \
+            --notes "UNAPPROVED TV TEST: suppresses framework idle focus decoration on login inputs and mounts outline only when that field is actually focused; restores plain gradient/white text for idle login fields. All v0.1.11.6 behavior otherwise unchanged; playback and seeking remain unmodified. Screensaver remains untested." \
             --prerelease
