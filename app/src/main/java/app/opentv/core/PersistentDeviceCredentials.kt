@@ -96,7 +96,9 @@ object PersistentDeviceCredentials {
 
     /** Called BEFORE clearApplicationUserData(); do not delete on uninstall/update. */
     fun deleteForFactoryReset(context: Context): Boolean {
-        if (!canRead(context)) return !vaultFile().exists()
+        // Permission denial can make exists() falsely report "absent"; never claim
+        // a factory reset erased credentials if we cannot even inspect the file.
+        if (!canRead(context)) return false
         return runCatching {
             synchronized(syncLock) {
                 val file = vaultFile()
