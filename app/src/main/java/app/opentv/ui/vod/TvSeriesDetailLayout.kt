@@ -158,7 +158,7 @@ internal fun TvSeriesDetailLayout(
         if (!initialActionFocused && playEpisode != null) {
             repeat(8) {
                 kotlinx.coroutines.delay(85L)
-                if (runCatching { playFocus.requestFocus() }.getOrDefault(false)) {
+                if (runCatching { playFocus.requestFocus() }.isSuccess) {
                     initialActionFocused = true
                     return@LaunchedEffect
                 }
