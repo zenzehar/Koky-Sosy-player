@@ -61,6 +61,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -88,6 +94,9 @@ fun KokyDashboardScreen(
     onRefresh: () -> Unit,
 ) {
     val initialFocus = remember { FocusRequester() }
+    // Dedicated D-pad focus targets for both independent refresh bars.
+    val movieBarFocus = remember { FocusRequester() }
+    val seriesBarFocus = remember { FocusRequester() }
     val context = LocalContext.current
     val update by CatalogueGate.state.collectAsState()
     val userSettings = remember(context) { AppSettings.get(context) }
@@ -211,6 +220,8 @@ fun KokyDashboardScreen(
                         locked = false, loading = false,
                         progress = 1f,
                         vodUpdate = movieFooter,
+                        vodBarFocus = movieBarFocus,
+                        vodPeerFocus = seriesBarFocus,
                         onVodRefresh = {
                             VodSectionSyncWorker.refresh(context, isSeries = false, sourceId = null)
                         },
@@ -223,6 +234,8 @@ fun KokyDashboardScreen(
                         locked = false, loading = false,
                         progress = 1f,
                         vodUpdate = seriesFooter,
+                        vodBarFocus = seriesBarFocus,
+                        vodPeerFocus = movieBarFocus,
                         onVodRefresh = {
                             VodSectionSyncWorker.refresh(context, isSeries = true, sourceId = null)
                         },
@@ -313,10 +326,15 @@ private fun DashboardTile(
     ready: Boolean = false,
     progress: Float = 1f,
     vodUpdate: VodTileUpdate? = null,
+    vodBarFocus: FocusRequester? = null,
+    vodPeerFocus: FocusRequester? = null,
     onVodRefresh: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val tileFocus = remember { FocusRequester() }
+    val internalBarFocus = remember { FocusRequester() }
+    val barFocus = vodBarFocus ?: internalBarFocus
     val shape = RoundedCornerShape(14.dp)
     // Tween genuinely measured fractions from Room import completion.
     val reveal by animateFloatAsState(
@@ -326,13 +344,23 @@ private fun DashboardTile(
     )
     Box(
         modifier.clip(shape)
-            .onFocusChanged { focused = it.hasFocus }
             .border(if (focused) 3.dp else 0.dp, Color.White, shape),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             Modifier.fillMaxSize().background(Brush.verticalGradient(shades))
-                .clickable(enabled = !locked, onClick = onClick),
+                .focusRequester(tileFocus)
+            .onFocusChanged { focused = it.isFocused }
+            .focusProperties { if (vodUpdate != null) down = barFocus }
+            // TV focus search sometimes skips overlaid footer rows geometrically.
+            .onPreviewKeyEvent { event ->
+                if (vodUpdate != null && event.type == KeyEventType.KeyDown &&
+                    event.key == Key.DirectionDown) {
+                    barFocus.requestFocus()
+                    true
+                } else false
+            }
+            .clickable(enabled = !locked, onClick = onClick),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -347,6 +375,9 @@ private fun DashboardTile(
             DashboardVodUpdateBar(
                 state = vodUpdate,
                 onRefresh = onVodRefresh,
+                barFocus = barFocus,
+                tileFocus = tileFocus,
+                peerFocus = vodPeerFocus,
                 modifier = Modifier.align(Alignment.BottomCenter)
                     .fillMaxWidth().padding(horizontal = 9.dp, vertical = 9.dp),
             )
@@ -391,6 +422,9 @@ private data class VodTileUpdate(
 private fun DashboardVodUpdateBar(
     state: VodTileUpdate,
     onRefresh: () -> Unit,
+    barFocus: FocusRequester,
+    tileFocus: FocusRequester,
+    peerFocus: FocusRequester? = null,
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -409,8 +443,22 @@ private fun DashboardVodUpdateBar(
                 if (focused) Color(0xFF75DCEB) else Color.White.copy(alpha = .22f),
                 shape,
             )
+            .focusRequester(barFocus)
+            .focusProperties {
+                up = tileFocus
+                if (peerFocus != null) {
+                    if (state.isSeries) left = peerFocus else right = peerFocus
+                }
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                    tileFocus.requestFocus()
+                    true
+                } else false
+            }
             .onFocusChanged { focused = it.isFocused }
-            .clickable(enabled = state.enabled, onClick = onRefresh)
+            // Keep the progress bar reachable while updating; OK is guarded.
+            .clickable(onClick = { if (state.enabled) onRefresh() })
             .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

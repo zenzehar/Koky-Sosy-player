@@ -126,17 +126,51 @@ object PersistentDeviceCredentials {
         "manual-logins.kspc",
     )
 
-    fun saveManualBackup(context: Context, bytes: ByteArray): Boolean {
-        if (!canRead(context) || bytes.size > MAX_BYTES || bytes.isEmpty()) return false
-        return runCatching {
-            synchronized(syncLock) {
-                val file = manualFile()
-                require(file.parentFile?.mkdirs() == true || file.parentFile?.isDirectory == true)
-                file.outputStream().use { it.write(bytes); it.fd.sync() }
-            }
-            true
-        }.getOrDefault(false)
+    // Non-sensitive outcomes: do not expose provider URLs, usernames, encryption
+    // material or exception messages in the on-screen report.
+    enum class ManualBackupWriteResult {
+        SAVED, PERMISSION_REQUIRED, INVALID_SIZE, STORAGE_UNAVAILABLE,
+        FOLDER_UNAVAILABLE, WRITE_FAILED, VERIFY_FAILED
     }
+
+    fun saveManualBackupWithStatus(context: Context, bytes: ByteArray): ManualBackupWriteResult {
+        if (!canRead(context)) return ManualBackupWriteResult.PERMISSION_REQUIRED
+        if (bytes.isEmpty() || bytes.size > MAX_BYTES) return ManualBackupWriteResult.INVALID_SIZE
+        if (Environment.getExternalStorageState() != Environment.MEDIA_MOUNTED) {
+            return ManualBackupWriteResult.STORAGE_UNAVAILABLE
+        }
+        return synchronized(syncLock) {
+            val target = manualFile()
+            val folder = target.parentFile
+            if (folder == null || !(folder.isDirectory || folder.mkdirs())) {
+                return@synchronized ManualBackupWriteResult.FOLDER_UNAVAILABLE
+            }
+            val temporary = File(folder, "manual-logins.kspc.new")
+            try {
+                temporary.outputStream().use { it.write(bytes); it.fd.sync() }
+                if (temporary.length() != bytes.size.toLong()) {
+                    return@synchronized ManualBackupWriteResult.VERIFY_FAILED
+                }
+                // Replace only after the encrypted temporary copy is fully written.
+                if (!temporary.renameTo(target)) {
+                    target.outputStream().use { it.write(bytes); it.fd.sync() }
+                    temporary.delete()
+                }
+                if (target.isFile && target.length() == bytes.size.toLong()) {
+                    ManualBackupWriteResult.SAVED
+                } else ManualBackupWriteResult.VERIFY_FAILED
+            } catch (_: Exception) {
+                ManualBackupWriteResult.WRITE_FAILED
+            } finally {
+                // A failed write must not leave a second recoverable backup behind.
+                if (temporary.exists()) temporary.delete()
+            }
+        }
+    }
+
+    /** Existing callers can keep using the Boolean convenience API. */
+    fun saveManualBackup(context: Context, bytes: ByteArray): Boolean =
+        saveManualBackupWithStatus(context, bytes) == ManualBackupWriteResult.SAVED
 
     fun loadManualBackup(context: Context): ByteArray? {
         if (!canRead(context)) return null
