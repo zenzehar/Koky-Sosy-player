@@ -19,7 +19,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import android.widget.Toast
+import app.opentv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,6 +55,18 @@ fun CredentialBackupControls(
     var passphrase by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var noticeTitle by remember { mutableStateOf("") }
+    var noticeText by remember { mutableStateOf("") }
+    var noticeOpen by remember { mutableStateOf(false) }
+    var navigateAfterNotice by remember { mutableStateOf(false) }
+    fun report(title: String, details: String, restored: Boolean = false) {
+        noticeTitle = title
+        noticeText = details
+        noticeOpen = true
+        navigateAfterNotice = restored
+        status = "$title: $details"
+        Toast.makeText(context, title, Toast.LENGTH_LONG).show()
+    }
     val supportsCreateDocument = remember(context) {
         Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
@@ -190,20 +205,26 @@ fun CredentialBackupControls(
                 "For TV boxes without a system file picker, use the shared Documents-folder " +
                 "buttons below after enabling device-folder access. Keep the passphrase separately.",
         )
-        OutlinedTextField(
+        TvNativeTextField(
             value = passphrase,
             onValueChange = { passphrase = it },
-            label = { Text("Backup passphrase (8+ characters)") },
+            label = "Backup passphrase (8+ characters) — OK to edit",
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Text("Press OK inside the passphrase field to type. Press Back to close " +
+            "the keyboard, then move to Export or Restore.")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (allowExport) {
                 OutlinedButton(
-                    enabled = !busy && passphrase.length >= 8,
+                    enabled = !busy,
                     onClick = {
+                        if (passphrase.length < 8) {
+                            report("Passphrase required", "Use at least 8 characters; " +
+                                "close the keyboard with Back before selecting Export.")
+                            return@OutlinedButton
+                        }
                         // A system picker may resolve on Android TV yet fail to launch
                         // (real-device "You don't have an app" error). Prefer the
                         // already granted shared Documents permission every time.
@@ -220,8 +241,13 @@ fun CredentialBackupControls(
                 ) { Text("Export encrypted logins") }
             }
             Button(
-                enabled = !busy && passphrase.length >= 8,
+                enabled = !busy,
                 onClick = {
+                    if (passphrase.length < 8) {
+                        report("Passphrase required", "Use at least 8 characters; " +
+                            "close the keyboard with Back before selecting Restore.")
+                        return@Button
+                    }
                     if (PersistentDeviceCredentials.canRead(context)) restoreWithoutPicker()
                     else if (!isRunningOnTelevision(context) && supportsOpenDocument) {
                         try { importer.launch(arrayOf("application/octet-stream", "*/*")) }
@@ -235,5 +261,21 @@ fun CredentialBackupControls(
             ) { Text("Restore logins from file") }
         }
         if (status.isNotBlank()) Text(status, modifier = Modifier.padding(top = 4.dp))
+    }
+    if (noticeOpen) {
+        AlertDialog(
+            onDismissRequest = {
+                noticeOpen = false
+                if (navigateAfterNotice) { navigateAfterNotice = false; onRestored() }
+            },
+            title = { Text(noticeTitle) },
+            text = { Text(noticeText) },
+            confirmButton = {
+                TextButton(onClick = {
+                    noticeOpen = false
+                    if (navigateAfterNotice) { navigateAfterNotice = false; onRestored() }
+                }) { Text("OK") }
+            },
+        )
     }
 }
