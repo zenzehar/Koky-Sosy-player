@@ -61,6 +61,7 @@ import app.opentv.ui.BrandSplash
 import app.opentv.core.AppSettings
 import app.opentv.data.work.SyncWorker
 import app.opentv.data.work.LiveSectionSyncWorker
+import app.opentv.sync.GoogleDriveCloudSync
 import app.opentv.data.work.CatalogueGate
 import app.opentv.core.ServiceLocator
 import app.opentv.data.parser.displayTitle
@@ -289,6 +290,16 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // worst possible first impression.
     val start = if (sourcesUi.sources.isEmpty()) Routes.ADD_SOURCE else Routes.HOME
     val launchContext = androidx.compose.ui.platform.LocalContext.current
+    val cloudSync = remember(launchContext) { GoogleDriveCloudSync.get(launchContext) }
+    val cloudState by cloudSync.status.collectAsState()
+    LaunchedEffect(cloudState.connected) {
+        if (cloudState.connected && cloudSync.configured) {
+            while (true) {
+                cloudSync.sync()
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
+    }
     // Include provider changes and the end of provider validation in the effect
     // keys. The earlier loaded-only effect ran before a NEW login had been
     // added, and was never invoked again for that same app session.
