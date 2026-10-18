@@ -1,3 +1,12 @@
+# Additional feature — VOD section refresh bars (18 October 2026)
+
+- Movies and Series each show a **separate persistent bottom bar** within the VOD browser, with the last successful provider catalogue update in the device's local date/time, a reload icon, visual D-pad focus, and no grid overlap.
+- Clicking bar refreshes **only the visible VOD type** (Movies or Series) and, if a provider filter is selected, only that provider; All providers syncs each enabled Xtream provider of the selected VOD type. **Never** triggers Live TV, other VOD type, episode fetching, or EPG update.
+- Refresh uses network-constrained WorkManager work, which survives leaving the VOD screen. Repeated clicks are coalesced; shows progress and a failure/retry message. On success VOD SQL pages and counts are reloaded, and progress/history/metadata/favourites are preserved via the existing phase-specific upsert.
+- Dates are stamped **only after a successful VOD phase**, stored separately for each type/source. The existing full refresh worker now stamps each phase as it completes. For an upgraded device without new per-type stamps, the old common VOD update time is shown only while no new type-specific stamps are present.
+- Background or manual update failures do not advance the last successful update stamp. Refresh should be done sparingly on large catalogues, not every tab open.
+- No change to VLC 3.6.1 playback, approved seeking, screensaver (still untested), or screensaver buffering indicator.
+
 # v0.1.11.5 TV navigation preview — user feedback 18 October 2026
 
 Source: v0.1.11.4 test branch. Approved v0.1.11.0 golden milestone remains untouched.
