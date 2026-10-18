@@ -233,8 +233,9 @@ fun AddSourceScreen(
                         if (it.isFocused) focusedLeft = "vpn"
                         else if (focusedLeft == "vpn") focusedLeft = ""
                     }
-                    .border(if (focusedLeft == "vpn") 3.dp else 0.dp,
-                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+                    .then(if (focusedLeft == "vpn")
+                        Modifier.border(3.dp, Color(0xFFFFE177), RoundedCornerShape(8.dp))
+                        else Modifier),
             ) { Text("CONNECT VPN") }
             Spacer(Modifier.height(10.dp))
             Button(
@@ -246,8 +247,9 @@ fun AddSourceScreen(
                         if (it.isFocused) focusedLeft = "phone"
                         else if (focusedLeft == "phone") focusedLeft = ""
                     }
-                    .border(if (focusedLeft == "phone") 3.dp else 0.dp,
-                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+                    .then(if (focusedLeft == "phone")
+                        Modifier.border(3.dp, Color(0xFFFFE177), RoundedCornerShape(8.dp))
+                        else Modifier),
             ) {
                 Icon(Icons.Filled.PhoneAndroid, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -258,8 +260,9 @@ fun AddSourceScreen(
                 onClick = { restoreBackup = true },
                 border = null,
                 modifier = Modifier.onFocusChanged { restoreFocused = it.isFocused }
-                    .border(if (restoreFocused) 2.dp else 0.dp,
-                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+                    .then(if (restoreFocused)
+                        Modifier.border(2.dp, Color(0xFFFFE177), RoundedCornerShape(8.dp))
+                        else Modifier),
             ) {
                 Text("RESTORE LOGIN BACKUP")
             }
@@ -274,8 +277,9 @@ fun AddSourceScreen(
                                 if (it.isFocused) focusedLeft = choice.name
                                 else if (focusedLeft == choice.name) focusedLeft = ""
                             }
-                            .border(if (focusedLeft == choice.name) 3.dp else 0.dp,
-                                Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+                            .then(if (focusedLeft == choice.name)
+                                Modifier.border(3.dp, Color(0xFFFFE177), RoundedCornerShape(8.dp))
+                                else Modifier),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = if (kind == choice) Color.White else Color.Transparent,
                             contentColor = if (kind == choice) Color(0xFF40277E) else Color.White,
@@ -297,8 +301,9 @@ fun AddSourceScreen(
                         if (it.isFocused) focusedLeft = "advanced"
                         else if (focusedLeft == "advanced") focusedLeft = ""
                     }
-                    .border(if (focusedLeft == "advanced") 3.dp else 0.dp,
-                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+                    .then(if (focusedLeft == "advanced")
+                        Modifier.border(3.dp, Color(0xFFFFE177), RoundedCornerShape(8.dp))
+                        else Modifier),
             ) {
                 Text(if (showAdvanced) "HIDE ADVANCED SETTINGS" else "ADVANCED SETTINGS", color = Color.White)
             }
@@ -405,8 +410,9 @@ fun AddSourceScreen(
                 enabled = canSubmit && !ui.testing && !ui.syncing,
                 border = null,
                 modifier = Modifier.onFocusChanged { testFocused = it.isFocused }
-                    .border(if (testFocused) 2.dp else 0.dp,
-                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+                    .then(if (testFocused)
+                        Modifier.border(2.dp, Color(0xFFFFE177), RoundedCornerShape(8.dp))
+                        else Modifier),
             ) {
                 if (ui.testing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("TEST CONNECTION", color = Color.White, fontSize = 12.sp)
