@@ -94,6 +94,7 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
+            graph.sourceRepository.restoreDeviceLoginsIfAvailable()
             graph.sourceRepository.observeAll().collect { sources ->
                 _ui.value = _ui.value.copy(sources = sources, loaded = true)
             }
@@ -199,7 +200,10 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun delete(source: Source) {
-        viewModelScope.launch { graph.catalogRepository.deleteSource(source.id) }
+        viewModelScope.launch {
+            graph.catalogRepository.deleteSource(source.id)
+            graph.sourceRepository.syncDeviceLogins()
+        }
     }
 
     /**
