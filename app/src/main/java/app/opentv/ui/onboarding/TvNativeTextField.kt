@@ -108,7 +108,7 @@ fun TvNativeTextField(
                     focusedTextColor = foreground,
                     unfocusedTextColor = foreground,
                     focusedBorderColor = frameColor,
-                    unfocusedBorderColor = frameColor,
+                    unfocusedBorderColor = Color.Transparent,
                 ),
                 shape = shape,
                 modifier = Modifier.fillMaxWidth().height(height)
@@ -128,8 +128,8 @@ fun TvNativeTextField(
                     .background(bg, shape)
                     .focusRequester(idleRequester)
                     .onFocusChanged { focused = it.isFocused }
-                    .border(if (focused) 3.dp else 1.dp,
-                        if (focused) frameColor else foreground.copy(alpha = 0.32f), shape)
+                    .border(if (focused) 3.dp else 0.dp,
+                        if (focused) frameColor else Color.Transparent, shape)
                     .clickable {
                         hasReceivedEditFocus = false
                         editing = true
