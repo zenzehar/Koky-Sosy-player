@@ -138,7 +138,7 @@ fun MovieDetailScreen(
     LaunchedEffect(m.id) {
         repeat(8) {
             delay(75)
-            if (runCatching { playFocus.requestFocus() }.getOrDefault(false)) {
+            if (runCatching { playFocus.requestFocus() }.isSuccess) {
                 return@LaunchedEffect
             }
         }
