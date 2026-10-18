@@ -129,12 +129,15 @@ class SyncWorker(
         }
 
         /** Network sync only at startup when the selected interval has elapsed. */
-        fun refreshAtLaunch(context: Context) {
+        fun refreshAtLaunch(context: Context, initialSectionsMissing: Boolean = false) {
             val settings = AppSettings.get(context)
             val hours = settings.catalogueRefreshHours.value
-            if (hours == 0) return
+            if (hours == 0) return // Explicitly disabled by the viewer.
             val now = System.currentTimeMillis()
-            if (!CatalogueGate.due(settings, now)) return
+            // The old global timestamp can be fresh even when a newly added
+            // provider has NEVER received Movies or Series. Force an initial
+            // import in that case, but retain the normal configurable interval.
+            if (!initialSectionsMissing && !CatalogueGate.due(settings, now)) return
             CatalogueGate.pending()
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
