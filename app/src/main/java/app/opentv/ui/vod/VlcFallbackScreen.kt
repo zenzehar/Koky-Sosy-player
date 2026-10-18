@@ -134,6 +134,7 @@ fun VlcFallbackScreen(
     val pauseFocus = remember { FocusRequester() }
     val autoplayFocus = remember { FocusRequester() }
     var autoplayFocused by remember { mutableStateOf(false) }
+    var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
     val seekFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
@@ -323,8 +324,13 @@ fun VlcFallbackScreen(
     LaunchedEffect(controlsVisible, ready) {
         delay(55)
         runCatching {
-            if (controlsVisible && ready) pauseFocus.requestFocus()
-            else if (controlsVisible) pauseFocus.requestFocus()
+            if (controlsVisible && ready) {
+                pauseFocus.requestFocus()
+                focusLevel = CinematicFocusLevel.CONTROLS
+            } else if (controlsVisible) {
+                pauseFocus.requestFocus()
+                focusLevel = CinematicFocusLevel.CONTROLS
+            }
             else rootFocus.requestFocus()
         }
     }
@@ -349,27 +355,25 @@ fun VlcFallbackScreen(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (controlsVisible) {
-                    // TV has exactly 3 ordered levels: Autoplay (top), transport
-                    // (middle), seek bar (bottom). One Up/Down per transition.
-                    // Right/left and hold seeking remain entirely within the seek widget.
+                    // Exactly 3 deterministic ordered levels, one press per move.
+                    // Never rely on stale Compose focus-change callbacks to choose
+                    // the next row. Native seek left/right/hold handlers remain intact.
                     when (event.key) {
-                        Key.DirectionUp -> when {
-                            timelineFocused -> {
-                                pauseFocus.requestFocus(); showControls(); true
-                            }
-                            showEpisodeControls && !autoplayFocused -> {
-                                autoplayFocus.requestFocus(); showControls(); true
-                            }
-                            else -> false
-                        }
-                        Key.DirectionDown -> when {
-                            showEpisodeControls && autoplayFocused -> {
-                                pauseFocus.requestFocus(); showControls(); true
-                            }
-                            !timelineFocused -> {
-                                seekFocus.requestFocus(); showControls(); true
-                            }
-                            else -> false
+                        Key.DirectionUp, Key.DirectionDown -> {
+                            val next = moveCinematicFocus(
+                                focusLevel, showEpisodeControls,
+                                up = event.key == Key.DirectionUp,
+                            )
+                            if (next != focusLevel) {
+                                focusLevel = next
+                                when (next) {
+                                    CinematicFocusLevel.AUTOPLAY -> autoplayFocus.requestFocus()
+                                    CinematicFocusLevel.CONTROLS -> pauseFocus.requestFocus()
+                                    CinematicFocusLevel.SEEK -> seekFocus.requestFocus()
+                                }
+                                showControls()
+                                true
+                            } else false
                         }
                         else -> {
                             if (event.key != Key.Back && event.key != Key.Escape) interaction++
@@ -472,7 +476,10 @@ fun VlcFallbackScreen(
                         enabled = autoplay,
                         onChange = { preferences.setSeriesAutoplay(it); showControls() },
                         focusRequester = autoplayFocus,
-                        onFocusChanged = { autoplayFocused = it },
+                        onFocusChanged = {
+                            autoplayFocused = it
+                            if (it) focusLevel = CinematicFocusLevel.AUTOPLAY
+                        },
                         modifier = Modifier.align(Alignment.TopEnd)
                             .padding(end = 40.dp, top = 42.dp),
                     )
@@ -489,7 +496,10 @@ fun VlcFallbackScreen(
                         Box(
                             modifier = Modifier.weight(1f).padding(horizontal = 14.dp).height(48.dp)
                                 .focusRequester(seekFocus)
-                                .onFocusChanged { timelineFocused = it.isFocused }
+                                .onFocusChanged {
+                                    timelineFocused = it.isFocused
+                                    if (it.isFocused) focusLevel = CinematicFocusLevel.SEEK
+                                }
                                 .onPreviewKeyEvent { event ->
                                     val direction = when (event.key) {
                                         Key.DirectionLeft -> SeekDirection.BACKWARD
