@@ -24,6 +24,11 @@ class CinematicTitlePartsTest {
         assertNull(result.episode)
     }
 
+    @Test fun controlBackgroundMeetsSeventyPercentTransparencyContract() {
+        org.junit.Assert.assertTrue(CinemaButtonFillAlpha <= 0.30f)
+        org.junit.Assert.assertEquals(0.26f, CinemaButtonFillAlpha, 0.0001f)
+    }
+
     @Test fun titleWithoutEpisodeStaysUnchanged() {
         val result = CinematicTitleParts.parse("حكاية", true)
         assertEquals("حكاية", result.title)
