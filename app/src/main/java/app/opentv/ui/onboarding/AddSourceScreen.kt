@@ -154,6 +154,8 @@ fun AddSourceScreen(
     var showAdvanced by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     var focusedLeft by remember { mutableStateOf("") }
+    var restoreFocused by remember { mutableStateOf(false) }
+    var testFocused by remember { mutableStateOf(false) }
     var userAgent by remember(existing?.id) { mutableStateOf(existing?.userAgent ?: Source.DEFAULT_USER_AGENT) }
 
     // Editing copies onto the existing row, so id, enabled state, live format and last-sync stamp
@@ -227,7 +229,10 @@ fun AddSourceScreen(
                 },
                 colors = whiteButtonColors,
                 modifier = Modifier.width(200.dp).height(49.dp)
-                    .onFocusChanged { if (it.isFocused) focusedLeft = "vpn" }
+                    .onFocusChanged { 
+                        if (it.isFocused) focusedLeft = "vpn"
+                        else if (focusedLeft == "vpn") focusedLeft = ""
+                    }
                     .border(if (focusedLeft == "vpn") 3.dp else 0.dp,
                         Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) { Text("CONNECT VPN") }
@@ -237,7 +242,10 @@ fun AddSourceScreen(
                 enabled = isTelevision,
                 colors = whiteButtonColors,
                 modifier = Modifier.width(200.dp).height(49.dp)
-                    .onFocusChanged { if (it.isFocused) focusedLeft = "phone" }
+                    .onFocusChanged { 
+                        if (it.isFocused) focusedLeft = "phone"
+                        else if (focusedLeft == "phone") focusedLeft = ""
+                    }
                     .border(if (focusedLeft == "phone") 3.dp else 0.dp,
                         Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
@@ -246,7 +254,13 @@ fun AddSourceScreen(
                 Text("LOGIN BY PHONE")
             }
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = { restoreBackup = true }) {
+            OutlinedButton(
+                onClick = { restoreBackup = true },
+                border = null,
+                modifier = Modifier.onFocusChanged { restoreFocused = it.isFocused }
+                    .border(if (restoreFocused) 2.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
+            ) {
                 Text("RESTORE LOGIN BACKUP")
             }
             Spacer(Modifier.height(9.dp))
@@ -254,8 +268,12 @@ fun AddSourceScreen(
                 for (choice in SourceKind.entries) {
                     OutlinedButton(
                         onClick = { kind = choice },
+                        border = null,
                         modifier = Modifier
-                            .onFocusChanged { if (it.isFocused) focusedLeft = choice.name }
+                            .onFocusChanged {
+                                if (it.isFocused) focusedLeft = choice.name
+                                else if (focusedLeft == choice.name) focusedLeft = ""
+                            }
                             .border(if (focusedLeft == choice.name) 3.dp else 0.dp,
                                 Color(0xFFFFE177), RoundedCornerShape(8.dp)),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -275,7 +293,10 @@ fun AddSourceScreen(
             TextButton(
                 onClick = { showAdvanced = !showAdvanced },
                 modifier = Modifier
-                    .onFocusChanged { if (it.isFocused) focusedLeft = "advanced" }
+                    .onFocusChanged { 
+                        if (it.isFocused) focusedLeft = "advanced"
+                        else if (focusedLeft == "advanced") focusedLeft = ""
+                    }
                     .border(if (focusedLeft == "advanced") 3.dp else 0.dp,
                         Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
@@ -382,6 +403,10 @@ fun AddSourceScreen(
             OutlinedButton(
                 onClick = { viewModel.test(draft()) },
                 enabled = canSubmit && !ui.testing && !ui.syncing,
+                border = null,
+                modifier = Modifier.onFocusChanged { testFocused = it.isFocused }
+                    .border(if (testFocused) 2.dp else 0.dp,
+                        Color(0xFFFFE177), RoundedCornerShape(8.dp)),
             ) {
                 if (ui.testing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text("TEST CONNECTION", color = Color.White, fontSize = 12.sp)
