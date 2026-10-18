@@ -1,3 +1,10 @@
+# v0.1.11.7 TV alpha — right-hand login focus frames (hardware validation pending)
+
+- User reports that the right-hand login input boxes still show unwanted light/white frames while not selected, despite earlier v0.1.11.5/11.6 styling work.
+- TV-native idle login inputs now opt out of the framework's implicit clickable indication, and attach the explicit border modifier ONLY while that specific field has focus. No border draw modifier exists for the unfocused preview.
+- The previously implemented transparent idle background and white readable text remain. When focused, the yellow outline/pale pink field remains; pressing OK enters the Android IME as before.
+- UI-only change. Preserves all v0.1.11.6 playback/decoding, navigation, refresh, backup and screensaver code without modification. Screensaver is still not verified on hardware. This is a proposed fix, NOT confirmation of actual TV behaviour; obtain real-TV screenshot before approval.
+
 # v0.1.11.6 TV alpha — dashboard VOD bars, backup diagnostics, keyboard control
 
 - User clarified the refresh/date bars belong at the **bottom INSIDE the Movies and Series tiles on HOME**, not the Movies/Series catalogue browser. Removed the catalogue-screen bars and added individually focusable/reloadable bottom strips inside the HOME tiles with last-successful local datetime, refresh icon, running progress and retry indication.
