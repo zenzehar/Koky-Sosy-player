@@ -228,8 +228,10 @@ fun KokyDashboardScreen(
         ) {
             DashboardTile(
                 label = "LIVE TV", icon = Icons.Filled.LiveTv,
-                locked = !liveReady, loading = gated && update.phase == CatalogueGate.Phase.LIVE,
-                ready = gated && liveReady, progress = if (liveReady) 1f else update.liveFraction,
+                // Live has the same non-blocking access policy as Movies/Series:
+                // a pending/full refresh must never grey out cached TV channels.
+                // The per-section bottom bar alone communicates update progress.
+                locked = false, loading = false, ready = true, progress = 1f,
                 vodUpdate = liveFooter,
                 vodBarFocus = liveBarFocus,
                 vodPeerFocus = movieBarFocus,
