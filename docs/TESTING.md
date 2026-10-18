@@ -1,3 +1,12 @@
+## v0.1.11.3 remote/navigation polish test
+
+1. Play a series: verify **five icon-only buttons**, NO caption/dot/connector, consistent equal 74dp rounded squares, and transparent enough to see the video underneath. Pause is NOT highlighted when another button has focus; the border matches the focused button's exact geometry, not a surrounding column.
+2. Confirm controls sit lower than v0.1.11.2 but stay above blue seek timeline without overlap. Series title/time and autoplay pill positions are retained. Movie shows only 3 symbols.
+3. **Autoplay reachability** on VLC: focus any transport button, press D-pad Up to focus seek timeline, then Up again to focus top-right switch. Press OK to toggle, verify blue switch and setting changed. Press Down to return to seek timeline, Down again to return to transport. For Media3: Up from controls accesses autoplay; Down returns to central transport.
+4. Press OK on each button; only focused button activates. Pause/resume with normal OK; seek tap +/-10s and long-held seeking remain v0.1.11.0 stable; do not allow Up/Down focus routing to initiate seeking.
+5. Controls auto-hide while playback continues as before, no changes to buffering/performance; title Back, episode navigation/Continue Watching and screensaver suppression unaffected.
+6. If any D-pad focus fails or overlay clips on 720p TV / Fire TV / phone landscape, do not approve. Original v0.1.11.0 is protected, not merged or replaced.
+
 ## v0.1.11.2 cinematic player acceptance tests
 
 1. Play Arabic series episode اللعبة S01E05 and open overlay. Match reference: upper-left title/episode/time, upper-right autoplay switch, five lower-center controls with labels, bright-blue progress bar with white thumb at bottom and dark transparent gradient.
