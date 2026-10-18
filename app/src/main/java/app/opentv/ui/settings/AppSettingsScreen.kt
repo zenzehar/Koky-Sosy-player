@@ -80,6 +80,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val playbackBuffer by settings.playbackBufferPreset.collectAsState()
     val vlcMode by settings.vlcPlaybackMode.collectAsState()
     var diagnosticReport by remember { mutableStateOf<String?>(null) }
+    var refreshMenuOpen by remember { mutableStateOf(false) }
     var languageMenuOpen by remember { mutableStateOf(false) }
     var languageSearch by remember { mutableStateOf("") }
 
@@ -137,12 +138,35 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 style = MaterialTheme.typography.titleMedium)
             Text("Opening Movies or Series uses saved titles; manual Update is always available.",
                 style = MaterialTheme.typography.bodySmall)
-            for (hours in listOf(0, 1, 3, 6, 12, 24)) {
-                ThemeOption(
-                    if (hours == 0) "Off — manual update only"
-                    else "Every " + hours + (if (hours == 1) " hour" else " hours"),
-                    refreshHours == hours,
-                ) { settings.setCatalogueRefreshHours(hours) }
+            val refreshOptions = listOf(0, 1, 3, 6, 12, 24)
+            val refreshLabel = if (refreshHours == 0) "Off — manual update only"
+                else "Every " + refreshHours +
+                    (if (refreshHours == 1) " hour" else " hours")
+            OutlinedButton(
+                onClick = { refreshMenuOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("$refreshLabel  ▾") }
+            if (refreshMenuOpen) {
+                AlertDialog(
+                    onDismissRequest = { refreshMenuOpen = false },
+                    title = { Text("Catalogue update frequency") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            refreshOptions.forEach { hours ->
+                                val label = if (hours == 0) "Off — manual update only"
+                                    else "Every $hours " +
+                                        (if (hours == 1) "hour" else "hours")
+                                ThemeOption(label, refreshHours == hours) {
+                                    settings.setCatalogueRefreshHours(hours)
+                                    refreshMenuOpen = false
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { refreshMenuOpen = false }) { Text("Close") }
+                    },
+                )
             }
             Spacer(Modifier.height(16.dp))
             Text(

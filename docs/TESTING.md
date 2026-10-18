@@ -1,3 +1,23 @@
+## VOD independent refresh test for v0.1.11.5
+
+- Open Movies: verify bottom **Movies last updated** bar showing existing common catalogue date or Never, plus Refresh icon.
+- Click/OK bar. Expect just Movies update, progress while downloading and eventually successful timestamp. Search/categories should reflect new provider titles without force-loading every poster.
+- Open Series: its separate date must remain unchanged by a Movies-only refresh. Click Series bar: Series date updates only. Episode progress, favourites, cast and Continue Watching unaffected.
+- With multiple providers choose one provider and update; other sources must not be silently updated. With All providers choose bar to update all enabled Xtream sources. If a provider fails, show retry rather than a false timestamp.
+- Leave the page mid-update and return: worker should continue, retain progress and update timestamp. Repeated clicks must not queue parallel downloads.
+- Test TV remote D-pad reachability of bottom bar after seek-style navigation and confirm it does not clip the VOD poster grid. Confirm livestream playback continues uninterrupted (no explicit Live update).
+- Existing v0.1.11.5 tests for 3-level playback focus, searchable frequency, login borders, manual backup and title default focus still required. Screensaver still not tested.
+
+## v0.1.11.5 hardware acceptance plan
+
+1. Series playing on TV. When controls show, central transport button should be initially focused. Press UP ONCE: Autoplay switch; press DOWN ONCE: middle buttons; press DOWN ONCE: seek bar; press UP ONCE: middle buttons. Repeat and test Left/Right within seek for original hold acceleration, no new seeking behaviour. Movies: only buttons/seek levels, no autoplay.
+2. Settings -> Content -> Catalogue refresh frequency: appears as one value and dropdown with Off, 1, 3, 6, 12, 24 hours. Select once with remote and verify persisted. Language search remains unchanged.
+3. Settings -> Provider Logins -> Allow shared folder permission (if Android TV exposes it). Manual Export with passphrase must write encrypted file directly without opening an external document picker. Restore with same passphrase likewise must not launch Android picker. If an error appears, report exact status text/permission state. Store a separate backup BEFORE uninstall due to changing debug signatures.
+4. Enter movie and series title from category or Continue Watching; Watch/Resume should be highlighted by default after data/episodes load. Should not steal focus if user has already navigated elsewhere.
+5. Login screen: unselected input fields and outlined choices have no visible white border; only actually focused item has visible focus indicator. Text is still legible.
+6. Playback continuity: v0.1.11.4 buffering/stall indicators and long-held seek unchanged. Note whether spinner happens only at start or during playback; save diagnostics for unexpected stutter.
+7. Screensaver/videorebind still NOT tested. No merge or approval until feedback; approved v0.1.11.0 source and binary remain protected.
+
 v0.1.11.4 TV Tests
 
 1. D-pad controls -> Up seek -> Up autoplay -> Down seek -> Down buttons, then repeat. No bounce.

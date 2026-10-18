@@ -134,10 +134,14 @@ fun MovieDetailScreen(
         " · ${position.positionMillis / 60_000L}m" + (pct?.let { " (${it}%)" } ?: "")
     }.orEmpty()
 
-    // Land focus on the primary action once the page is up, so a d-pad has somewhere to be.
+    // Wait for the actual LazyColumn button to attach, then select Watch/Resume.
     LaunchedEffect(m.id) {
-        delay(60)
-        runCatching { playFocus.requestFocus() }
+        repeat(8) {
+            delay(75)
+            if (runCatching { playFocus.requestFocus() }.isSuccess) {
+                return@LaunchedEffect
+            }
+        }
     }
 
     LazyColumn(Modifier.fillMaxSize()) {

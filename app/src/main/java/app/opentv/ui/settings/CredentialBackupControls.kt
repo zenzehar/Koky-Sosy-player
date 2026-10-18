@@ -8,6 +8,7 @@ package app.opentv.ui.settings
 import android.net.Uri
 import android.content.Intent
 import app.opentv.core.PersistentDeviceCredentials
+import app.opentv.isRunningOnTelevision
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -203,20 +204,33 @@ fun CredentialBackupControls(
                 OutlinedButton(
                     enabled = !busy && passphrase.length >= 8,
                     onClick = {
-                        if (supportsCreateDocument) exporter.launch("Koky-Sosy-provider-backup.kspc")
-                        else if (PersistentDeviceCredentials.canRead(context)) saveWithoutPicker()
-                        else status = "This TV has no file picker. Grant shared device-folder " +
-                            "access above, then try again."
+                        // A system picker may resolve on Android TV yet fail to launch
+                        // (real-device "You don't have an app" error). Prefer the
+                        // already granted shared Documents permission every time.
+                        if (PersistentDeviceCredentials.canRead(context)) saveWithoutPicker()
+                        else if (!isRunningOnTelevision(context) && supportsCreateDocument) {
+                            try { exporter.launch("Koky-Sosy-provider-backup.kspc") }
+                            catch (_: Exception) {
+                                status = "Document picker is unavailable on this TV. " +
+                                    "Grant shared device-folder access above."
+                            }
+                        } else status = "Grant shared device-folder access above to " +
+                            "export a manual encrypted backup on this TV."
                     },
                 ) { Text("Export encrypted logins") }
             }
             Button(
                 enabled = !busy && passphrase.length >= 8,
                 onClick = {
-                    if (supportsOpenDocument) importer.launch(arrayOf("application/octet-stream", "*/*"))
-                    else if (PersistentDeviceCredentials.canRead(context)) restoreWithoutPicker()
-                    else status = "This TV has no file picker. Grant shared device-folder " +
-                        "access above, then try again."
+                    if (PersistentDeviceCredentials.canRead(context)) restoreWithoutPicker()
+                    else if (!isRunningOnTelevision(context) && supportsOpenDocument) {
+                        try { importer.launch(arrayOf("application/octet-stream", "*/*")) }
+                        catch (_: Exception) {
+                            status = "Document picker is unavailable on this TV. " +
+                                "Grant shared device-folder access above."
+                        }
+                    } else status = "Grant shared device-folder access above to " +
+                        "restore the encrypted device backup."
                 },
             ) { Text("Restore logins from file") }
         }

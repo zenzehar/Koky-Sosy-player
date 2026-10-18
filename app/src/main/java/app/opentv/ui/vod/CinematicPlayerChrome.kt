@@ -275,3 +275,28 @@ private fun CinematicControl(
 
 /** Background fill opacity: 26%, giving at least 70% transparency. */
 internal const val CinemaButtonFillAlpha = 0.26f
+
+
+/** Explicit logical D-pad levels: never infer the next level from asynchronously
+ * delivered focus callbacks (which previously caused seek/autoplay bouncing).
+ */
+internal enum class CinematicFocusLevel { AUTOPLAY, CONTROLS, SEEK }
+
+internal fun moveCinematicFocus(
+    current: CinematicFocusLevel,
+    isEpisode: Boolean,
+    up: Boolean,
+): CinematicFocusLevel = if (up) {
+    when (current) {
+        CinematicFocusLevel.SEEK -> CinematicFocusLevel.CONTROLS
+        CinematicFocusLevel.CONTROLS -> if (isEpisode)
+            CinematicFocusLevel.AUTOPLAY else CinematicFocusLevel.CONTROLS
+        CinematicFocusLevel.AUTOPLAY -> CinematicFocusLevel.AUTOPLAY
+    }
+} else {
+    when (current) {
+        CinematicFocusLevel.AUTOPLAY -> CinematicFocusLevel.CONTROLS
+        CinematicFocusLevel.CONTROLS -> CinematicFocusLevel.SEEK
+        CinematicFocusLevel.SEEK -> CinematicFocusLevel.SEEK
+    }
+}
