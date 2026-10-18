@@ -1,3 +1,13 @@
+## VOD independent refresh test for v0.1.11.5
+
+- Open Movies: verify bottom **Movies last updated** bar showing existing common catalogue date or Never, plus Refresh icon.
+- Click/OK bar. Expect just Movies update, progress while downloading and eventually successful timestamp. Search/categories should reflect new provider titles without force-loading every poster.
+- Open Series: its separate date must remain unchanged by a Movies-only refresh. Click Series bar: Series date updates only. Episode progress, favourites, cast and Continue Watching unaffected.
+- With multiple providers choose one provider and update; other sources must not be silently updated. With All providers choose bar to update all enabled Xtream sources. If a provider fails, show retry rather than a false timestamp.
+- Leave the page mid-update and return: worker should continue, retain progress and update timestamp. Repeated clicks must not queue parallel downloads.
+- Test TV remote D-pad reachability of bottom bar after seek-style navigation and confirm it does not clip the VOD poster grid. Confirm livestream playback continues uninterrupted (no explicit Live update).
+- Existing v0.1.11.5 tests for 3-level playback focus, searchable frequency, login borders, manual backup and title default focus still required. Screensaver still not tested.
+
 ## v0.1.11.5 hardware acceptance plan
 
 1. Series playing on TV. When controls show, central transport button should be initially focused. Press UP ONCE: Autoplay switch; press DOWN ONCE: middle buttons; press DOWN ONCE: seek bar; press UP ONCE: middle buttons. Repeat and test Left/Right within seek for original hold acceleration, no new seeking behaviour. Movies: only buttons/seek levels, no autoplay.
