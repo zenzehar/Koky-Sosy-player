@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.5-tv-navigation-preview \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.5_TV_navigation.apk" \
+          gh release create v0.1.11.5-tv-vod-refresh-preview \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.5_TV_vod_refresh.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.5 TV navigation preview (hardware test pending)" \
-            --notes "UNAPPROVED UI TEST: 3 remote focus levels Top Autoplay/Middle Controls/Bottom Seek; searchable update frequency; TV granted-permission encrypted manual backup bypasses broken document picker; Watch/Resume default title focus; invisible login borders until focus. Preserves v0.1.11.4 buffering and pending screensaver test; no playback or seek engine changes. Hardware acceptance pending." \
+            --title "Koky & Sosy v0.1.11.5 TV VOD refresh preview (hardware test pending)" \
+            --notes "UNAPPROVED TV TEST: three-level remote focus; searchable update frequency; TV manual backup picker bypass; first Watch/Resume focus; invisible idle login borders; independent Movies/Series update status bar with refresh and per-provider timestamps. v0.1.11.4 playback unchanged; screensaver test pending." \
             --prerelease
