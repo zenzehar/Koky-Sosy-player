@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feature/v0.1.11.2-cinematic-player-controls'
+      github.head_ref == 'feature/v0.1.11.3-polished-player-focus'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.2-tv-cinematic-preview \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.2_TV_cinematic.apk" \
+          gh release create v0.1.11.3-tv-polished-focus \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.3_TV_polished.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.2 TV cinematic preview (hardware test pending)" \
-            --notes "UNAPPROVED CINEMATIC PLAYER PREVIEW from user-supplied reference screenshot. Replaces VLC and Media3 VOD overlay visuals only; keeps approved v0.1.11.0 native VLC 3.6.1 playback & seeking, episode UI, logo, phone launcher, portable encrypted backup. Real-TV hardware test required; debug-signing may differ." \
+            --title "Koky & Sosy v0.1.11.3 TV polished focus preview (hardware test pending)" \
+            --notes "UNAPPROVED CINEMATIC UI REFINEMENT from user feedback. Removes captions and connector lines, lower uniform 74dp button geometry and >=70 percent transparency, focus outline only on actual focused button, and fixes D-pad selection/navigation of top-right autoplay. Preserves v0.1.11.0 VLC playback and seeking logic. Real-TV acceptance pending; signing may vary." \
             --prerelease
