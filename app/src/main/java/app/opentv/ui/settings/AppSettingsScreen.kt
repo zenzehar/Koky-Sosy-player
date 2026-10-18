@@ -269,7 +269,9 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
 
         Spacer(Modifier.height(16.dp))
 
-        SettingsSection("Provider login backup (survives reinstall)") {
+        SettingsSection("Provider logins across reinstall") {
+            DeviceCredentialVaultControls()
+            Spacer(Modifier.height(12.dp))
             CredentialBackupControls(allowExport = true)
         }
         Spacer(Modifier.height(16.dp))
