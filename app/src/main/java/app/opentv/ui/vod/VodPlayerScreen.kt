@@ -272,6 +272,7 @@ fun VodPlayerScreen(
     val timelineFocus = remember { FocusRequester() }
     var timelineFocused by remember { mutableStateOf(false) }
     var autoplayFocused by remember { mutableStateOf(false) }
+    var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
 
     fun reveal() { controlsVisible = true; interaction++ }
 
@@ -478,7 +479,13 @@ fun VodPlayerScreen(
     LaunchedEffect(controlsVisible, vodPanel) {
         if (controlsVisible) {
             delay(40)
-            runCatching { if (vodPanel != VodPanel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
+            runCatching {
+                if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
+                else {
+                    barFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.CONTROLS
+                }
+            }
         } else {
             runCatching { rootFocus.requestFocus() }
         }
@@ -558,25 +565,22 @@ fun VodPlayerScreen(
                     }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
                     event.type == KeyEventType.KeyDown && controlsVisible &&
-                        event.key == Key.DirectionUp -> {
-                        when {
-                            timelineFocused -> barFocus.requestFocus()
-                            mediaKey.startsWith("ep:") && !autoplayFocused ->
-                                autoplayFocus.requestFocus()
-                            else -> return@onPreviewKeyEvent false
+                        (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+                        val next = moveCinematicFocus(
+                            focusLevel, mediaKey.startsWith("ep:"),
+                            up = event.key == Key.DirectionUp,
+                        )
+                        if (next == focusLevel) false
+                        else {
+                            focusLevel = next
+                            when (next) {
+                                CinematicFocusLevel.AUTOPLAY -> autoplayFocus.requestFocus()
+                                CinematicFocusLevel.CONTROLS -> barFocus.requestFocus()
+                                CinematicFocusLevel.SEEK -> timelineFocus.requestFocus()
+                            }
+                            reveal()
+                            true
                         }
-                        reveal()
-                        true
-                    }
-                    event.type == KeyEventType.KeyDown && controlsVisible &&
-                        event.key == Key.DirectionDown -> {
-                        when {
-                            autoplayFocused -> barFocus.requestFocus()
-                            !timelineFocused -> timelineFocus.requestFocus()
-                            else -> return@onPreviewKeyEvent false
-                        }
-                        reveal()
-                        true
                     }
                     event.type == KeyEventType.KeyDown -> { interaction++; false }
                     else -> false
@@ -666,7 +670,10 @@ fun VodPlayerScreen(
                         enabled = autoplay,
                         onChange = { settings.setSeriesAutoplay(it); interaction++ },
                         focusRequester = autoplayFocus,
-                        onFocusChanged = { autoplayFocused = it },
+                        onFocusChanged = {
+                            autoplayFocused = it
+                            if (it) focusLevel = CinematicFocusLevel.AUTOPLAY
+                        },
                         modifier = Modifier.align(Alignment.TopEnd)
                             .padding(end = 40.dp, top = 42.dp),
                     )
@@ -698,7 +705,10 @@ fun VodPlayerScreen(
                         ),
                         modifier = Modifier.weight(1f)
                             .focusRequester(timelineFocus)
-                            .onFocusChanged { timelineFocused = it.isFocused },
+                            .onFocusChanged {
+                                timelineFocused = it.isFocused
+                                if (it.isFocused) focusLevel = CinematicFocusLevel.SEEK
+                            },
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(formatDuration(durationMs), color = Color.White)
