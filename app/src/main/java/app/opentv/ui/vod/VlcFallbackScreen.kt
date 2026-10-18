@@ -323,7 +323,7 @@ fun VlcFallbackScreen(
     LaunchedEffect(controlsVisible, ready) {
         delay(55)
         runCatching {
-            if (controlsVisible && ready) seekFocus.requestFocus()
+            if (controlsVisible && ready) pauseFocus.requestFocus()
             else if (controlsVisible) pauseFocus.requestFocus()
             else rootFocus.requestFocus()
         }
@@ -349,32 +349,27 @@ fun VlcFallbackScreen(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (controlsVisible) {
-                    // Always allow Up to select timeline, and Down to return to transport.
-                    // Do not rely solely on spatial focus traversal between Compose rows.
+                    // TV has exactly 3 ordered levels: Autoplay (top), transport
+                    // (middle), seek bar (bottom). One Up/Down per transition.
+                    // Right/left and hold seeking remain entirely within the seek widget.
                     when (event.key) {
-                        Key.DirectionUp -> {
-                            when {
-                                showEpisodeControls && timelineFocused -> {
-                                    autoplayFocus.requestFocus(); showControls(); true
-                                }
-                                !timelineFocused && !autoplayFocused -> {
-                                    seekFocus.requestFocus(); showControls(); true
-                                }
-                                else -> false
+                        Key.DirectionUp -> when {
+                            timelineFocused -> {
+                                pauseFocus.requestFocus(); showControls(); true
                             }
+                            showEpisodeControls && !autoplayFocused -> {
+                                autoplayFocus.requestFocus(); showControls(); true
+                            }
+                            else -> false
                         }
-                        Key.DirectionDown -> {
-                            when {
-                                timelineFocused -> {
-                                    // Focus from seek bar must return to controls even when
-                                    // the previous autoplay focus callback arrives late.
-                                    pauseFocus.requestFocus(); showControls(); true
-                                }
-                                showEpisodeControls && autoplayFocused -> {
-                                    seekFocus.requestFocus(); showControls(); true
-                                }
-                                else -> false
+                        Key.DirectionDown -> when {
+                            showEpisodeControls && autoplayFocused -> {
+                                pauseFocus.requestFocus(); showControls(); true
                             }
+                            !timelineFocused -> {
+                                seekFocus.requestFocus(); showControls(); true
+                            }
+                            else -> false
                         }
                         else -> {
                             if (event.key != Key.Back && event.key != Key.Escape) interaction++
@@ -621,6 +616,11 @@ fun VlcFallbackScreen(
                         .onPreviewKeyEvent { event ->
                             if (event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionUp) {
+                                if (showEpisodeControls) autoplayFocus.requestFocus()
+                                showControls()
+                                showEpisodeControls
+                            } else if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionDown) {
                                 seekFocus.requestFocus()
                                 showControls()
                                 true
