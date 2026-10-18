@@ -1,3 +1,11 @@
+## v0.1.11.6 targeted TV acceptance
+
+1. HOME: Movies and Series tiles each have a subtle bottom strip showing Updated: [date/time] or Never updated, with a distinct focusable refresh icon. Opening a tile uses the main body; focusing and pressing OK on its bottom strip updates ONLY that type. Confirm VOD browser pages no longer contain the strip. Other home cards unchanged.
+2. Trigger a full catalogue update, then open Movies and Series. Both must be navigable and display SAVED titles during the update. Status/date on tiles reflect successful updates, not the start time. Tap refresh multiple times: the work should be coalesced, show progress, and never block existing titles.
+3. Settings > Provider logins: enter at least 8-character passphrase by clicking inside its text box (remote OK). Dismiss keyboard with Back, then press Export. Observe a **modal** confirmation with Documents/KokySosy/manual-logins.kspc if successful. Wrong permission or missing file must show a modal error, not silently return focus to passphrase. Test restore using same passphrase and verify no duplicate providers. DO NOT uninstall sole credentials just to test before backup verified.
+4. Settings text fields: highlight EPG guide name/URL, TMDB key/token, language-search, password-protected manual backup, Parental PIN, NAS storage settings, and Stremio add-on URL. Native Android keyboard must NOT open until pressing OK/click on field; Back dismisses it and restores navigation.
+5. Login page RHS: unfocused Playlist/Username/Password/Server URL should have NO pale white rectangular frame, and should remain legible. Focus moves yellow outline and pale background to one selected input only; clicking field starts keyboard.
+6. Replay stable episode and long-seek tests unchanged, plus 3-level autoplay/buttons/seek D-pad. Screensaver still untested. Mark this alpha unapproved pending physical device tests.
 ## VOD independent refresh test for v0.1.11.5
 
 - Open Movies: verify bottom **Movies last updated** bar showing existing common catalogue date or Never, plus Refresh icon.

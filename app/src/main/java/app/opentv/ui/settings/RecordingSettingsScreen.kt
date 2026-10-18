@@ -558,12 +558,10 @@ private fun Field(
     onChange: (String) -> Unit,
 ) {
     var revealed by remember { mutableStateOf(false) }
-    OutlinedTextField(
+    app.opentv.ui.onboarding.TvNativeTextField(
         value = value,
         onValueChange = onChange,
-        label = { Text(label) },
-        placeholder = { if (placeholder.isNotEmpty()) Text(placeholder) },
-        singleLine = true,
+        label = if (placeholder.isNotEmpty()) "$label · $placeholder" else label,
         // A recording password is a real credential (a NAS login) — don't paint it on a living-room
         // screen. Masked by default, with an eye to reveal it if you need to check what you typed.
         visualTransformation = if (isPassword && !revealed) PasswordVisualTransformation() else VisualTransformation.None,

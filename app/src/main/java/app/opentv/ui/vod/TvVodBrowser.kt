@@ -112,16 +112,6 @@ internal fun TvVodBrowser(
     val recentResumes by viewModel.continueWatching.collectAsState()
     val sources by viewModel.sources.collectAsState()
     val sourceId by viewModel.selectedVodSource.collectAsState()
-    val refreshWorkName = remember(isSeries, sourceId) {
-        VodSectionSyncWorker.workName(isSeries, sourceId)
-    }
-    val workInfos by remember(context, refreshWorkName) {
-        WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(refreshWorkName)
-    }.collectAsState(initial = emptyList())
-    val work = workInfos.lastOrNull()
-    val refreshingSection = workInfos.any { !it.state.isFinished }
-    val sectionRefreshFailed = work?.state == WorkInfo.State.FAILED
-    val workPercent = work?.progress?.getInt("percent", 0) ?: 0
 
     var selection by rememberSaveable(isSeries) { mutableStateOf("all") }
     var categoryQuery by rememberSaveable(isSeries) { mutableStateOf("") }
@@ -150,18 +140,6 @@ internal fun TvVodBrowser(
     }
     val categories = remember(categoriesState, categoryQuery) {
         categoriesState.filter { it.name.contains(categoryQuery.trim(), ignoreCase = true) }
-    }
-    val updateSources = remember(sources, sourceId) {
-        sources.filter { it.enabled && it.kind == SourceKind.XTREAM &&
-            (sourceId == null || it.id == sourceId) }
-    }
-    val sectionLastUpdated = remember(lastUpdateRevision, isSeries, updateSources) {
-        settings.lastVodSectionSynced(isSeries, updateSources.map { it.id })
-    }
-    val sectionLastUpdateText = remember(sectionLastUpdated) {
-        if (sectionLastUpdated <= 0L) "Never updated"
-        else DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-            .format(Date(sectionLastUpdated))
     }
     val totalCount = categoryCounts.values.sum()
     val recentCount = if (isSeries) recentlySeries.size else recentlyMovies.size
@@ -358,58 +336,7 @@ internal fun TvVodBrowser(
                 Text(if (titleQuery.isNotBlank()) "No matching titles" else "No titles in this category",
                     color = Color.LightGray)
             }
-            // Persistent bottom status for THIS VOD type. A click queues a scoped
-            // WorkManager job (Movies or Series), never Live or the whole catalogue.
-            var updateBarFocused by remember(isSeries) { mutableStateOf(false) }
-            val updateEnabled = updateSources.isNotEmpty() && !refreshingSection && !isSyncing
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)
-                    .background(
-                        if (updateBarFocused) Color(0xFF233750) else Color(0xFF121D2E),
-                        RoundedCornerShape(12.dp),
-                    )
-                    .border(
-                        if (updateBarFocused) 2.dp else 1.dp,
-                        if (updateBarFocused) Color(0xFF69DFF6) else Color.White.copy(alpha = .12f),
-                        RoundedCornerShape(12.dp),
-                    )
-                    .onFocusChanged { updateBarFocused = it.isFocused }
-                    .clickable(enabled = updateEnabled) {
-                        VodSectionSyncWorker.refresh(context, isSeries, sourceId)
-                    }
-                    .padding(horizontal = 13.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    "${if (isSeries) "Series" else "Movies"} last updated: $sectionLastUpdateText",
-                    color = Color.White.copy(alpha = if (updateEnabled) .90f else .70f),
-                    fontSize = 13.sp,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (refreshingSection) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = Color(0xFF69DFF6),
-                    )
-                    Text("${workPercent}%", color = Color.White, fontSize = 12.sp)
-                } else {
-                    if (sectionRefreshFailed) {
-                        Text("Update failed · Retry", fontSize = 12.sp,
-                            color = Color(0xFFFFC18A))
-                    } else if (updateSources.isEmpty()) {
-                        Text("No compatible provider", fontSize = 12.sp,
-                            color = Color.LightGray)
-                    }
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh this VOD section",
-                        tint = if (updateEnabled) Color(0xFF80DDF5)
-                            else Color.White.copy(alpha = .35f),
-                        modifier = Modifier.size(22.dp))
-                }
-            }
+
         }
     }
     resetTarget?.let { item ->

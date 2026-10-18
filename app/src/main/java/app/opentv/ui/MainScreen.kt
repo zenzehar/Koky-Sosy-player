@@ -137,11 +137,11 @@ fun MainScreen(
         CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
         CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
         CatalogueGate.Phase.BUILDING, CatalogueGate.Phase.FAILED)
-    fun allowTab(candidate: Tab): Boolean = !catalogueGated || when (candidate) {
-        Tab.MOVIES -> catalogueStatus.phase == CatalogueGate.Phase.COMPLETE
-        Tab.SHOWS -> catalogueStatus.phase == CatalogueGate.Phase.COMPLETE
-        Tab.LIVE -> catalogueStatus.completed >= 1
-        Tab.RECORDINGS -> true
+    // Browsing SAVED Movies and Series must never depend on the live/full sync gate.
+    // The Room upsert works in the background and the catalog remains accessible.
+    fun allowTab(candidate: Tab): Boolean = when (candidate) {
+        Tab.MOVIES, Tab.SHOWS, Tab.RECORDINGS -> true
+        Tab.LIVE -> !catalogueGated || catalogueStatus.completed >= 1
     }
 
     // If the selected tab gets hidden (its type toggled off while it's open), drop back to the

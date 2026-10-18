@@ -41,6 +41,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import app.opentv.data.work.VodSectionSyncWorker
+import app.opentv.core.AppSettings
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import app.opentv.core.ServiceLocator
 import app.opentv.data.model.Source
@@ -85,15 +90,61 @@ fun KokyDashboardScreen(
     val initialFocus = remember { FocusRequester() }
     val context = LocalContext.current
     val update by CatalogueGate.state.collectAsState()
-    val userSettings = remember(context) { app.opentv.core.AppSettings.get(context) }
+    val userSettings = remember(context) { AppSettings.get(context) }
+    val providers by remember(context) { ServiceLocator.get(context).sourceRepository.observeAll() }
+        .collectAsState(initial = emptyList())
+    val providerIds = remember(providers) {
+        providers.filter { it.enabled && it.kind == SourceKind.XTREAM }.map { it.id }
+    }
+    val updateRevision by userSettings.vodSectionRevision.collectAsState()
+    val movieLastSync = remember(updateRevision, providerIds) {
+        userSettings.lastVodSectionSynced(false, providerIds)
+    }
+    val seriesLastSync = remember(updateRevision, providerIds) {
+        userSettings.lastVodSectionSynced(true, providerIds)
+    }
+    val movieWork by remember(context) {
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow(VodSectionSyncWorker.workName(false, null))
+    }.collectAsState(initial = emptyList<WorkInfo>())
+    val seriesWork by remember(context) {
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow(VodSectionSyncWorker.workName(true, null))
+    }.collectAsState(initial = emptyList<WorkInfo>())
+    val manualMovies = movieWork.firstOrNull { !it.state.isFinished }
+    val manualSeries = seriesWork.firstOrNull { !it.state.isFinished }
+    val runningFullMovies = update.phase == CatalogueGate.Phase.MOVIES
+    val runningFullSeries = update.phase == CatalogueGate.Phase.SERIES
+    val fullUpdateActive = update.phase in setOf(
+        CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
+        CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
+        CatalogueGate.Phase.BUILDING,
+    )
+    val movieFooter = VodTileUpdate(
+        isSeries = false, lastSyncedAt = movieLastSync,
+        inProgress = manualMovies != null || runningFullMovies,
+        progress = if (manualMovies != null) manualMovies.progress.getInt("percent", 0)
+            else (update.movieFraction * 100).toInt(),
+        failed = movieWork.firstOrNull()?.state == WorkInfo.State.FAILED,
+        enabled = providerIds.isNotEmpty() && manualMovies == null && !fullUpdateActive,
+    )
+    val seriesFooter = VodTileUpdate(
+        isSeries = true, lastSyncedAt = seriesLastSync,
+        inProgress = manualSeries != null || runningFullSeries,
+        progress = if (manualSeries != null) manualSeries.progress.getInt("percent", 0)
+            else (update.seriesFraction * 100).toInt(),
+        failed = seriesWork.firstOrNull()?.state == WorkInfo.State.FAILED,
+        enabled = providerIds.isNotEmpty() && manualSeries == null && !fullUpdateActive,
+    )
     val due = CatalogueGate.due(userSettings)
     val waiting = update.phase in setOf(CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
         CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
         CatalogueGate.Phase.BUILDING, CatalogueGate.Phase.FAILED)
     val gated = hasSources && (due || waiting)
     val liveReady = !gated || update.completed >= 1
-    val moviesReady = !gated || update.phase == CatalogueGate.Phase.COMPLETE
-    val seriesReady = !gated || update.phase == CatalogueGate.Phase.COMPLETE
+    // Existing VOD in Room remains browseable throughout EVERY sync phase.
+    val moviesReady = true
+    val seriesReady = true
     val visualProgress by animateFloatAsState(
         targetValue = if (gated) update.completed / 3f else 1f,
         animationSpec = tween(durationMillis = 1300), label = "catalogueProgress",
@@ -134,8 +185,7 @@ fun KokyDashboardScreen(
                 fontWeight = FontWeight.Bold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
-            HeaderAction(Icons.Filled.Search, "Master Search",
-                onClick = { if (!gated) onSearch() })
+            HeaderAction(Icons.Filled.Search, "Master Search", onSearch)
             HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
             HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
         }
@@ -158,18 +208,24 @@ fun KokyDashboardScreen(
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     DashboardTile(
                         label = "MOVIES", icon = Icons.Filled.Movie,
-                        locked = !moviesReady, loading = gated && update.phase == CatalogueGate.Phase.MOVIES,
-                        ready = gated && moviesReady,
-                        progress = if (moviesReady) 1f else update.movieFraction,
+                        locked = false, loading = false,
+                        progress = 1f,
+                        vodUpdate = movieFooter,
+                        onVodRefresh = {
+                            VodSectionSyncWorker.refresh(context, isSeries = false, sourceId = null)
+                        },
                         shades = listOf(Color(0xFFDB2D53), Color(0xFFF49A3D)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = if (hasSources) onMovies else onAddProvider,
                     )
                     DashboardTile(
                         label = "SERIES", icon = Icons.Filled.Tv,
-                        locked = !seriesReady, loading = gated && update.phase == CatalogueGate.Phase.SERIES,
-                        ready = gated && seriesReady,
-                        progress = if (seriesReady) 1f else update.seriesFraction,
+                        locked = false, loading = false,
+                        progress = 1f,
+                        vodUpdate = seriesFooter,
+                        onVodRefresh = {
+                            VodSectionSyncWorker.refresh(context, isSeries = true, sourceId = null)
+                        },
                         shades = listOf(Color(0xFF953FAF), Color(0xFF4B9EDD)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = if (hasSources) onSeries else onAddProvider,
@@ -256,6 +312,8 @@ private fun DashboardTile(
     loading: Boolean = false,
     ready: Boolean = false,
     progress: Float = 1f,
+    vodUpdate: VodTileUpdate? = null,
+    onVodRefresh: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -268,13 +326,13 @@ private fun DashboardTile(
     )
     Box(
         modifier.clip(shape)
-            .onFocusChanged { focused = it.isFocused }
-            .border(if (focused) 3.dp else 0.dp, Color.White, shape)
-            .clickable(enabled = !locked, onClick = onClick),
+            .onFocusChanged { focused = it.hasFocus }
+            .border(if (focused) 3.dp else 0.dp, Color.White, shape),
         contentAlignment = Alignment.Center,
     ) {
         Column(
-            Modifier.fillMaxSize().background(Brush.verticalGradient(shades)),
+            Modifier.fillMaxSize().background(Brush.verticalGradient(shades))
+                .clickable(enabled = !locked, onClick = onClick),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -284,6 +342,14 @@ private fun DashboardTile(
             Text(label, color = Color.White, fontWeight = FontWeight.SemiBold,
                 fontSize = if (compact) 14.sp else 27.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (vodUpdate != null) {
+            DashboardVodUpdateBar(
+                state = vodUpdate,
+                onRefresh = onVodRefresh,
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .fillMaxWidth().padding(horizontal = 9.dp, vertical = 9.dp),
+            )
         }
         if (locked || (loading && !ready)) {
             // The uncoloured area shrinks from TOP to BOTTOM so the tile itself
@@ -307,5 +373,71 @@ private fun DashboardTile(
                 )
             }
         }
+    }
+}
+
+
+private data class VodTileUpdate(
+    val isSeries: Boolean,
+    val lastSyncedAt: Long,
+    val inProgress: Boolean,
+    val progress: Int,
+    val failed: Boolean,
+    val enabled: Boolean,
+)
+
+/** Independent focusable refresh action INSIDE the bottom of each home-screen VOD card. */
+@Composable
+private fun DashboardVodUpdateBar(
+    state: VodTileUpdate,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(11.dp)
+    val time = remember(state.lastSyncedAt) {
+        if (state.lastSyncedAt <= 0L) "Never updated"
+        else DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            .format(Date(state.lastSyncedAt))
+    }
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(Color(0xD8131A2C))
+            .border(
+                if (focused) 2.dp else 1.dp,
+                if (focused) Color(0xFF75DCEB) else Color.White.copy(alpha = .22f),
+                shape,
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(enabled = state.enabled, onClick = onRefresh)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            when {
+                state.inProgress -> "Updating ${if (state.isSeries) "Series" else "Movies"} · ${state.progress.coerceIn(0, 100)}%"
+                else -> "Updated: $time"
+            },
+            color = Color.White,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        when {
+            state.inProgress ->
+                CircularProgressIndicator(modifier = Modifier.size(17.dp),
+                    strokeWidth = 2.dp, color = Color.White)
+            state.failed && state.enabled ->
+                Text("Retry", color = Color(0xFFFFC4A5), fontSize = 11.sp)
+        }
+        Icon(
+            Icons.Filled.Refresh,
+            contentDescription = "Refresh ${if (state.isSeries) "Series" else "Movies"} catalogue",
+            tint = Color.White.copy(alpha = if (state.enabled) 1f else .45f),
+            modifier = Modifier.size(19.dp),
+        )
     }
 }

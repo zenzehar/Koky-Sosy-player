@@ -29,7 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import app.opentv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -225,11 +225,10 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 title = { Text(stringResource(R.string.settings_section_language)) },
                 text = {
                     Column(Modifier.fillMaxWidth()) {
-                        OutlinedTextField(
+                        TvNativeTextField(
                             value = languageSearch,
                             onValueChange = { languageSearch = it },
-                            label = { Text("Search languages") },
-                            singleLine = true,
+                            label = "Search languages — OK to type",
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(10.dp))
@@ -401,19 +400,17 @@ private fun TmdbKeySection(settings: AppSettings, onOpenWebManager: () -> Unit) 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
+        TvNativeTextField(
             value = field,
             onValueChange = { field = it.trim() },
-            singleLine = true,
-            label = { Text(stringResource(R.string.settings_tmdb_key_label)) },
+            label = stringResource(R.string.settings_tmdb_key_label),
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
+        TvNativeTextField(
             value = tokenField,
             onValueChange = { tokenField = it.trim() },
-            singleLine = true,
-            label = { Text("TMDB API Read Access Token (optional)") },
+            label = "TMDB API Read Access Token (optional)",
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(8.dp))
