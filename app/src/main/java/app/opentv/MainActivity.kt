@@ -289,17 +289,33 @@ private fun OpenTvApp(isTelevision: Boolean) {
     // worst possible first impression.
     val start = if (sourcesUi.sources.isEmpty()) Routes.ADD_SOURCE else Routes.HOME
     val launchContext = androidx.compose.ui.platform.LocalContext.current
-    LaunchedEffect(sourcesUi.loaded) {
-        if (sourcesUi.loaded && sourcesUi.sources.any { it.enabled }) {
-            val settings = AppSettings.get(launchContext)
-            // The full-catalogue launcher includes Live TV; never race a second
-            // channel import against it. If the full catalogue is fresh but Live
-            // has no stamp (or is stale), refresh just Live instead.
-            if (CatalogueGate.due(settings)) {
-                SyncWorker.refreshAtLaunch(launchContext)
-            } else {
-                LiveSectionSyncWorker.refreshAtLaunch(launchContext)
-            }
+    // Include provider changes and the end of provider validation in the effect
+    // keys. The earlier loaded-only effect ran before a NEW login had been
+    // added, and was never invoked again for that same app session.
+    val enabledSourceIds = sourcesUi.sources.filter { it.enabled }.map { it.id }
+    LaunchedEffect(sourcesUi.loaded, sourcesUi.syncing, enabledSourceIds) {
+        if (!sourcesUi.loaded || sourcesUi.syncing || enabledSourceIds.isEmpty()) return@LaunchedEffect
+        val settings = AppSettings.get(launchContext)
+        if (settings.catalogueRefreshHours.value == 0) return@LaunchedEffect
+        val phase = CatalogueGate.state.value.phase
+        if (phase in setOf(CatalogueGate.Phase.WAITING, CatalogueGate.Phase.LIVE,
+                CatalogueGate.Phase.MOVIES, CatalogueGate.Phase.SERIES,
+                CatalogueGate.Phase.BUILDING)) return@LaunchedEffect
+        val xtreamIds = sourcesUi.sources.filter {
+            it.enabled && it.kind == app.opentv.data.model.SourceKind.XTREAM
+        }.map { it.id }
+        val missingMovies = settings.moviesEnabled.value && xtreamIds.isNotEmpty() &&
+            settings.lastVodSectionSynced(false, xtreamIds) == 0L
+        val missingSeries = settings.seriesEnabled.value && xtreamIds.isNotEmpty() &&
+            settings.lastVodSectionSynced(true, xtreamIds) == 0L
+        // A global success timestamp must not suppress a first-run Movies/Series
+        // refresh when either section has never been successfully imported.
+        if (CatalogueGate.due(settings) || missingMovies || missingSeries) {
+            SyncWorker.refreshAtLaunch(
+                launchContext, initialSectionsMissing = missingMovies || missingSeries,
+            )
+        } else {
+            LiveSectionSyncWorker.refreshAtLaunch(launchContext)
         }
     }
 
