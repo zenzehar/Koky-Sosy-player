@@ -1,3 +1,21 @@
+# v0.1.11.5 TV navigation preview — user feedback 18 October 2026
+
+Source: v0.1.11.4 test branch. Approved v0.1.11.0 golden milestone remains untouched.
+
+Real-TV results on v0.1.11.4: user confirmed prior focus fix works but requested exactly THREE levels, single key press up/down: autoplay TOP, icon buttons MIDDLE, seek bar BOTTOM. No buffering stutter recurred; quick spinner at video start was observed. Screensaver recovery not yet tested. Searchable language choice accepted. Credential backup still launched missing system document picker despite shared-folder access. New requests: Watch/Resume must be initial focus when entering movie/series title; login page should not draw white borders on unfocused items.
+
+Implemented:
+- VLC: initial center playback button focus; Up center->autoplay and Down center->seek; from autoplay Down returns to buttons; from seek Up returns to buttons. Native seeking/hold logic unchanged.
+- Media3: separate seek slider focus target, same three levels. Existing slider callbacks unchanged.
+- Catalogue frequency: compact selected-value menu and six options in a remote-friendly dialog, matching language picker.
+- Manual backup on TVs with granted broad document-folder access now directly writes/reads passphrase-encrypted Documents/KokySosy/manual-logins.kspc, before considering Android ACTION_CREATE_DOCUMENT/OPEN_DOCUMENT. This avoids a falsely resolvable system file-picker app. If permission is unavailable, SAF fallback is still attempted. No credential plaintext.
+- Movie detail retries primary Watch/Resume focus until LazyColumn button attaches; series waits for a playable episode before requesting focus once. Does not refocus after season changes.
+- Login idle input boxes hide border completely until focused, including editing state; kind, Restore backup and Test Connection OutlinedButtons use no static white outline. Clears old focus indications when navigating away.
+- Keeps v0.1.11.4 spinner instrumentation and screensaver work UNCHANGED. User has not verified screensaver. No codec, VLC 3.6.1, streaming, buffer size or seek policy changes.
+- Device-credential automatic restore after uninstall remains BEST-EFFORT due to Android permission reset/signature-bound Android ID; prior beta debug APK signatures may rotate. Manual file recovery on same device still requires passphrase. Do not uninstall sole working credentials without a safe independent backup.
+
+Do not merge/approve before actual TV hardware validation.
+
 v0.1.11.4 TV Recovery Preview (18 October 2026)
 
 User TV findings: D-pad between seek bar and autoplay but not buttons; screensaver interrupt and audio-only resume; Android TV missing file picker; languages clutter settings; recurring stutter.
