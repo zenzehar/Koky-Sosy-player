@@ -108,5 +108,36 @@ object PersistentDeviceCredentials {
         }.getOrDefault(false)
     }
 
+    /** SAF-less manual file for TV boxes without a document picker; requires explicit permission. */
+    private fun manualFile(): File = File(
+        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), FOLDER),
+        "manual-logins.kspc",
+    )
+
+    fun saveManualBackup(context: Context, bytes: ByteArray): Boolean {
+        if (!canRead(context) || bytes.size > MAX_BYTES || bytes.isEmpty()) return false
+        return runCatching {
+            synchronized(syncLock) {
+                val file = manualFile()
+                require(file.parentFile?.mkdirs() == true || file.parentFile?.isDirectory == true)
+                file.outputStream().use { it.write(bytes); it.fd.sync() }
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    fun loadManualBackup(context: Context): ByteArray? {
+        if (!canRead(context)) return null
+        return runCatching {
+            synchronized(syncLock) {
+                val file = manualFile()
+                if (!file.isFile || file.length() <= 0 || file.length() > MAX_BYTES) null
+                else file.readBytes()
+            }
+        }.getOrNull()
+    }
+
+    fun manualLocationLabel(): String = "Documents/$FOLDER/manual-logins.kspc"
+
     fun locationLabel(): String = "Documents/$FOLDER/$NAME"
 }
