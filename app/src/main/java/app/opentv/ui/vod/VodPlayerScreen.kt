@@ -269,6 +269,8 @@ fun VodPlayerScreen(
     val barFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
     val autoplayFocus = remember { FocusRequester() }
+    val timelineFocus = remember { FocusRequester() }
+    var timelineFocused by remember { mutableStateOf(false) }
     var autoplayFocused by remember { mutableStateOf(false) }
 
     fun reveal() { controlsVisible = true; interaction++ }
@@ -555,17 +557,24 @@ fun VodPlayerScreen(
                         true
                     }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
-                    event.type == KeyEventType.KeyDown &&
-                        controlsVisible && mediaKey.startsWith("ep:") &&
-                        event.key == Key.DirectionUp && !autoplayFocused -> {
-                        autoplayFocus.requestFocus()
+                    event.type == KeyEventType.KeyDown && controlsVisible &&
+                        event.key == Key.DirectionUp -> {
+                        when {
+                            timelineFocused -> barFocus.requestFocus()
+                            mediaKey.startsWith("ep:") && !autoplayFocused ->
+                                autoplayFocus.requestFocus()
+                            else -> return@onPreviewKeyEvent false
+                        }
                         reveal()
                         true
                     }
-                    event.type == KeyEventType.KeyDown &&
-                        controlsVisible && autoplayFocused &&
+                    event.type == KeyEventType.KeyDown && controlsVisible &&
                         event.key == Key.DirectionDown -> {
-                        barFocus.requestFocus()
+                        when {
+                            autoplayFocused -> barFocus.requestFocus()
+                            !timelineFocused -> timelineFocus.requestFocus()
+                            else -> return@onPreviewKeyEvent false
+                        }
                         reveal()
                         true
                     }
@@ -687,7 +696,9 @@ fun VodPlayerScreen(
                             activeTrackColor = CinemaBlue,
                             inactiveTrackColor = CinemaTrack,
                         ),
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f)
+                            .focusRequester(timelineFocus)
+                            .onFocusChanged { timelineFocused = it.isFocused },
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(formatDuration(durationMs), color = Color.White)
