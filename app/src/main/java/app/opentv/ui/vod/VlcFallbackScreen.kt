@@ -73,6 +73,7 @@ import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
 import app.opentv.player.SeekDirection
 import app.opentv.player.TvSeekPolicy
+import app.opentv.player.VlcSeekClock
 import app.opentv.player.VlcPlaybackHealth
 import app.opentv.diagnostics.PlaybackDiagnostics
 import app.opentv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -120,6 +121,10 @@ fun VlcFallbackScreen(
     var ended by remember(streamUrl) { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
+    // LibVLC may report the pre-seek clock for several polling cycles. Keep
+    // repeated +/-10 presses anchored to the latest requested target until
+    // the native clock catches up or a short bounded timeout expires.
+    val seekClock = remember(player) { VlcSeekClock() }
     var durationMs by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
@@ -171,7 +176,7 @@ fun VlcFallbackScreen(
         val capped = target.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
         player.setTime(capped)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
-        positionMs = capped
+        positionMs = seekClock.requested(capped, android.os.SystemClock.elapsedRealtime())
         showControls()
     }
 
@@ -227,8 +232,8 @@ fun VlcFallbackScreen(
             runCatching {
                 val length = player.length
                 if (length > 0L) durationMs = length
-                if (!scrubbing) positionMs = player.time.coerceAtLeast(0L)
                 val tick = android.os.SystemClock.elapsedRealtime()
+                if (!scrubbing) positionMs = seekClock.reconcile(player.time, tick)
                 val health = diagHealth.sample(tick, positionMs, player.isPlaying, paused)
                 healthSnapshot = health
                 PlaybackDiagnostics.sample(positionMs, durationMs, health.interruptions)
@@ -242,7 +247,9 @@ fun VlcFallbackScreen(
                     previousHealth = health.state
                 }
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
-                    player.setTime(initialPositionMs.coerceIn(0L, durationMs))
+                    val initialTarget = initialPositionMs.coerceIn(0L, durationMs)
+                    player.setTime(initialTarget)
+                    positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
                 }
                 if (ready && positionMs - lastSaved >= 10_000L && durationMs > 0L) {
