@@ -20,6 +20,8 @@ jobs:
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+      GOOGLE_TV_CLIENT_ID: ${{ secrets.GOOGLE_TV_CLIENT_ID }}
+      GOOGLE_TV_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_CLIENT_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
