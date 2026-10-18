@@ -62,7 +62,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.10-live-access-precise-seek'
+      github.head_ref == 'fix/v0.1.11.11-startup-refresh'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.10-live-access-precise-seek \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.10_TV_live_access_precise_seek.apk" \
+          gh release create v0.1.11.11-startup-refresh \
+            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.11_TV_startup_refresh.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.10 TV Live access and precise seek preview (hardware test pending)" \
-            --notes "UNAPPROVED TV TEST: fixes v0.1.11.9 Live TV stuck WAITING by removing obsolete full-catalogue lock from Dashboard and navigation; keeps existing channels available while updating. Adds fallback per-type Live automatic refresh on launch when stale, without racing full refresh. Requests precise (not keyframe-fast) LibVLC seeking for +/-10s and resume while retaining bounded seek-clock reconciliation. Stable v0.1.11.8 milestone untouched. Screensaver remains untested." \
+            --title "Koky & Sosy v0.1.11.11 TV initial refresh preview (hardware test pending)" \
+            --notes "UNAPPROVED TV TEST: initial section refresh on first/new provider launch when Movies/Series stamps are missing, even when legacy global stamp is fresh; Live/Movies/Series onboarding now records successful per-provider stamps. Keeps v0.1.11.10 Live gate and precise seek improvements (device-specific accuracy remains to be validated). Approved v0.1.11.8 protected. Google Drive sync proposed in issue #33, NOT implemented pending OAuth registration. Screensaver remains untested." \
             --prerelease
