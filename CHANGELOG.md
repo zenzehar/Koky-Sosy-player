@@ -1,3 +1,18 @@
+# v0.1.11.3 TV alpha — cinematic UI refinement and remote navigation
+
+**User acceptance of previous build:** User reported v0.1.11.2 GUI "Perfect!" and requested finer polish, removal of captions/connectors, transparent buttons and accessible autoplay.
+
+**Changes (presentation/navigation ONLY):**
+- Removed explanatory text, caption connector stems, and dots under all transport icons.
+- Identical 74 x 74 dp rounded-square geometry for every button, 22 dp corner radius, balanced 19 dp gaps and 35 dp crisp white icons. Removed artificially always-emphasized pause frame and shadows outside hitboxes. Focus highlighting is exactly the *button shape* with a thin blue outline, only while actually focused. Pause and episode buttons all follow the same focus rule.
+- Button face is only **26% opaque** (74% transparent); focused face no more than 30% opaque (70% transparent). Icons remain legible.
+- Reduced transport footprint and moved icon row down nearer the seek timeline without obstructing it.
+- Autoplay is a single D-pad focusable *whole pill*, using a semantic Switch role and eliminating the duplicate inner focus target. VLC remote focus now follows transport → Up seek timeline → Up autoplay; Down from autoplay returns to seek timeline; Down from seek returns to transport. Media3 remote Up from transport/seek -> autoplay and Down from autoplay -> central transport button.
+- Preserves existing movie vs series control visibility, top-left title, upper-right autoplay visual, blue timeline and original screenshot layout. No extra everyday controls.
+- **Absolutely no change** to v0.1.11.0 LibVLC 3.6.1 player creation, seek policy, timing, back/exit lifecycle, decoder/cache, native seek calculations, source URLs, or Media3 seek callbacks.
+
+**Not yet accepted:** Android CI passing does not demonstrate real remote focus or pixel-perfect appearance; user must test. Golden approved source remains unchanged and PR is draft.
+
 # v0.1.11.2 TV alpha — cinematic video player overlay
 
 **Reference:** Exact user-supplied Arabic 16:9 player screenshot, 18 October 2026.
