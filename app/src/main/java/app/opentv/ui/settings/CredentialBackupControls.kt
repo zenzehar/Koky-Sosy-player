@@ -82,23 +82,46 @@ fun CredentialBackupControls(
     fun saveWithoutPicker() {
         busy = true
         scope.launch {
-            val success = runCatching {
+            // The old Boolean return hid whether the failure was permission,
+            // shared storage, writing, or encryption. Never display exception
+            // messages: they might contain sensitive source/provider data.
+            val attempt = runCatching {
                 withContext(Dispatchers.IO) {
-                    val data = repo.observeAll().first()
-                    val encrypted = ProviderCredentialBackup.encrypt(data, passphrase)
-                    PersistentDeviceCredentials.saveManualBackup(context, encrypted)
+                    val sources = repo.observeAll().first()
+                    val encrypted = ProviderCredentialBackup.encrypt(sources, passphrase)
+                    PersistentDeviceCredentials.saveManualBackupWithStatus(context, encrypted)
                 }
-            }.getOrDefault(false)
-            if (success) {
+            }
+            val result = attempt.getOrNull()
+            if (result == PersistentDeviceCredentials.ManualBackupWriteResult.SAVED) {
                 passphrase = ""
                 report("Backup saved successfully",
-                    "Encrypted provider backup saved at: " +
+                    "Encrypted provider backup saved at " +
                         PersistentDeviceCredentials.manualLocationLabel() +
-                        ". This file survives app uninstall. Keep the passphrase safe.")
-            } else report("Backup failed",
-                "Couldn't write the encrypted backup at " +
-                    PersistentDeviceCredentials.manualLocationLabel() +
-                    ". Check All files access and available space.")
+                        ". This file survives uninstall. Keep the passphrase safe.")
+            } else {
+                val cause = when (result) {
+                    PersistentDeviceCredentials.ManualBackupWriteResult.PERMISSION_REQUIRED ->
+                        "B01: All files access has not been granted to this installation. " +
+                            "Use 'Allow shared device-folder access' in Device vault settings."
+                    PersistentDeviceCredentials.ManualBackupWriteResult.INVALID_SIZE ->
+                        "B02: The encrypted backup is empty or exceeds the 128 KB limit."
+                    PersistentDeviceCredentials.ManualBackupWriteResult.STORAGE_UNAVAILABLE ->
+                        "B03: Shared storage is not currently mounted for writing."
+                    PersistentDeviceCredentials.ManualBackupWriteResult.FOLDER_UNAVAILABLE ->
+                        "B04: Could not create Documents/KokySosy. Check TV storage permissions."
+                    PersistentDeviceCredentials.ManualBackupWriteResult.WRITE_FAILED ->
+                        "B05: Android refused writing the encrypted file. Confirm All files " +
+                            "access and free storage on this TV."
+                    PersistentDeviceCredentials.ManualBackupWriteResult.VERIFY_FAILED ->
+                        "B06: Backup write could not be verified; do not uninstall this app."
+                    else -> "B07: Could not prepare the encrypted provider backup. " +
+                        "The passphrase must be at least eight characters, and the " +
+                        "backup supports up to 50 providers."
+                }
+                report("Backup failed", "$cause\nDestination: " +
+                    PersistentDeviceCredentials.manualLocationLabel())
+            }
             busy = false
         }
     }
