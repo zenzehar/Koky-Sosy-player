@@ -103,6 +103,14 @@ fun SettingsHubScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmFactoryReset = false
+                    // Clear persistent shared credentials BEFORE private app data.
+                    if (app.opentv.core.PersistentDeviceCredentials.enabled(context) &&
+                        !app.opentv.core.PersistentDeviceCredentials.deleteForFactoryReset(context)) {
+                        Toast.makeText(context,
+                            "Storage access is required to erase the saved credential vault. No reset performed.",
+                            Toast.LENGTH_LONG).show()
+                        return@TextButton
+                    }
                     val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                     if (!manager.clearApplicationUserData()) {
                         Toast.makeText(context, "Reset could not be started", Toast.LENGTH_LONG).show()
