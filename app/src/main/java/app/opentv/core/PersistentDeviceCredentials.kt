@@ -64,7 +64,17 @@ object PersistentDeviceCredentials {
     }
 
     fun write(context: Context, sources: List<Source>): Boolean {
-        if (!enabled(context) || !canRead(context) || sources.isEmpty()) return false
+        if (!enabled(context) || !canRead(context)) return false
+        if (sources.isEmpty()) {
+            // Deleting the final provider must not leave an outdated secret on disk
+            // which would silently resurrect previously removed login information.
+            return runCatching {
+                synchronized(syncLock) {
+                    val saved = vaultFile()
+                    !saved.exists() || saved.delete()
+                }
+            }.getOrDefault(false)
+        }
         return runCatching {
             val encrypted = ProviderCredentialBackup.encrypt(sources, keyMaterial(context))
             require(encrypted.size <= MAX_BYTES)
