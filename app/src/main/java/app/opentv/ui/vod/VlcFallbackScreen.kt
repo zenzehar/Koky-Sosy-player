@@ -6,6 +6,9 @@ package app.opentv.ui.vod
 
 import android.net.Uri
 import android.content.Intent
+import android.content.Context
+import android.os.PowerManager
+import app.opentv.isRunningOnTelevision
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -105,6 +108,11 @@ fun VlcFallbackScreen(
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
     val diagHealth = remember(streamUrl) { VlcPlaybackHealth() }
+    var healthSnapshot by remember(streamUrl) {
+        mutableStateOf(VlcPlaybackHealth.Snapshot(VlcPlaybackHealth.State.STARTING, 0, 0))
+    }
+    var resumeNeedsVideoRebind by remember(streamUrl) { mutableStateOf(false) }
+    var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     var diagnosticText by remember(streamUrl) { mutableStateOf<String?>(null) }
     var diagnosticsState by remember(streamUrl) { mutableStateOf(false) }
     var ready by remember(streamUrl) { mutableStateOf(false) }
@@ -221,6 +229,7 @@ fun VlcFallbackScreen(
                 if (!scrubbing) positionMs = player.time.coerceAtLeast(0L)
                 val tick = android.os.SystemClock.elapsedRealtime()
                 val health = diagHealth.sample(tick, positionMs, player.isPlaying, paused)
+                healthSnapshot = health
                 PlaybackDiagnostics.sample(positionMs, durationMs, health.interruptions)
                 if (health.state != previousHealth) {
                     if (health.state == VlcPlaybackHealth.State.BUFFERING) {
@@ -244,13 +253,47 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Some television firmwares ignore KEEP_SCREEN_ON on a SurfaceView while video is
+    // decoding. Use a TV-only screen wake lock as a secondary safeguard, releasing it
+    // immediately when playback pauses, ends, or this composable leaves composition.
+    @Suppress("DEPRECATION")
+    DisposableEffect(ready, paused, ended, suspendPlayback) {
+        val wakeLock = if (ready && !paused && !ended && !suspendPlayback &&
+            isRunningOnTelevision(context)) {
+            runCatching {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK,
+                    "KokySosy:VodPlayback").apply { acquire() }
+            }.getOrNull()
+        } else null
+        onDispose { runCatching { if (wakeLock?.isHeld == true) wakeLock.release() } }
+    }
+
     // Retain the modern screensaver pause hook without replacing v0.1.9 playback internals.
     // Do not auto-resume: the viewer should explicitly unpause after waking.
     LaunchedEffect(suspendPlayback) {
         if (suspendPlayback) {
+            // A TV dream can destroy the LibVLC SurfaceView while keeping audio alive.
+            resumeNeedsVideoRebind = true
             runCatching { player.pause() }
             paused = true
             controlsVisible = true
+            PlaybackDiagnostics.event(context, "VLC_DREAM_PAUSED", persistNow = true)
+        } else if (resumeNeedsVideoRebind) {
+            delay(250) // give Android a chance to recreate the surface
+            val layout = videoLayout
+            if (layout != null) {
+                runCatching {
+                    player.detachViews()
+                    player.attachViews(layout, null, true, false)
+                }.onSuccess {
+                    PlaybackDiagnostics.event(context, "VLC_VIDEO_REBOUND", persistNow = true)
+                    resumeNeedsVideoRebind = false
+                }.onFailure {
+                    PlaybackDiagnostics.event(context, "VLC_VIDEO_REBIND_FAILED", persistNow = true)
+                }
+            }
+            // Keep paused after waking. User explicitly presses Play to resume.
         }
     }
 
@@ -322,11 +365,13 @@ fun VlcFallbackScreen(
                         }
                         Key.DirectionDown -> {
                             when {
+                                timelineFocused -> {
+                                    // Focus from seek bar must return to controls even when
+                                    // the previous autoplay focus callback arrives late.
+                                    pauseFocus.requestFocus(); showControls(); true
+                                }
                                 showEpisodeControls && autoplayFocused -> {
                                     seekFocus.requestFocus(); showControls(); true
-                                }
-                                timelineFocused -> {
-                                    pauseFocus.requestFocus(); showControls(); true
                                 }
                                 else -> false
                             }
@@ -353,6 +398,8 @@ fun VlcFallbackScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 VLCVideoLayout(ctx).apply {
+                    videoLayout = this
+                    keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
                     // VLCVideoLayout automatically resizes the native video surface with the TV.
@@ -382,6 +429,29 @@ fun VlcFallbackScreen(
                 TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
                 TvVlcButton("Diagnostics QR", onClick = ::showReport)
                 TvVlcButton("Back to title", onClick = onBack)
+            }
+        }
+        // Diagnose stutter without claiming a decoder-clock stall is network buffering.
+        if (ready && !failed && !ended && !paused &&
+            healthSnapshot.state in setOf(
+                VlcPlaybackHealth.State.BUFFERING,
+                VlcPlaybackHealth.State.STALLED,
+            )
+        ) {
+            Column(
+                modifier = Modifier.align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.60f), RoundedCornerShape(15.dp))
+                    .padding(horizontal = 24.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                CircularProgressIndicator(color = CinemaBlue)
+                Text(
+                    if (healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING)
+                        "Buffering ${healthSnapshot.bufferPercent}%"
+                    else "Playback stalled (not VLC buffering)",
+                    color = Color.White,
+                )
             }
         }
         if (controlsVisible) {

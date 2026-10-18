@@ -1,3 +1,13 @@
+v0.1.11.4 TV Recovery Preview (18 October 2026)
+
+User TV findings: D-pad between seek bar and autoplay but not buttons; screensaver interrupt and audio-only resume; Android TV missing file picker; languages clutter settings; recurring stutter.
+
+Native VLC player and seek algorithms are preserved. Focus routing from seek bar Down now takes priority over stale autoplay flag. VLC buffering is indicated with a spinner ONLY on sustained network buffer input; non-buffering clock stall is labelled separately. On dream resume, VLC surface is reattached, and Android keep-awake flags are reapplied. TV firmware may still impose its own screensaver.
+
+Settings languages use a searchable dropdown dialog. The manual encrypted provider backup has a shared-Documents path fallback when Android TV lacks a system document picker. The optional device vault uses a separate encrypted file under Documents/KokySosy and explicit Android All Files Access. Source changes sync to the vault, and startup can restore if the user has permission. Factory reset clears recognized vault first.
+
+SECURITY AND LIMITATION: Android access grants do not survive uninstall. Android ID is signature-scoped and can change with GitHub debug signing. Auto-restore is best effort and MAY REQUIRE renewed permission, and decrypting a vault across signing identity changes may be impossible. The previous release could not pre-create this vault. Do not uninstall your only functioning credentials without a separate recovery plan. No plaintext secrets stored in shared Documents; All Files Access is broad and opt-in. No merge/approval until real device tests.
+
 # v0.1.11.3 TV alpha — cinematic UI refinement and remote navigation
 
 **User acceptance of previous build:** User reported v0.1.11.2 GUI "Perfect!" and requested finer polish, removal of captions/connectors, transparent buttons and accessible autoplay.

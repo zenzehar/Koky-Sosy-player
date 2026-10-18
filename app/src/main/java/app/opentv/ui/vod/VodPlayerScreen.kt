@@ -214,12 +214,22 @@ fun VodPlayerScreen(
             override fun onReceive(c: Context?, intent: Intent?) {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF, Intent.ACTION_DREAMING_STARTED -> pauseForSaver()
+                    Intent.ACTION_SCREEN_ON, Intent.ACTION_DREAMING_STOPPED -> {
+                        screenSaverSuspended = false
+                        // Reassert TV keep-awake after dreaming; do not auto-play.
+                        context.findActivity()?.window?.addFlags(
+                            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                        )
+                        view.keepScreenOn = true
+                    }
                 }
             }
         }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_DREAMING_STARTED)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_DREAMING_STOPPED)
         }
         runCatching {
             ContextCompat.registerReceiver(
@@ -227,7 +237,17 @@ fun VodPlayerScreen(
             )
         }
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) pauseForSaver()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> pauseForSaver()
+                Lifecycle.Event.ON_RESUME -> {
+                    screenSaverSuspended = false
+                    context.findActivity()?.window?.addFlags(
+                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                    )
+                    view.keepScreenOn = true
+                }
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {

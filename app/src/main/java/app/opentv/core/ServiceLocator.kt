@@ -83,7 +83,7 @@ object ServiceLocator {
         val stremioClient: StremioClient by lazy { StremioClient(httpClient) }
 
         val sourceRepository: SourceRepository by lazy {
-            SourceRepository(database.sources(), xtreamApi, stalkerApi)
+            SourceRepository(database.sources(), xtreamApi, stalkerApi, appContext)
         }
 
         val catalogRepository: CatalogRepository by lazy {

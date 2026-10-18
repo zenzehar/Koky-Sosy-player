@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,6 +80,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val playbackBuffer by settings.playbackBufferPreset.collectAsState()
     val vlcMode by settings.vlcPlaybackMode.collectAsState()
     var diagnosticReport by remember { mutableStateOf<String?>(null) }
+    var languageMenuOpen by remember { mutableStateOf(false) }
+    var languageSearch by remember { mutableStateOf("") }
 
     // A refresh next to each content toggle kicks a full catalogue re-sync (which now honours the
     // toggles, so a type just switched on is fetched). Runs as background work so it isn't cut short
@@ -172,18 +177,63 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_language)) {
-            ThemeOption(stringResource(R.string.settings_language_system), language.isBlank()) {
-                changeLanguage(context, settings, "")
-            }
-            // Each language is listed in its own name (endonym), the convention users expect.
-            OpenTvLanguages.forEach { (tag, name) ->
-                ThemeOption(name, language == tag) { changeLanguage(context, settings, tag) }
-            }
-            Spacer(Modifier.height(4.dp))
+            val selectedName = if (language.isBlank()) stringResource(R.string.settings_language_system)
+                else OpenTvLanguages.firstOrNull { it.first == language }?.second ?: language
+            OutlinedButton(
+                onClick = { languageSearch = ""; languageMenuOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("$selectedName  ▾") }
             Text(
                 stringResource(R.string.settings_language_note),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (languageMenuOpen) {
+            val systemName = stringResource(R.string.settings_language_system)
+            val matching = OpenTvLanguages.filter { (tag, name) ->
+                languageSearch.isBlank() ||
+                    name.contains(languageSearch, ignoreCase = true) ||
+                    tag.contains(languageSearch, ignoreCase = true)
+            }
+            AlertDialog(
+                onDismissRequest = { languageMenuOpen = false },
+                title = { Text(stringResource(R.string.settings_section_language)) },
+                text = {
+                    Column(Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = languageSearch,
+                            onValueChange = { languageSearch = it },
+                            label = { Text("Search languages") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Column(
+                            Modifier.fillMaxWidth().heightIn(max = 350.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (languageSearch.isBlank() ||
+                                systemName.contains(languageSearch, ignoreCase = true)) {
+                                ThemeOption(systemName, language.isBlank()) {
+                                    languageMenuOpen = false
+                                    changeLanguage(context, settings, "")
+                                }
+                            }
+                            matching.forEach { (tag, name) ->
+                                ThemeOption(name, language == tag) {
+                                    languageMenuOpen = false
+                                    changeLanguage(context, settings, tag)
+                                }
+                            }
+                            if (matching.isEmpty()) Text("No matching languages")
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { languageMenuOpen = false }) { Text("Close") }
+                },
             )
         }
 
@@ -219,7 +269,9 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
 
         Spacer(Modifier.height(16.dp))
 
-        SettingsSection("Provider login backup (survives reinstall)") {
+        SettingsSection("Provider logins across reinstall") {
+            DeviceCredentialVaultControls()
+            Spacer(Modifier.height(12.dp))
             CredentialBackupControls(allowExport = true)
         }
         Spacer(Modifier.height(16.dp))
