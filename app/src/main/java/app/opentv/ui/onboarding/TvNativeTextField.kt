@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -64,6 +65,8 @@ fun TvNativeTextField(
     val idleRequester = remember { FocusRequester() }
     val editRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    // Disable the framework's built-in idle focus/press decoration. Login focus is drawn exclusively below.
+    val idleInteractionSource = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(if (smartersStyle) 5.dp else 7.dp)
     val frameColor = if (smartersStyle) Color(0xFFFFDB63) else Color(0xFF69DFF6)
     // Login fields sit flush with the page when idle. The pale pink panel and
@@ -139,9 +142,10 @@ fun TvNativeTextField(
                     .background(bg, shape)
                     .focusRequester(idleRequester)
                     .onFocusChanged { focused = it.isFocused }
-                    .border(if (focused) 3.dp else 0.dp,
-                        if (focused) frameColor else Color.Transparent, shape)
-                    .clickable {
+                    // Do not create any border draw node while idle; only the active field
+                    // may have the explicit yellow/blue TV focus outline.
+                    .then(if (focused) Modifier.border(3.dp, frameColor, shape) else Modifier)
+                    .clickable(interactionSource = idleInteractionSource, indication = null) {
                         hasReceivedEditFocus = false
                         editing = true
                     }
