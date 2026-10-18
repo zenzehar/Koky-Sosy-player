@@ -1,3 +1,14 @@
+# v0.1.11.6 TV alpha — dashboard VOD bars, backup diagnostics, keyboard control
+
+- User clarified the refresh/date bars belong at the **bottom INSIDE the Movies and Series tiles on HOME**, not the Movies/Series catalogue browser. Removed the catalogue-screen bars and added individually focusable/reloadable bottom strips inside the HOME tiles with last-successful local datetime, refresh icon, running progress and retry indication.
+- Existing source-filtered, separate Movies/Series WorkManager refresh implementation retained. HOME tile refreshes the corresponding type for all enabled Xtream providers; never queues Live/EPG or the other VOD type. The regular full update also updates the respective successful stamps.
+- **Legacy Movies/Series access block removed**: saved VOD content can be entered and browsed during in-progress global or section-specific updates; in-place indexed Room reads serve saved data. Home cards no longer darken/lock just because a full sync is due/running. Live TV loading remains independent.
+- Credential manual export and import now show a visible **Android TV AlertDialog** on failure and success, including an explicit shared Documents backup path on success or permissions / file / passphrase guidance on failure. Export/restore controls remain focusable even when passphrase is too short and report the missing requirement rather than silently refusing. Passphrase uses TV-native click-to-edit field (no keyboard on focus).
+- TV text inputs in General, EPG, Parental PIN, Recording storage credentials, and Stremio Add-ons settings use click-to-edit keyboard behaviour. Focus/highlight alone must not launch the IME; OK/click enters editing, Back dismisses.
+- The pale pink/white fields on the **right-hand login panel** now use a transparent background when unfocused as well as invisible border. Focused fields keep the pale fill and yellow outline; idle text remains legible in white. No changes to the connection validation flow.
+- Preserves approved v0.1.11.0 native VLC engine and seeking behaviour, v0.1.11.5 three-level remote focus, buffering/stall indicators and other working features. Screensaver recovery STILL NOT user-tested; do not claim accepted.
+- v0.1.11.6 is a prerelease; avoid uninstall without first checking provider backup/restore, because debug signing identity can still change and Android may not persist file permissions across reinstalls.
+
 # Additional feature — VOD section refresh bars (18 October 2026)
 
 - Movies and Series each show a **separate persistent bottom bar** within the VOD browser, with the last successful provider catalogue update in the device's local date/time, a reload icon, visual D-pad focus, and no grid overlap.
