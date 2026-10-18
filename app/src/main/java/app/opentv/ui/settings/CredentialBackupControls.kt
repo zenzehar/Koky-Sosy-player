@@ -6,6 +6,8 @@
 package app.opentv.ui.settings
 
 import android.net.Uri
+import android.content.Intent
+import app.opentv.core.PersistentDeviceCredentials
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +51,64 @@ fun CredentialBackupControls(
     var passphrase by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    val supportsCreateDocument = remember(context) {
+        Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream")
+            .resolveActivity(context.packageManager) != null
+    }
+    val supportsOpenDocument = remember(context) {
+        Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .resolveActivity(context.packageManager) != null
+    }
+    fun saveWithoutPicker() {
+        busy = true
+        scope.launch {
+            val success = runCatching {
+                withContext(Dispatchers.IO) {
+                    val data = repo.observeAll().first()
+                    val encrypted = ProviderCredentialBackup.encrypt(data, passphrase)
+                    PersistentDeviceCredentials.saveManualBackup(context, encrypted)
+                }
+            }.getOrDefault(false)
+            status = if (success) "Encrypted backup saved in ${PersistentDeviceCredentials.manualLocationLabel()}." +
+                " Keep your passphrase separately."
+            else "Cannot save to shared Documents. Grant device-folder permission above first."
+            if (success) passphrase = ""
+            busy = false
+        }
+    }
+    fun restoreWithoutPicker() {
+        busy = true
+        scope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val blob = PersistentDeviceCredentials.loadManualBackup(context)
+                        ?: error("No local backup")
+                    val saved = ProviderCredentialBackup.decrypt(blob, passphrase)
+                    val existing = repo.observeAll().first()
+                    var imported = 0
+                    for (source in saved) {
+                        val target = SourceRepository.normaliseUrl(source.url, source.kind)
+                        val duplicate = existing.any {
+                            it.kind == source.kind &&
+                                SourceRepository.normaliseUrl(it.url, it.kind) == target &&
+                                it.username == source.username && it.macAddress == source.macAddress
+                        }
+                        if (!duplicate) { repo.save(source); imported++ }
+                    }
+                    imported
+                }
+            }
+            status = if (result.isSuccess)
+                "Manual device backup restored without retyping provider credentials."
+            else "Manual restore unavailable. Grant folder access and check passphrase/file."
+            if (result.isSuccess) { passphrase = ""; onRestored() }
+            busy = false
+        }
+    }
 
     val exporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -126,7 +186,8 @@ fun CredentialBackupControls(
         Text(
             "Android deletes private app data when uninstalled. Save an encrypted file " +
                 "in Documents or another location you control, then import it after reinstalling. " +
-                "The file stays outside the app; never forget its passphrase.",
+                "For TV boxes without a system file picker, use the shared Documents-folder " +
+                "buttons below after enabling device-folder access. Keep the passphrase separately.",
         )
         OutlinedTextField(
             value = passphrase,
@@ -141,12 +202,22 @@ fun CredentialBackupControls(
             if (allowExport) {
                 OutlinedButton(
                     enabled = !busy && passphrase.length >= 8,
-                    onClick = { exporter.launch("Koky-Sosy-provider-backup.kspc") },
+                    onClick = {
+                        if (supportsCreateDocument) exporter.launch("Koky-Sosy-provider-backup.kspc")
+                        else if (PersistentDeviceCredentials.canRead(context)) saveWithoutPicker()
+                        else status = "This TV has no file picker. Grant shared device-folder " +
+                            "access above, then try again."
+                    },
                 ) { Text("Export encrypted logins") }
             }
             Button(
                 enabled = !busy && passphrase.length >= 8,
-                onClick = { importer.launch(arrayOf("application/octet-stream", "*/*")) },
+                onClick = {
+                    if (supportsOpenDocument) importer.launch(arrayOf("application/octet-stream", "*/*"))
+                    else if (PersistentDeviceCredentials.canRead(context)) restoreWithoutPicker()
+                    else status = "This TV has no file picker. Grant shared device-folder " +
+                        "access above, then try again."
+                },
             ) { Text("Restore logins from file") }
         }
         if (status.isNotBlank()) Text(status, modifier = Modifier.padding(top = 4.dp))
