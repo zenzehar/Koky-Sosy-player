@@ -174,7 +174,11 @@ fun VlcFallbackScreen(
     fun seekTo(target: Long) {
         if (!player.isSeekable) return
         val capped = target.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
-        player.setTime(capped)
+        // LibVLC fast seek may resume at a neighbouring keyframe, causing
+        // +10 to land earlier and -10 to land later than requested. Always
+        // request precise decoded-time seeking for transport and timeline taps.
+        // Retain the bounded logical-clock guard for repeated fast presses.
+        player.setTime(capped, false)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
         positionMs = seekClock.requested(capped, android.os.SystemClock.elapsedRealtime())
         showControls()
@@ -248,7 +252,7 @@ fun VlcFallbackScreen(
                 }
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
                     val initialTarget = initialPositionMs.coerceIn(0L, durationMs)
-                    player.setTime(initialTarget)
+                    player.setTime(initialTarget, false)
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
                 }
