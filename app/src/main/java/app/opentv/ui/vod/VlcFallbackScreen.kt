@@ -322,11 +322,13 @@ fun VlcFallbackScreen(
                         }
                         Key.DirectionDown -> {
                             when {
+                                timelineFocused -> {
+                                    // Focus from seek bar must return to controls even when
+                                    // the previous autoplay focus callback arrives late.
+                                    pauseFocus.requestFocus(); showControls(); true
+                                }
                                 showEpisodeControls && autoplayFocused -> {
                                     seekFocus.requestFocus(); showControls(); true
-                                }
-                                timelineFocused -> {
-                                    pauseFocus.requestFocus(); showControls(); true
                                 }
                                 else -> false
                             }
