@@ -8,6 +8,7 @@ package app.opentv.ui.settings
 import android.net.Uri
 import android.content.Intent
 import app.opentv.core.PersistentDeviceCredentials
+import app.opentv.isRunningOnTelevision
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -207,7 +208,7 @@ fun CredentialBackupControls(
                         // (real-device "You don't have an app" error). Prefer the
                         // already granted shared Documents permission every time.
                         if (PersistentDeviceCredentials.canRead(context)) saveWithoutPicker()
-                        else if (supportsCreateDocument) {
+                        else if (!isRunningOnTelevision(context) && supportsCreateDocument) {
                             try { exporter.launch("Koky-Sosy-provider-backup.kspc") }
                             catch (_: Exception) {
                                 status = "Document picker is unavailable on this TV. " +
@@ -222,7 +223,7 @@ fun CredentialBackupControls(
                 enabled = !busy && passphrase.length >= 8,
                 onClick = {
                     if (PersistentDeviceCredentials.canRead(context)) restoreWithoutPicker()
-                    else if (supportsOpenDocument) {
+                    else if (!isRunningOnTelevision(context) && supportsOpenDocument) {
                         try { importer.launch(arrayOf("application/octet-stream", "*/*")) }
                         catch (_: Exception) {
                             status = "Document picker is unavailable on this TV. " +
