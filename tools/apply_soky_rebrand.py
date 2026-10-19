@@ -32,7 +32,7 @@ REPLACEMENTS = [
     (r"Koky", "Soky"),
     (r"Sosy", "IPTVPro"),
 ]
-SKIP_DIRS = {".git", ".gradle", ".idea", "build", ".kotlin", "node_modules"}
+SKIP_DIRS = {".git", ".github", ".gradle", ".idea", "build", ".kotlin", "node_modules"}
 TEXT_EXT = {".kt", ".kts", ".xml", ".json", ".md", ".html", ".js",
             ".toml", ".yml", ".yaml", ".properties", ".pro",
             ".txt", ".py", ".gradle", ".sh", ".bat", ".gitignore"}
