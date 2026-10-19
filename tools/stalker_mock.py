@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-OpenTV — local mock Stalker / Ministra portal (for development & testing).
+SokyIPTV — local mock Stalker / Ministra portal (for development & testing).
 
 Why this exists
 ---------------
 Testing the Stalker portal code path against a real provider "line" is unreliable
 (servers go down, rotate the MAC, rate-limit) and, for the kind of lines handed out
 as free trials, not something to depend on. This is a tiny, dependency-free server
-that speaks the exact slice of the Stalker/Ministra protocol OpenTV's StalkerApi
+that speaks the exact slice of the Stalker/Ministra protocol SokyIPTV's StalkerApi
 client calls, and returns a handful of channels pointing at FREE, LEGAL test streams
 (Mux "Big Buck Bunny", Apple "BipBop", Bitmovin BBB). So you can exercise the whole
 path — handshake -> token -> get_profile -> get_genres -> get_all_channels ->
@@ -18,10 +18,10 @@ Run it
     python3 stalker_mock.py            # listens on 0.0.0.0:8080
     python3 stalker_mock.py 9000       # ...or a port you pick
 
-It prints the exact values to type into OpenTV. Point the box at this machine's
+It prints the exact values to type into SokyIPTV. Point the box at this machine's
 LAN IP; the control API is served here, the video comes straight from public CDNs.
 
-In OpenTV
+In SokyIPTV
 ---------
     Add source  ->  Stalker portal
       Portal URL : http://<this-machine-LAN-IP>:8080
@@ -76,10 +76,10 @@ def dispatch(qs):
 
     if action == "handshake":
         # Real portals return a random token; a fixed one is fine for a mock.
-        return js({"token": "opentv-mock-token", "random": "0123456789abcdef"})
+        return js({"token": "sokyiptv-mock-token", "random": "0123456789abcdef"})
 
     if action == "get_profile":
-        return js({"id": "1", "name": "OpenTV Mock", "status": 0, "blocked": "0",
+        return js({"id": "1", "name": "SokyIPTV Mock", "status": 0, "blocked": "0",
                    "watchdog_timeout": "120", "timeslot": "0"})
 
     if type_ == "itv" and action == "get_genres":
@@ -102,7 +102,7 @@ def dispatch(qs):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OpenTVMockStalker/1.0"
+    server_version = "SokyIPTVMockStalker/1.0"
 
     def do_GET(self):  # noqa: N802 (http.server API)
         parsed = urlparse(self.path)
@@ -144,9 +144,9 @@ def main():
     ip = lan_ip()
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     print("=" * 64)
-    print(" OpenTV mock Stalker portal — running")
+    print(" SokyIPTV mock Stalker portal — running")
     print("=" * 64)
-    print(" In OpenTV:  Add source -> Stalker portal")
+    print(" In SokyIPTV:  Add source -> Stalker portal")
     print("   Portal URL : http://{}:{}".format(ip, port))
     print("   MAC        : 00:1A:79:00:00:01   (any non-empty MAC works)")
     print("-" * 64)

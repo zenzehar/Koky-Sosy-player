@@ -7,15 +7,15 @@ plugins {
 }
 
 android {
-    namespace = "app.opentv"
+    namespace = "app.sokyiptv"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "tv.kokysosy.player"
+        applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 32
-        versionName = "0.1.11.11-startup-refresh"
+        versionCode = 33
+        versionName = "0.1.11.12-soky-rebrand"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()

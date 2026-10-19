@@ -35,7 +35,7 @@ Implemented:
 - VLC: initial center playback button focus; Up center->autoplay and Down center->seek; from autoplay Down returns to buttons; from seek Up returns to buttons. Native seeking/hold logic unchanged.
 - Media3: separate seek slider focus target, same three levels. Existing slider callbacks unchanged.
 - Catalogue frequency: compact selected-value menu and six options in a remote-friendly dialog, matching language picker.
-- Manual backup on TVs with granted broad document-folder access now directly writes/reads passphrase-encrypted Documents/KokySosy/manual-logins.kspc, before considering Android ACTION_CREATE_DOCUMENT/OPEN_DOCUMENT. This avoids a falsely resolvable system file-picker app. If permission is unavailable, SAF fallback is still attempted. No credential plaintext.
+- Manual backup on TVs with granted broad document-folder access now directly writes/reads passphrase-encrypted Documents/SokyIPTVPro/manual-logins.kspc, before considering Android ACTION_CREATE_DOCUMENT/OPEN_DOCUMENT. This avoids a falsely resolvable system file-picker app. If permission is unavailable, SAF fallback is still attempted. No credential plaintext.
 - Movie detail retries primary Watch/Resume focus until LazyColumn button attaches; series waits for a playable episode before requesting focus once. Does not refocus after season changes.
 - Login idle input boxes hide border completely until focused, including editing state; kind, Restore backup and Test Connection OutlinedButtons use no static white outline. Clears old focus indications when navigating away.
 - Keeps v0.1.11.4 spinner instrumentation and screensaver work UNCHANGED. User has not verified screensaver. No codec, VLC 3.6.1, streaming, buffer size or seek policy changes.
@@ -49,7 +49,7 @@ User TV findings: D-pad between seek bar and autoplay but not buttons; screensav
 
 Native VLC player and seek algorithms are preserved. Focus routing from seek bar Down now takes priority over stale autoplay flag. VLC buffering is indicated with a spinner ONLY on sustained network buffer input; non-buffering clock stall is labelled separately. On dream resume, VLC surface is reattached, and Android keep-awake flags are reapplied. TV firmware may still impose its own screensaver.
 
-Settings languages use a searchable dropdown dialog. The manual encrypted provider backup has a shared-Documents path fallback when Android TV lacks a system document picker. The optional device vault uses a separate encrypted file under Documents/KokySosy and explicit Android All Files Access. Source changes sync to the vault, and startup can restore if the user has permission. Factory reset clears recognized vault first.
+Settings languages use a searchable dropdown dialog. The manual encrypted provider backup has a shared-Documents path fallback when Android TV lacks a system document picker. The optional device vault uses a separate encrypted file under Documents/SokyIPTVPro and explicit Android All Files Access. Source changes sync to the vault, and startup can restore if the user has permission. Factory reset clears recognized vault first.
 
 SECURITY AND LIMITATION: Android access grants do not survive uninstall. Android ID is signature-scoped and can change with GitHub debug signing. Auto-restore is best effort and MAY REQUIRE renewed permission, and decrypting a vault across signing identity changes may be impossible. The previous release could not pre-create this vault. Do not uninstall your only functioning credentials without a separate recovery plan. No plaintext secrets stored in shared Documents; All Files Access is broad and opt-in. No merge/approval until real device tests.
 
@@ -151,11 +151,11 @@ SECURITY AND LIMITATION: Android access grants do not survive uninstall. Android
 # v0.1.10.6 TV alpha — native VLC compatibility and standalone VLC fallback
 
 ## Evidence-based scope
-The user tested the *same episode on the same TV/network* using IPTV Smarters Pro's internal player and standalone VLC. **Both play smoothly.** Koky & Sosy v0.1.10.5 continues to rebuffer and occasionally stalls. Its Media3 fallback fails with ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED for that episode. Source-stream quality cannot be blamed without further evidence.
+The user tested the *same episode on the same TV/network* using IPTV Smarters Pro's internal player and standalone VLC. **Both play smoothly.** Soky IPTV Pro v0.1.10.5 continues to rebuffer and occasionally stalls. Its Media3 fallback fails with ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED for that episode. Source-stream quality cannot be blamed without further evidence.
 
 ## Changes
 - Native VLC mode now defaults ON for new and previously unset installations. It allows LibVLC's native user-agent, cache/HTTP handling and hardware-decoder defaults, matching the known-working standalone VLC baseline more closely.
-- Preserve configured custom per-source User-Agent explicitly: native mode omits only the generic OpenTV UA. Provider-specific overrides are never silently lost.
+- Preserve configured custom per-source User-Agent explicitly: native mode omits only the generic SokyIPTV UA. Provider-specific overrides are never silently lost.
 - Retain old Tuned VLC mode for comparison: selected network cache + generic/custom User-Agent, hardware decoder override and HTTP reconnect. Settings > Playback allows D-pad switching; applied at the next video.
 - Buffer presets remain available for Media3 and Tuned VLC. Native VLC uses its own caching. The absence of a custom cache size in native mode is intentional, not a broken setting.
 - Add **Open in VLC app** button to playback and error controls. It passes the URL only to the installed VLC Android package, stops internal playback first to avoid concurrent provider sessions, and leaves the embedded player screen on successful handoff. External app cannot automatically provide our progress/next-episode controls.
@@ -224,9 +224,9 @@ User withdrew the physical-test approval previously recorded for v0.1.10.3 due t
 - Android versionCode 12, name 0.1.10.1-tv-alpha. v0.1.9 remains the approved checkpoint.
 
 ---
-# Koky & Sosy Player — changelog
+# Soky IPTV Pro — changelog
 
-Version names below are Android TV application versions. The earlier **OpenTV upstream changelog** is retained under the historical section for licensing/provenance context; its numbering does **not** mean a newer Koky & Sosy APK is available.
+Version names below are Android TV application versions. The earlier **SokyIPTV upstream changelog** is retained under the historical section for licensing/provenance context; its numbering does **not** mean a newer Soky IPTV Pro APK is available.
 
 ## v0.1.10 TV alpha — development / not yet approved
 
@@ -259,7 +259,7 @@ Version names below are Android TV application versions. The earlier **OpenTV up
 
 - Six-up VOD grid, simplified category styling, improved focus, updated navigation and in-tile import progress.
 
-## Earlier original OpenTV upstream history (not Koky & Sosy release numbering)
+## Earlier original SokyIPTV upstream history (not Soky IPTV Pro release numbering)
 
 ## 0.11.8
 
@@ -276,7 +276,7 @@ Version names below are Android TV application versions. The earlier **OpenTV up
 
 ## 0.11.7
 
-- **Stalker portals: closer to a real box.** Building on v0.11.6, OpenTV now sends the rest of the
+- **Stalker portals: closer to a real box.** Building on v0.11.6, SokyIPTV now sends the rest of the
   identity a real MAG set-top box presents at login — the auth token in the session cookie (not just
   the header), a hardware-version hash, a timestamp and the box's API signature — and it probes a
   couple more portal paths. Some Ministra/Stalker panels only return the channel list when they see
@@ -285,11 +285,11 @@ Version names below are Android TV application versions. The earlier **OpenTV up
 
 ## 0.11.6
 
-- **Stalker portals: full set-top-box identity.** OpenTV now authenticates to Stalker/Ministra
+- **Stalker portals: full set-top-box identity.** SokyIPTV now authenticates to Stalker/Ministra
   portals the way a real MAG box does — sending the device serial, `device_id`, a signature and a
   metrics blob derived from your MAC, instead of the MAC on its own. Many portals won't hand over
   the channel list or stream links to a box that only presents a MAC, which is why some lines that
-  worked in other apps came up empty in OpenTV. This lets those portals authorise OpenTV. If a
+  worked in other apps came up empty in SokyIPTV. This lets those portals authorise SokyIPTV. If a
   portal still fails, please open an issue and say which one — it helps a lot.
 
 ## 0.11.5
@@ -311,18 +311,18 @@ recording while it's still taping, and the whole interface now speaks 30 languag
 ### Recording & DVR
 
 - **Watch a recording while it's still recording.** Start playing something the moment it begins
-  taping — OpenTV reads the growing file straight off disk, so it costs **zero extra connections**
+  taping — SokyIPTV reads the growing file straight off disk, so it costs **zero extra connections**
   to your provider. On a single-stream account that's the difference between "wait until it's
   finished" and "watch now". Fast-forward and rewind work within whatever's been taped so far.
 - **Record straight to a NAS.** Point recordings at a network share over SMB (Settings →
   Recordings → NAS, or set it up from the phone/laptop web manager) so a cheap box isn't boxed in
-  by its own storage — and every OpenTV in the house can reach the same recordings.
+  by its own storage — and every SokyIPTV in the house can reach the same recordings.
 - **Single-connection auto-switch.** On a one-stream provider, if a recording is due to start on
-  another channel, OpenTV moves the screen onto that recording as it begins — with a **30-second
+  another channel, SokyIPTV moves the screen onto that recording as it begins — with a **30-second
   warning** first and a *Keep watching* button if you'd rather not. No more "why did my live stream
   just cut out?" (Recordings → Recording behaviour → *Auto-switch when recording starts*.)
 - **Clash handling with multi-provider fallback.** Book two overlapping recordings and, if more
-  than one of your providers carries that channel, OpenTV records each from a **different provider**
+  than one of your providers carries that channel, SokyIPTV records each from a **different provider**
   so neither is cut. On a single provider it flags the clash instead.
 - **Recording padding.** Start each recording a minute early and run a few minutes past the listed
   end, so a late kick-off or an overrun isn't clipped. Adjustable per side.
@@ -355,14 +355,14 @@ recording while it's still taping, and the whole interface now speaks 30 languag
 ### Notes
 
 - Everything stays on your device — provider logins never leave the box.
-- Free and open source (GPL-3.0): https://github.com/opentvproject/opentv
+- Free and open source (GPL-3.0): https://github.com/sokyiptvproject/sokyiptv
 
 
 ## 0.10.0
 
 - **Movies & Shows, redesigned.** A Plex-style layout with big artwork, cast & director, "more with
   this cast" rows, and cleaned-up titles (no more "NF -" / "(KR)" junk). Optional: add your own free
-  TMDB key in Settings → Metadata and OpenTV fills in any posters, backdrops, cast or synopses your
+  TMDB key in Settings → Metadata and SokyIPTV fills in any posters, backdrops, cast or synopses your
   provider left blank — the key stays on your device.
 - **No more stuck "Loading movies & shows".** The movies/series catalogue is cached, so it loads
   instantly on later launches instead of re-downloading every time — and the live preview no longer
@@ -380,9 +380,9 @@ recording while it's still taping, and the whole interface now speaks 30 languag
   page to browse, **rename**, hide, favourite and **reorder** channels with a real keyboard and
   mouse. Changes apply to the TV instantly. Local-only: the TV is the server, nothing touches a
   cloud.
-- **Recording keeps going when you leave the app or the box sleeps.** OpenTV can now ask Android to
+- **Recording keeps going when you leave the app or the box sleeps.** SokyIPTV can now ask Android to
   exempt it from battery optimisation (Settings → Recording → "Recording in the background"), which
-  is what keeps recordings running in standby and when you switch away — swiping OpenTV out of
+  is what keeps recordings running in standby and when you switch away — swiping SokyIPTV out of
   recents no longer stops a recording either.
 - **Rename channels.** Give a channel your own name; it sticks and survives a guide refresh (from
   the web manager for now).
@@ -417,7 +417,7 @@ recording while it's still taping, and the whole interface now speaks 30 languag
   become the default "Me" profile's — nothing is lost.
 - **Continue Watching.** Movies and Shows now open with a "Continue watching" shelf for the active
   profile — pick up your last film or episode where you left off, with a progress bar on each.
-- **Local sync (no servers).** Settings → Sync copies your continue-watching between two OpenTV
+- **Local sync (no servers).** Settings → Sync copies your continue-watching between two SokyIPTV
   devices over your own wifi: one device shares behind a six-digit code, the other receives. It's
   local-only — nothing leaves the house — the household answer to the cloud sync that died with
   Viewella.

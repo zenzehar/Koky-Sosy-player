@@ -1,10 +1,10 @@
-# Install and configure Koky & Sosy Player
+# Install and configure Soky IPTV Pro
 
-Repository: https://github.com/zenzehar/Koky-Sosy-player
+Repository: https://github.com/zenzehar/Soky-IPTVPro-player
 
 ## Install
 
-1. Open the [Android build workflow](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml), select a **successful** branch run and download its APK artifact.
+1. Open the [Android build workflow](https://github.com/zenzehar/Soky-IPTVPro-player/actions/workflows/build.yml), select a **successful** branch run and download its APK artifact.
 2. Enable TV sideloading and install the APK. Preserve the same signing identity for upgrade installs.
 3. Enter your own Xtream/M3U/Stalker details on TV, or use the login-from-phone QR on the same network.
 
@@ -26,4 +26,4 @@ Generated APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
 Approved checkpoint: `milestone/v0.1.9-tv-approved`. Current preview: `feat/v0.1.10-cast-menu-live-epg`. Do not merge until real TV testing and explicit approval.
 
-Licensed GPL-3.0-or-later. Derived from [OpenTV](https://github.com/opentvproject/opentv) with attribution preserved.
+Licensed GPL-3.0-or-later. Derived from [SokyIPTV](https://github.com/sokyiptvproject/sokyiptv) with attribution preserved.
