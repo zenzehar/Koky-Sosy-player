@@ -18,9 +18,7 @@ jobs:
     name: Test and assemble
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-    outputs:
-      rebrand_changed: ${{ steps.rebrand.outputs.changed }}
+      contents: read
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
@@ -29,29 +27,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref == 'feat/soky-iptv-pro-full-rebrand' && github.head_ref || '' }}
-
-      - name: Rebrand and generate Android assets (trusted repo branch only)
-        id: rebrand
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          github.head_ref == 'feat/soky-iptv-pro-full-rebrand'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m pip install --quiet --break-system-packages Pillow cairosvg
-          python3 tools/apply_soky_rebrand.py
-          python3 tools/prepare_soky_assets.py
-          git add -A
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            git config user.name "Soky CI Rebrand"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "Complete automated Soky IPTV Pro source and asset rebrand"
-            git push origin HEAD:feat/soky-iptv-pro-full-rebrand
-          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -71,7 +46,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: koky-sosy-player-tv-debug-apk
+          name: soky-iptv-pro-tv-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
@@ -91,8 +66,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feat/soky-iptv-pro-full-rebrand' &&
-      needs.build.outputs.rebrand_changed != 'true'
+      github.head_ref == 'feat/soky-iptv-pro-full-rebrand'
     runs-on: ubuntu-latest
     permissions:
       contents: write
