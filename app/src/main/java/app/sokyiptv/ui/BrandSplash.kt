@@ -1,4 +1,4 @@
-package app.opentv.ui
+package app.sokyiptv.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -20,7 +20,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.opentv.R
+import app.sokyiptv.R
 
 /** TV boot wordmark. Works without network and doesn't delay background loading. */
 @Composable
@@ -32,10 +32,10 @@ fun BrandSplash() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Image(painterResource(R.drawable.ic_opentv_logo), contentDescription = "Koky and Sosy logo",
+        Image(painterResource(R.drawable.ic_sokyiptv_logo), contentDescription = "Soky IPTV Pro logo",
             modifier = Modifier.size(150.dp))
         Spacer(Modifier.height(16.dp))
-        Text("KOKY & SOSY", color = Color.White, fontWeight = FontWeight.Black,
+        Text("SOKY IPTV PRO", color = Color.White, fontWeight = FontWeight.Black,
             fontSize = 38.sp, letterSpacing = 2.sp)
         Text("PLAYER", color = Color(0xFF74E5F3), fontWeight = FontWeight.SemiBold,
             fontSize = 20.sp, letterSpacing = 7.sp)

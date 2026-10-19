@@ -1,16 +1,16 @@
 /*
- * This file is part of OpenTV.
+ * This file is part of SokyIPTV.
  * Copyright (C) 2026 The OpenTV Contributors
  * Licensed under the GNU General Public License v3.0 or later.
  */
-package app.opentv
+package app.sokyiptv
 
 import android.app.Application
 import android.content.Context
-import app.opentv.core.LocaleUtils
-import app.opentv.core.ServiceLocator
-import app.opentv.data.repo.CatalogRepository
-import app.opentv.data.work.SyncWorker
+import app.sokyiptv.core.LocaleUtils
+import app.sokyiptv.core.ServiceLocator
+import app.sokyiptv.data.repo.CatalogRepository
+import app.sokyiptv.data.work.SyncWorker
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-class OpenTvApp : Application(), ImageLoaderFactory {
+class SokyIptvApp : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /**
@@ -83,7 +83,7 @@ class OpenTvApp : Application(), ImageLoaderFactory {
                 val now = System.currentTimeMillis()
                 graph.reminderRepository.deleteEndedBefore(now)
                 graph.reminderRepository.upcoming(now).forEach {
-                    app.opentv.reminders.ReminderScheduler.set(this@OpenTvApp, it.id, it.startUtcMillis)
+                    app.sokyiptv.reminders.ReminderScheduler.set(this@SokyIptvApp, it.id, it.startUtcMillis)
                 }
             }
         }
@@ -93,11 +93,11 @@ class OpenTvApp : Application(), ImageLoaderFactory {
         // watch history and NAS recordings. Fire-and-forget and fully guarded: a blank or unreachable
         // NAS returns a result rather than throwing, so a bad launch never costs the user anything.
         if (graph.settings.nasAutoSync.value) {
-            appScope.launch { runCatching { app.opentv.sync.NasSync(graph).sync() } }
+            appScope.launch { runCatching { app.sokyiptv.sync.NasSync(graph).sync() } }
         }
 
         appScope.launch {
-            val prefs = getSharedPreferences("opentv", MODE_PRIVATE)
+            val prefs = getSharedPreferences("sokyiptv", MODE_PRIVATE)
             val seen = prefs.getInt("normalizer_version", 0)
             if (seen < CatalogRepository.NORMALIZER_VERSION) {
                 graph.catalogRepository.renormalizeAll()

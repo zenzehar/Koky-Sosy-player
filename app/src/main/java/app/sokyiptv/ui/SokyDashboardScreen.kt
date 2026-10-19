@@ -1,14 +1,14 @@
 /*
- * Koky & Sosy Player TV-first dashboard.
+ * Soky IPTV Pro Player TV-first dashboard.
  * GPL-3.0-or-later. Original visual composition, no third-party artwork.
  */
-package app.opentv.ui
+package app.sokyiptv.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.alpha
-import app.opentv.data.work.CatalogueGate
+import app.sokyiptv.data.work.CatalogueGate
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -43,14 +43,14 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import app.opentv.data.work.VodSectionSyncWorker
-import app.opentv.data.work.LiveSectionSyncWorker
-import app.opentv.core.AppSettings
+import app.sokyiptv.data.work.VodSectionSyncWorker
+import app.sokyiptv.data.work.LiveSectionSyncWorker
+import app.sokyiptv.core.AppSettings
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
-import app.opentv.core.ServiceLocator
-import app.opentv.data.model.Source
-import app.opentv.data.model.SourceKind
+import app.sokyiptv.core.ServiceLocator
+import app.sokyiptv.data.model.Source
+import app.sokyiptv.data.model.SourceKind
 import java.text.DateFormat
 import java.util.Date
 import androidx.compose.runtime.getValue
@@ -81,7 +81,7 @@ private val background = Color(0xFF070D25)
 
 /** Never scroll the TV dashboard. The device must use its remote to access every action. */
 @Composable
-fun KokyDashboardScreen(
+fun SokyDashboardScreen(
     hasSources: Boolean,
     sourceForFooter: Source?,
     onAddProvider: () -> Unit,
@@ -214,7 +214,7 @@ fun KokyDashboardScreen(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "KOKY & SOSY PLAYER", color = Color.White, fontSize = 24.sp,
+                "SOKY IPTV PRO PLAYER", color = Color.White, fontSize = 24.sp,
                 fontWeight = FontWeight.Bold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
