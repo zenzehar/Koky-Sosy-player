@@ -104,7 +104,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     },
                 ) { Text(if (checking) stringResource(R.string.about_checking) else stringResource(R.string.about_check_updates)) }
                 OutlinedButton(onClick = {
-                    val url = "https://github.com/zenzehar/Soky-IPTVPro-player/actions/workflows/build.yml"
+                    val url = "https://github.com/zenzehar/Soky-IPTV-Pro/actions/workflows/build.yml"
                     context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
                         android.net.Uri.parse(url)))
                 }) { Text("View test APK builds") }
@@ -137,48 +137,15 @@ fun AboutScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(16.dp))
 
-        Section(stringResource(R.string.about_support_title)) {
-            Text(
-                stringResource(R.string.about_support_body),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-            LinkLine(stringResource(R.string.about_sponsor_github), "github.com/sponsors/legionnaireneyland")
-            Spacer(Modifier.height(12.dp))
-            LinkLine(
-                stringResource(R.string.about_donate_paypal),
-                "leetobin1982@gmail.com",
-                url = "https://www.paypal.com/donate/?business=leetobin1982@gmail.com&item_name=Support+SokyIPTV&no_recurring=0&currency_code=GBP",
-            )
-            Spacer(Modifier.height(12.dp))
-            val donateQr = remember { QrCodes.render("https://github.com/sponsors/legionnaireneyland", 400) }
-            donateQr?.let { bmp ->
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = stringResource(R.string.about_scan_to_donate),
-                    modifier = Modifier.size(180.dp).clip(RoundedCornerShape(8.dp)),
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    stringResource(R.string.about_scan_to_donate),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
         Section(stringResource(R.string.about_licence_links_title)) {
             LinkLine(
                 stringResource(R.string.about_licence_label),
                 "GNU General Public License v3.0",
                 url = "https://www.gnu.org/licenses/gpl-3.0.html",
             )
-            LinkLine(stringResource(R.string.about_source_code), "github.com/sokyiptvproject/sokyiptv")
-            LinkLine(stringResource(R.string.about_report_bug), "github.com/sokyiptvproject/sokyiptv/issues")
-            LinkLine(stringResource(R.string.about_install_page), "sokyiptvproject.github.io/sokyiptv")
+            LinkLine(stringResource(R.string.about_source_code), "github.com/zenzehar/Soky-IPTV-Pro")
+            LinkLine(stringResource(R.string.about_report_bug), "github.com/zenzehar/Soky-IPTV-Pro/issues")
+            LinkLine(stringResource(R.string.about_install_page), "github.com/zenzehar/Soky-IPTV-Pro/releases")
         }
     }
 }
