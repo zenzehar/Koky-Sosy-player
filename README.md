@@ -1,65 +1,66 @@
-# Koky & Sosy Player
+<p align="center">
+  <img src="app/src/main/res/drawable-nodpi/soky_tv_banner.png" alt="Soky IPTV Pro TV banner" width="480">
+</p>
 
-**Android TV • Google TV • Amazon Fire TV** | GPL-3.0-or-later | Independent, TV-focused IPTV player
+# Soky IPTV Pro
 
-[![Android build](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml/badge.svg)](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml)
-[![GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+**A premium IPTV player for Android TV, Google TV, Fire TV and Android phones.**
 
-Koky & Sosy Player is a TV-remote-first IPTV client with **Live TV**, **Movies** and **Series**. It plays media you provide; it **does not include streams, subscriptions, credentials or channel lists**. The core comes from the open-source [OpenTV](https://github.com/opentvproject/opentv) project, with the copyright and GPL license preserved.
+TV-first navigation · Live TV · Movies · Series · Resume & Continue Watching · EPG · Recording · Private local backups
 
-## Install / test
+> **Bring your own legal content.** Soky IPTV Pro is a player only. It does not supply IPTV subscriptions, copyrighted streams, playlists, server logins or TV channels.
 
-1. Open [Actions](https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml), select the latest successful run for the chosen branch, and download its **debug APK** artifact.
-2. Install the APK on a TV device that permits sideloading. For an in-place upgrade, keep the same signing identity and use a higher Android `versionCode`.
-3. Add your own Xtream/M3U/Stalker source, either on the TV or using the **phone setup/management QR** on the same local network.
-4. Confirm streams, Live EPG, audio, D-pad navigation, subtitles and VOD resume with your own legally accessible provider.
+## What makes Soky IPTV Pro different?
 
-**Release policy:** `main` represents the **most recently approved milestone**. New development uses a dedicated `feat/` branch and a draft pull request until tested on TV. Compilation is not real-device verification.
+- **Built for the TV remote:** full D-pad navigation, predictable focus highlights, keyboard only after OK, fast screen transitions and native Android TV launcher support.
+- **Live TV and EPG:** categories, guide navigation, channel previews, favourites, schedule and optional recordings.
+- **Movies and series:** local and indexed provider catalogues, multilingual title search, metadata, trailers, film details, season/episode selection and artwork.
+- **Independent catalogue refresh:** separate home-card refresh controls, accurate last-successful-update timestamps for Live TV, Movies and Series. Continue browsing while a catalogue updates.
+- **Reliable native playback:** LibVLC-based VOD playback, seek bar and transport controls, subtitles/audio selection, device wake recovery and TV-centric fullscreen controls.
+- **Continue Watching:** per-profile watched position, resume minutes and percentage, latest episode and automatic next-episode continuation.
+- **Cast and discovery:** optional TMDB cast information, person search across your own imported titles, cached metadata and thumbnails.
+- **Convenient source setup:** Xtream Codes, M3U and Stalker support, login validation and phone-assisted setup on the local network.
+- **Backup and restore:** password-protected provider credential backup, TV-friendly restore and optional local/NAS synchronisation.
+- **Settings and accessibility:** multiple languages, selected OS keyboard, parental controls, adjustable sync frequencies, robust Back-key handling and TV/phone UI.
 
-## TV controls
+## Screens and branding
 
-| Control | Result |
+The S/K logo, adaptive icon, phone launcher icon, TV banner and splash artwork are stored under `app/src/main/res`. The colour palette is coral, cyan, blue and midnight.
+
+## Download, install and test
+
+Find an installable APK under the project's **Releases** section. Experimental builds are **not** production releases until physical-device tests pass.
+
+**Important for existing testers:** This full rebrand changes the Android package identity to `tv.sokyiptv.pro`, and therefore installs separately from earlier versions. Before installing, export and verify an encrypted provider login backup from the previous app. Copying providers or viewing history across package identities requires an explicit migration or import; it does not happen automatically.
+
+## TV remote controls
+
+| Input | Behaviour |
 |---|---|
-| D-pad | Move focus. The selected TV channel and the browsing highlight are deliberately separate |
-| OK / Select (brief) | Activate the focused button or title |
-| Hold OK / Select (~600 ms) | Open the options menu on movie, series, episode and Continue Watching cards |
-| Menu button | Also opens those options where supported; not required |
-| Visible `⋮` | Alternative for remotes without long-press or Menu support |
-| Back from fullscreen Live | Return to the same category/channel in the guide, with that channel's video/audio preview |
-| Up / Down in the guide | Browse channels without switching the preview until another channel is chosen |
-| Back from VOD | Restore the previous title/season/category context |
+| D-pad | Navigate between cards, catalogue sections, refresh bars and player controls |
+| OK | Open focused content, activate buttons, or enter text editing |
+| Long OK / Menu | Open contextual actions on supported items |
+| Back | Dismiss keyboard/controls, then return to the previous screen |
+| VOD Up/Down | Autoplay → playback buttons → timeline, one step per level |
 
-Some remotes do not deliver repeat or hold key events consistently. Long-press has a **time-on-release fallback** plus a visible options control. The latest TV behaviour must be verified on Fire TV and an Android TV box.
+## Build from source
 
-## Major features
+Requires JDK 17 and a configured Android SDK.
 
-- **Live TV:** channel/group browser, EPG grid or list mode, guide preview, quality variants, favourites, catch-up when supported, recording and optional NAS.
-- **Movies & Series:** cached/paged catalogue, six-up TV poster grid, in-place search, detail artwork, seasons, episode thumbnails, audio/subtitles, progress and resume.
-- **Continue Watching:** one logical latest point per title, episode label/progress, click-to-resume, hold for Resume / Open title / Reset.
-- **Series autoplay:** optional next-episode continuation, including the next season, with correctly updated viewing history.
-- **Cast:** on-demand TMDB credit and portrait lookup for **movies and series**, merged with provider-only names. Credits from visited titles are saved into the local catalog; tapping actors searches the library and optionally cross-checks TMDB filmography against existing local titles. Images are lazily loaded and disk-cached. No whole-library API crawl.
-- **Phone setup:** local QR-paired browser pages let you type provider details and configure TMDB API key/read-access token without a TV keyboard.
-- **Metadata:** provider artwork first, optional TMDB backfill and cast. Missing TMDB data shows a named placeholder, not a fake photo.
-- **Privacy:** provider logins and TMDB credentials are device settings, not stored in the GitHub repository. A local pairing token is required for the phone manager. Build-time defaults remain extractable from an APK.
-
-## Build
-
-Requires the Android SDK and Java toolchain documented in `gradle/` and the GitHub Actions workflow.
-
-```bash
+```sh
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Built APK: `app/build/outputs/apk/debug/app-debug.apk`.
+The debug APK appears in `app/build/outputs/apk/debug/`. A production release requires a permanent keystore and explicit release-signing configuration. Do not ship a debug-signed release as 1.0.
 
-Optional GitHub Actions **repository secrets**: `TMDB_API_KEY` and `TMDB_READ_TOKEN`. These enable defaults in the APK only when explicitly configured. **Never commit actual secrets, provider credentials, pairing tokens or real playlist URLs.** Compiled defaults are **not confidential**: anyone with the APK can extract them.
+## Privacy and licensing
 
-## Versions and documentation
+The player stores IPTV details on your device. It does not require a central subscription service. Optional third-party metadata or add-on services use their own terms and privacy policies. LAN / NAS sync and Google account cloud sync are separate optional capabilities; **Google Drive sync is planned but not currently shipped**.
 
-- Approved checkpoints: `milestone/v0.1.7-tv-approved`, `milestone/v0.1.8-tv-approved`, `milestone/v0.1.9-tv-approved`. Older checkpoints remain available in GitHub.
-- Work in progress: `feat/v0.1.10-cast-menu-live-epg`. Android `versionName` uses `0.1.10-tv-alpha` in this branch; it is not approved until tested.
-- See [requirements](docs/KOKY_SOSY_REQUIREMENTS.md), [architecture](docs/ARCHITECTURE.md), [TV regression tests](docs/TESTING.md), [releasing](docs/RELEASING.md), [roadmap](docs/ROADMAP.md), and [changelog](CHANGELOG.md).
+This source distribution includes GPL-licensed material and must preserve applicable copyright and licence obligations. See [LICENSE](LICENSE), [third-party notices](docs/THIRD_PARTY_NOTICES.md), [Privacy](docs/PRIVACY.md) and [Release information](docs/RELEASING.md).
 
-## Legal and attribution
+## Development status
 
-Licensed under **GNU GPL-3.0-or-later**, derived from OpenTV. This project does not supply media or authorize access to any stream. Use it only with content you are entitled to view. Original contributors and license notices remain in source files and in [LICENSE](LICENSE).
+The latest approved pre-rebrand checkpoint is `milestone/v0.1.11.11-tv-approved`. The complete Soky IPTV Pro rebrand is on a separate experimental branch until CI and hardware acceptance are completed. Known remaining checks include precise ±10-second seek landing, first-run automatic content refresh and end-to-end installation/migration.
+
+**Soky IPTV Pro is not affiliated with IPTV content providers, television networks or streaming subscription services.**
