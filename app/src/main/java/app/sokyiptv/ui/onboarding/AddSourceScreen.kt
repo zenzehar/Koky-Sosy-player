@@ -217,7 +217,7 @@ fun AddSourceScreen(
                 drawCircle(Color.White, 5 * px, Offset(140 * px, 5 * px))
             }
             Text("SOKY", color = Color.White, fontSize = 48.sp, fontWeight = FontWeight.Light)
-            Text("& IPTV PRO PLAYER", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text("IPTV PRO", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(23.dp))
             Button(
                 onClick = {
