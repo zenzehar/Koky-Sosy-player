@@ -17,12 +17,41 @@ jobs:
   build:
     name: Test and assemble
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      rebrand_changed: ${{ steps.rebrand.outputs.changed }}
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref == 'feat/soky-iptv-pro-full-rebrand' && github.head_ref || '' }}
+
+      - name: Rebrand and generate Android assets (trusted repo branch only)
+        id: rebrand
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.head_ref == 'feat/soky-iptv-pro-full-rebrand'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --break-system-packages Pillow cairosvg
+          python3 tools/apply_soky_rebrand.py
+          python3 tools/prepare_soky_assets.py
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git config user.name "Soky CI Rebrand"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "Complete automated Soky IPTV Pro source and asset rebrand"
+            git push origin HEAD:feat/soky-iptv-pro-full-rebrand
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -62,7 +91,8 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.11-startup-refresh'
+      github.head_ref == 'feat/soky-iptv-pro-full-rebrand' &&
+      needs.build.outputs.rebrand_changed != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,10 +110,10 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.11-startup-refresh \
-            "apk/app-debug.apk#Koky_Sosy_Player_v0.1.11.11_TV_startup_refresh.apk" \
+          gh release create v0.1.11.12-soky-iptv-pro \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.12_TV_Alpha.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Koky & Sosy v0.1.11.11 TV initial refresh preview (hardware test pending)" \
-            --notes "UNAPPROVED TV TEST: initial section refresh on first/new provider launch when Movies/Series stamps are missing, even when legacy global stamp is fresh; Live/Movies/Series onboarding now records successful per-provider stamps. Keeps v0.1.11.10 Live gate and precise seek improvements (device-specific accuracy remains to be validated). Approved v0.1.11.8 protected. Google Drive sync proposed in issue #33, NOT implemented pending OAuth registration. Screensaver remains untested." \
+            --title "Soky IPTV Pro v0.1.11.12 complete rebrand (TV approval pending)" \
+            --notes "UNAPPROVED REBRAND TEST: Soky IPTV Pro user-facing identity, Android package, file/class names, resources, launcher icon, banner and splash. Package identity differs from the previous app: encrypted credential backup/restore is required. Source includes legally required original GPL copyright notices. Real-TV testing and production signing remain pending." \
             --prerelease
