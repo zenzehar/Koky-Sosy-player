@@ -318,7 +318,7 @@ private fun NavRail(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Image(
-                painter = painterResource(R.drawable.ic_sokyiptv_logo),
+                painter = painterResource(R.drawable.soky_splash_icon),
                 contentDescription = "Soky IPTV Pro",
                 modifier = Modifier.size(34.dp),
             )
