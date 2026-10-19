@@ -214,7 +214,7 @@ fun SokyDashboardScreen(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "SOKY IPTV PRO PLAYER", color = Color.White, fontSize = 24.sp,
+                "SOKY IPTV PRO", color = Color.White, fontSize = 24.sp,
                 fontWeight = FontWeight.Bold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
