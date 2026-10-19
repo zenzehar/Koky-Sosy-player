@@ -85,7 +85,7 @@ class ReminderAlarmReceiver : BroadcastReceiver() {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(reminder.title)
             .setContentText(context.getString(R.string.reminder_starting_now, reminder.channelName))
-            .setSmallIcon(R.drawable.ic_sokyiptv_logo)
+            .setSmallIcon(R.drawable.soky_adaptive_monochrome)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
