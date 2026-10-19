@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KokySosyPlayer"
+rootProject.name = "SokyIPTVProPlayer"
 include(":app")

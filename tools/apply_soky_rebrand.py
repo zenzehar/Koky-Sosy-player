@@ -12,25 +12,25 @@ import shutil
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "Soky IPTV Pro"
 REPLACEMENTS = [
-    (r"Koky & Sosy Player", NAME),
-    (r"KOKY & SOSY PLAYER", "SOKY IPTV PRO"),
-    (r"Koky & Sosy", NAME),
-    (r"KOKY & SOSY", "SOKY IPTV PRO"),
-    (r"Koky and Sosy", NAME),
+    (r"Soky IPTV Pro", NAME),
+    (r"SOKY IPTV PRO", "SOKY IPTV PRO"),
+    (r"Soky IPTV Pro", NAME),
+    (r"SOKY IPTV PRO", "SOKY IPTV PRO"),
+    (r"Soky IPTV Pro", NAME),
     (r"tv\\.kokysosy\\.player", "tv.sokyiptv.pro"),
-    (r"app\\.opentv", "app.sokyiptv"),
-    (r"OpenTv", "SokyIptv"),
-    (r"OpenTV", "SokyIPTV"),
-    (r"OPENTV", "SOKYIPTV"),
-    (r"opentv", "sokyiptv"),
-    (r"KokySosy", "SokyIPTVPro"),
-    (r"KOKY_SOSY", "SOKY_IPTV_PRO"),
-    (r"koky_sosy", "soky_iptv_pro"),
-    (r"koky-sosy", "soky-iptv-pro"),
-    (r"KOKY", "SOKY"),
-    (r"SOSY", "IPTV PRO"),
-    (r"Koky", "Soky"),
-    (r"Sosy", "IPTVPro"),
+    (r"app\\.sokyiptv", "app.sokyiptv"),
+    (r"SokyIptv", "SokyIptv"),
+    (r"SokyIPTV", "SokyIPTV"),
+    (r"SOKYIPTV", "SOKYIPTV"),
+    (r"sokyiptv", "sokyiptv"),
+    (r"SokyIPTVPro", "SokyIPTVPro"),
+    (r"SOKY_IPTV_PRO", "SOKY_IPTV_PRO"),
+    (r"soky_iptv_pro", "soky_iptv_pro"),
+    (r"soky-iptv-pro", "soky-iptv-pro"),
+    (r"SOKY", "SOKY"),
+    (r"IPTV PRO", "IPTV PRO"),
+    (r"Soky", "Soky"),
+    (r"IPTVPro", "IPTVPro"),
 ]
 SKIP_DIRS = {".git", ".github", ".gradle", ".idea", "build", ".kotlin", "node_modules"}
 TEXT_EXT = {".kt", ".kts", ".xml", ".json", ".md", ".html", ".js",
@@ -42,9 +42,9 @@ def clean_text(text):
     for pattern, replacement in REPLACEMENTS:
         text = re.sub(pattern, replacement, text)
     # The author/copyright identity is legally immutable despite new UI branding.
-    text = text.replace("Copyright (C) 2026 The SokyIPTV Contributors",
+    text = text.replace("Copyright (C) 2026 The OpenTV Contributors",
                         "Copyright (C) 2026 The OpenTV Contributors")
-    text = text.replace("The SokyIPTV Contributors",
+    text = text.replace("The OpenTV Contributors",
                         "The OpenTV Contributors")
     return text
 
@@ -81,7 +81,7 @@ for path in list(ROOT.rglob("*")):
 
 # Rename Java/Kotlin source directories after updating package declarations.
 for top in ("app/src/main/java/app", "app/src/test/java/app", "app/src/androidTest/java/app"):
-    old = ROOT / top / "opentv"
+    old = ROOT / top / "sokyiptv"
     new = ROOT / top / "sokyiptv"
     if old.exists():
         new.mkdir(parents=True, exist_ok=True)
@@ -95,7 +95,7 @@ for top in ("app/src/main/java/app", "app/src/test/java/app", "app/src/androidTe
 # Old and new Room schema source exports need to match new database FQCN.
 schema_root = ROOT / "app/schemas"
 if schema_root.is_dir():
-    old = schema_root / "app.opentv.data.db.OpenTvDatabase"
+    old = schema_root / "app.sokyiptv.data.db.SokyIptvDatabase"
     new = schema_root / "app.sokyiptv.data.db.SokyIptvDatabase"
     if old.exists() and not new.exists():
         shutil.move(old, new)

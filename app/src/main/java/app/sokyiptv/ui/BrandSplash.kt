@@ -32,12 +32,12 @@ fun BrandSplash() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Image(painterResource(R.drawable.ic_sokyiptv_logo), contentDescription = "Soky IPTV Pro logo",
+        Image(painterResource(R.drawable.soky_splash_icon), contentDescription = "Soky IPTV Pro logo",
             modifier = Modifier.size(150.dp))
         Spacer(Modifier.height(16.dp))
-        Text("SOKY IPTV PRO", color = Color.White, fontWeight = FontWeight.Black,
+        Text("SOKY", color = Color.White, fontWeight = FontWeight.Black,
             fontSize = 38.sp, letterSpacing = 2.sp)
-        Text("PLAYER", color = Color(0xFF74E5F3), fontWeight = FontWeight.SemiBold,
+        Text("IPTV PRO", color = Color(0xFF74E5F3), fontWeight = FontWeight.SemiBold,
             fontSize = 20.sp, letterSpacing = 7.sp)
     }
 }

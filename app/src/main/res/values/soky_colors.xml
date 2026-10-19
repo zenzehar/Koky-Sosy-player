@@ -1,0 +1,7 @@
+<resources>
+ <color name="soky_icon_background">#090E1E</color>
+ <color name="soky_splash_background">#090E1E</color>
+ <color name="soky_brand_coral">#FF496E</color>
+ <color name="soky_brand_cyan">#20DFF4</color>
+ <color name="soky_brand_blue">#176BF4</color>
+</resources>

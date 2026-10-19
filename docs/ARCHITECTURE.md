@@ -1,4 +1,4 @@
-# Koky & Sosy Player — Android TV architecture
+# Soky IPTV Pro — Android TV architecture
 
 ## v0.1.10 components and invariants
 
@@ -26,7 +26,7 @@ Remote options should not rely only on touch long-click. Native key hold and Men
 The local phone manager must not echo saved TMDB credentials. Its short-lived QR token, private-network checks and body-size caps apply equally to `GET /tmdb` and `POST /tmdb`. Embedded APK credentials are extractable.
 
 ---
-## Original OpenTV architecture notes
+## Original SokyIPTV architecture notes
 
 This document explains the decisions that are not obvious from reading the code, and in
 particular the ones made in direct response to how apps in this category typically fail.
@@ -34,7 +34,7 @@ particular the ones made in direct response to how apps in this category typical
 ## The shape of it
 
 ```
-app/src/main/java/app/opentv/
+app/src/main/java/app/sokyiptv/
 ├── core/           ServiceLocator — the whole dependency graph, one file
 ├── data/
 │   ├── model/      Domain models, which double as Room entities
@@ -53,7 +53,7 @@ stranger with a broken channel being able to find the relevant code in under fiv
 
 ## No backend. At all.
 
-OpenTV has no server. There is no account, no login, no cloud sync, no web dashboard for
+SokyIPTV has no server. There is no account, no login, no cloud sync, no web dashboard for
 editing your channel list from a browser.
 
 This is the single most important architectural decision in the project, and it is worth being
@@ -66,7 +66,7 @@ servers go quiet — taking the app with them, because by then the app cannot st
 them. Users who paid discover that their "lifetime" purchase bought them a client for a
 service that no longer exists.
 
-So OpenTV stores everything on the device, in SQLite. The consequences are accepted honestly:
+So SokyIPTV stores everything on the device, in SQLite. The consequences are accepted honestly:
 
 - Setting up a second TV means entering your details again. This is a real cost.
 - Favourites and channel ordering do not follow you between devices.

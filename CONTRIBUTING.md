@@ -1,4 +1,4 @@
-# Contributing to Koky & Sosy Player
+# Contributing to Soky IPTV Pro
 
 Everyone is welcome here, including — especially — people who have never contributed to an
 open-source project before. If you are fixing the bug that has been annoying you, you are
@@ -8,7 +8,7 @@ exactly the person this project is for.
 
 **Do not copy code from any other IPTV app, and do not decompile one.**
 
-OpenTV is a clean-room implementation. If any decompiled or copied code enters this repository,
+SokyIPTV is a clean-room implementation. If any decompiled or copied code enters this repository,
 the project loses the legal footing that makes it safe for anyone to use, fork and distribute —
 which is the whole reason it exists. Pull requests that appear to contain code lifted from a
 closed-source app will be closed.
@@ -31,10 +31,10 @@ device-specific — a particular box, a particular Android version, a particular
 include:
 
 - Device and Android version (e.g. "Ugoos AM9 Pro, Android 14"; "Fire TV Stick 4K, Fire OS 7")
-- OpenTV version
+- SokyIPTV version
 - Source type: Xtream login or M3U playlist
 - What happened, and what you expected
-- Logs if you can get them: `adb logcat -s OpenTV:* EpgRepository:* SyncWorker:*`
+- Logs if you can get them: `adb logcat -s SokyIPTV:* EpgRepository:* SyncWorker:*`
 
 **Never paste your provider's URL, username or password into an issue.** Redact them. They are
 credentials for a service you pay for, and issues are public forever.
@@ -42,8 +42,8 @@ credentials for a service you pay for, and issues are public forever.
 ## Setting up
 
 ```bash
-git clone https://github.com/OWNER/opentv.git
-cd opentv
+git clone https://github.com/OWNER/sokyiptv.git
+cd sokyiptv
 ./gradlew test          # fast, no device needed
 ./gradlew assembleDebug
 ```

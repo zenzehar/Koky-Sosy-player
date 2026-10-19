@@ -2,7 +2,7 @@
 
 1. HOME: Movies and Series tiles each have a subtle bottom strip showing Updated: [date/time] or Never updated, with a distinct focusable refresh icon. Opening a tile uses the main body; focusing and pressing OK on its bottom strip updates ONLY that type. Confirm VOD browser pages no longer contain the strip. Other home cards unchanged.
 2. Trigger a full catalogue update, then open Movies and Series. Both must be navigable and display SAVED titles during the update. Status/date on tiles reflect successful updates, not the start time. Tap refresh multiple times: the work should be coalesced, show progress, and never block existing titles.
-3. Settings > Provider logins: enter at least 8-character passphrase by clicking inside its text box (remote OK). Dismiss keyboard with Back, then press Export. Observe a **modal** confirmation with Documents/KokySosy/manual-logins.kspc if successful. Wrong permission or missing file must show a modal error, not silently return focus to passphrase. Test restore using same passphrase and verify no duplicate providers. DO NOT uninstall sole credentials just to test before backup verified.
+3. Settings > Provider logins: enter at least 8-character passphrase by clicking inside its text box (remote OK). Dismiss keyboard with Back, then press Export. Observe a **modal** confirmation with Documents/SokyIPTVPro/manual-logins.kspc if successful. Wrong permission or missing file must show a modal error, not silently return focus to passphrase. Test restore using same passphrase and verify no duplicate providers. DO NOT uninstall sole credentials just to test before backup verified.
 4. Settings text fields: highlight EPG guide name/URL, TMDB key/token, language-search, password-protected manual backup, Parental PIN, NAS storage settings, and Stremio add-on URL. Native Android keyboard must NOT open until pressing OK/click on field; Back dismisses it and restores navigation.
 5. Login page RHS: unfocused Playlist/Username/Password/Server URL should have NO pale white rectangular frame, and should remain legible. Focus moves yellow outline and pale background to one selected input only; clicking field starts keyboard.
 6. Replay stable episode and long-seek tests unchanged, plus 3-level autoplay/buttons/seek D-pad. Screensaver still untested. Mark this alpha unapproved pending physical device tests.
@@ -32,7 +32,7 @@ v0.1.11.4 TV Tests
 2. Play episode 20+ minutes and check OEM screensaver suppression. If screensaver fires, check video and audio after resume. Report whether VLC_VIDEO_REBOUND appeared in diagnostic QR. This is not yet physically proven.
 3. Watch stutter: rotating VLC spinner says Buffering X% on network buffer; different message says Playback stalled (not VLC buffering) if clock stops without buffering. Media3 retains existing spinner.
 4. Display settings: one language dropdown with searchable filtered language list and system-default choice.
-5. Settings shared credential vault requires explicit user granting of broad file access; on permission-capable Android 11+ devices enable device vault and save encrypted file in Documents/KokySosy. On a new install permission must be re-granted and changing the signing certificate can invalidate decryption. Never uninstall solely relying on this feature until actual successful restore is tested.
+5. Settings shared credential vault requires explicit user granting of broad file access; on permission-capable Android 11+ devices enable device vault and save encrypted file in Documents/SokyIPTVPro. On a new install permission must be re-granted and changing the signing certificate can invalidate decryption. Never uninstall solely relying on this feature until actual successful restore is tested.
 6. If no TV document picker (screenshot), grant device folder access then export manual passphrase-encrypted file, and restore it with the same password, without any system picker.
 7. Factory reset should delete a recognized shared vault before clearing private data; check other app functionality and protect v0.1.11.0 golden branch.
 
@@ -78,7 +78,7 @@ v0.1.11.4 TV Tests
 
 ## v0.1.10.9 real-TV QR diagnostic acceptance
 
-1. After installing, open **Settings > Playback > Show latest diagnostic QR** to test scanning before starting a movie. Scan with phone; result must start `KOKY-DIAG/1`. Do not report credentials (none are intentionally encoded).
+1. After installing, open **Settings > Playback > Show latest diagnostic QR** to test scanning before starting a movie. Scan with phone; result must start `SOKY-DIAG/1`. Do not report credentials (none are intentionally encoded).
 2. Reopen the problematic episode **اللعبة S01E05** in Native VLC. When the player freezes, press OK, navigate to **Diagnostics QR** on the second transport row, scan and paste raw decoded text here.
 3. If a dense QR does not scan on the phone, select **Use easier-to-scan QR (smaller parts)**. Scan **all numbered QR parts** with Next part/Previous part and paste them in order.
 4. If QR generation fails even in fallback, photograph the displayed **QR renderer error class** and the report text; the app must not silently hide the failure.
@@ -89,10 +89,10 @@ v0.1.11.4 TV Tests
 
 ## v0.1.10.8 QR diagnostic testing before/after playback faults
 
-1. From the TV app open **Settings > Playback > Native VLC defaults**. Select **Show latest diagnostic QR** to verify the dialog and QR appear. Scan with phone camera. The phone should display raw text beginning with `KOKY-DIAG/1`; copy all of it and paste into chat. Never paste separate IPTV credentials.
+1. From the TV app open **Settings > Playback > Native VLC defaults**. Select **Show latest diagnostic QR** to verify the dialog and QR appear. Scan with phone camera. The phone should display raw text beginning with `SOKY-DIAG/1`; copy all of it and paste into chat. Never paste separate IPTV credentials.
 2. Play the known troublesome episode **اللعبة S01E05** using Native VLC. If buffering/stalled warnings appear, press OK to show the control bar and choose **Diagnostics QR** on the second row. Scan and copy the complete report; include approximate moment/video position in your chat.
 3. If a freeze prevents opening transport controls, press Back; then reopen **Settings > Playback > Show latest diagnostic QR**. Recent rebuffer/stall events were persisted to app-private storage.
-4. If the app terminates unexpectedly, relaunch Koky & Sosy. A **Recovered crash diagnostic** QR should appear automatically if an uncaught Java exception was caught. If the OS/native VLC killed the process without Java handler, the report may instead say **POSSIBLE_UNCLEAN_EXIT=1**, which is only an interrupted playback hint. The current report remains accessible in Settings.
+4. If the app terminates unexpectedly, relaunch Soky IPTV Pro. A **Recovered crash diagnostic** QR should appear automatically if an uncaught Java exception was caught. If the OS/native VLC killed the process without Java handler, the report may instead say **POSSIBLE_UNCLEAN_EXIT=1**, which is only an interrupted playback hint. The current report remains accessible in Settings.
 5. Also verify Media3 unsupported container error displays **Scan error diagnostics QR**, and scanned text includes numeric Media3 error code.
 6. Repeat D-pad seek, stop/back/early-Back checks with QR report dialog dismissal. The scan tool must not itself pause/restart VLC or launch a second provider stream.
 7. Report should contain only approved event/OS/heap statistics. It must NOT include stream URLs, HTTP auth, access tokens, or title names. No report is uploaded automatically; it leaves the device only when the user copies/pastes it.
@@ -191,7 +191,7 @@ Build-verified is not hardware-verified. Never include provider credentials or t
 ---
 # TV test and release checklist
 
-This document covers the **Koky & Sosy Player** branch, not only the original OpenTV app. Passing Gradle tests is necessary but insufficient: UI focus, Fire TV screensaver handling and provider-specific playback require physical-device testing.
+This document covers the **Soky IPTV Pro** branch, not only the original SokyIPTV app. Passing Gradle tests is necessary but insufficient: UI focus, Fire TV screensaver handling and provider-specific playback require physical-device testing.
 
 ## Required devices
 
@@ -229,7 +229,7 @@ Include model, OS build, app version, precise remote key sequence, expected vs o
 - **Release approval:** User explicitly accepts the build before merging the development PR or updating the approved milestone.
 
 ---
-## Legacy OpenTV testing notes
+## Legacy SokyIPTV testing notes
 
 There is no QA department; there is you, your provider and your telly. This page makes that
 count. The app logs everything it does, so a bug report with a log attached is usually a fix

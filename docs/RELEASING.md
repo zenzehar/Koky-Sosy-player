@@ -1,4 +1,4 @@
-# Koky & Sosy — release and milestone procedure
+# Soky IPTV Pro — release and milestone procedure
 
 The last approved version is **v0.1.9**, on `main`, preserved as `milestone/v0.1.9-tv-approved`. v0.1.10 lives on `feat/v0.1.10-cast-menu-live-epg` until accepted.
 
@@ -10,7 +10,7 @@ The last approved version is **v0.1.9**, on `main`, preserved as `milestone/v0.1
 6. Never commit provider logins, TMDB keys, pairing URLs or tokens. Optional `TMDB_API_KEY` and `TMDB_READ_TOKEN` CI secrets protect source control but not extracted APK contents.
 
 ---
-## Upstream OpenTV release history and signing guidance
+## Upstream SokyIPTV release history and signing guidance
 
 Releases are cut by pushing a tag. GitHub Actions does the rest.
 
@@ -44,7 +44,7 @@ publicly.**
 
    ```bash
    keytool -genkeypair -v -keystore upload.jks -keyalg RSA -keysize 4096 \
-     -validity 10000 -alias opentv
+     -validity 10000 -alias sokyiptv
    ```
 
 2. Add these repository secrets under **Settings → Secrets and variables → Actions**:

@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  This file is part of OpenTV.
+  This file is part of SokyIPTV.
   Copyright (C) 2026 The OpenTV Contributors
   Licensed under the GNU General Public License v3.0 or later.
 
@@ -14,7 +14,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Downloading Koky & Sosy Player…</title>
+<title>Downloading Soky IPTV Pro…</title>
 <style>
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
@@ -69,7 +69,7 @@
       if (!apk) { fail("The latest release has no APK attached."); return; }
 
       document.getElementById("detail").textContent =
-        "OpenTV " + (release.tag_name || "") + " — if nothing happens, use the link below.";
+        "SokyIPTV " + (release.tag_name || "") + " — if nothing happens, use the link below.";
       document.getElementById("fallback").textContent = "Download manually";
       document.getElementById("fallback").href = apk.browser_download_url;
       location.replace(apk.browser_download_url);
