@@ -74,7 +74,7 @@ jobs:
       - name: Retrieve assembled APK
         uses: actions/download-artifact@v4
         with:
-          name: koky-sosy-player-tv-debug-apk
+          name: soky-iptv-pro-tv-debug-apk
           path: apk
 
       - name: Publish unapproved prerelease on GitHub
