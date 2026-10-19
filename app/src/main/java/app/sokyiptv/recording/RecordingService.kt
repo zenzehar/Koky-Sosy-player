@@ -265,7 +265,7 @@ class RecordingService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SokyIPTV")
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_sokyiptv_logo)
+            .setSmallIcon(R.drawable.soky_adaptive_monochrome)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
