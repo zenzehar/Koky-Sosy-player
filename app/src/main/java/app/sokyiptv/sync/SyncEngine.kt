@@ -5,6 +5,7 @@
  */
 package app.sokyiptv.sync
 
+import app.sokyiptv.sync.cloud.CloudMediaKeys
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.data.model.PlaybackPosition
 import app.sokyiptv.data.model.Profile
@@ -65,6 +66,7 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
                 positionMillis = pos.positionMillis,
                 durationMillis = pos.durationMillis,
                 updatedAtMillis = pos.updatedAtMillis,
+                identityHash = CloudMediaKeys.hash(parts[0], streamUrl),
             )
         }
         // Only finished recordings that live on the shared NAS travel — a device-local (file://)
@@ -180,13 +182,18 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
 
         // Watch positions — two-way, newest wins.
         var positions = 0
+        val portableIndex = SyncIdentityResolver.build(graph)
         for (item in bundle.positions) {
             val profileId = profileIdFor(item.profile) ?: continue
             val localId = when (item.kind) {
                 "movie" -> graph.catalogRepository.movieByStreamUrl(item.streamUrl)?.id
                 "ep" -> graph.catalogRepository.episodeByStreamUrl(item.streamUrl)?.id
                 else -> null
-            } ?: continue
+            } ?: item.identityHash.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+                ?.let { portableIndex["${item.kind}:$it"] }
+                ?: item.streamUrl.takeIf { it.isNotBlank() && item.kind in setOf("movie", "ep") }
+                    ?.let { portableIndex["${item.kind}:${CloudMediaKeys.hash(item.kind, it)}"] }
+                ?: continue
             val mediaKey = "${item.kind}:$localId"
             val now = System.currentTimeMillis()
             if (item.updatedAtMillis <= 0 || item.updatedAtMillis > now + 5 * 60_000L ||
