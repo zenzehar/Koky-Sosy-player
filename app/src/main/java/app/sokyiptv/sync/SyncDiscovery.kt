@@ -41,7 +41,16 @@ object SyncDiscovery {
                     if (!PairingHttp.isPrivateAddress(packet.address.hostAddress)) continue
                     if (String(packet.data, packet.offset, packet.length, Charsets.UTF_8) != PROBE) continue
                     val device = "${Build.MANUFACTURER} ${Build.MODEL}".replace('|', ' ').take(48)
-                    val payload = "$REPLY|$device|${currentAddress()}".toByteArray(Charsets.UTF_8)
+                    // Select the address used to reach this particular peer rather than
+                    // an arbitrary Tailscale/Ethernet/VPN interface.
+                    val localIp = runCatching {
+                        DatagramSocket().use { probe ->
+                            probe.connect(packet.address, packet.port)
+                            probe.localAddress.hostAddress
+                        }
+                    }.getOrNull()?.takeIf(PairingHttp::isPrivateAddress)
+                        ?: currentAddress().substringBefore(':')
+                    val payload = "$REPLY|$device|$localIp:${currentAddress().substringAfterLast(':')}".toByteArray(Charsets.UTF_8)
                     socket.send(DatagramPacket(payload, payload.size, packet.address, packet.port))
                 } catch (_: SocketTimeoutException) {
                     // Check isRunning again.
