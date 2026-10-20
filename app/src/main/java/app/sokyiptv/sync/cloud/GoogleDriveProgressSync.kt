@@ -345,7 +345,22 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             }
         }
 
-        val snapshot = localSnapshot(byLocal)
+        // Preserve this Google account's existing Drive progress when the same TV switches
+        // away to another account and later returns. Uploading only positions newer than
+        // the account-switch cutoff would otherwise overwrite its previous cloud file with
+        // an empty/partial snapshot and erase watched positions.
+        val local = localSnapshot(byLocal)
+        val merged = LinkedHashMap<String, CloudWatchPoint>()
+        for (point in remote.values + local.positions) {
+            val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
+            val existing = merged[key]
+            if (existing == null || point.updatedAtMillis > existing.updatedAtMillis) {
+                merged[key] = point
+            }
+        }
+        val snapshot = local.copy(
+            positions = merged.values.sortedByDescending { it.updatedAtMillis }.take(10_000),
+        )
         val payload = json.encodeToString(CloudWatchSnapshot.serializer(), snapshot)
         val digest = MessageDigest.getInstance("SHA-256").digest(
             json.encodeToString(snapshot.positions).toByteArray(Charsets.UTF_8),
