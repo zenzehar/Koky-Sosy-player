@@ -38,6 +38,7 @@ import app.sokyiptv.sync.SyncBundle
 import app.sokyiptv.sync.SyncClient
 import app.sokyiptv.sync.SyncPosition
 import app.sokyiptv.sync.SyncServer
+import app.sokyiptv.sync.SyncDiscovery
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -1258,10 +1259,34 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
  */
 class SyncViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
-    private val server = SyncServer(viewModelScope)
+    private val server = SyncServer(app.applicationContext, viewModelScope)
     private val client = SyncClient(graph.httpClient)
 
     val serverState: StateFlow<SyncServer.State> = server.state
+    val fixedCode: String get() = server.fixedCode
+    fun rotateFixedCode(): String = server.renewFixedCode()
+
+    sealed interface DiscoverState {
+        data object Idle : DiscoverState
+        data object Searching : DiscoverState
+        data class Results(val peers: List<SyncDiscovery.Peer>) : DiscoverState
+        data class Failed(val detail: String) : DiscoverState
+    }
+
+    private val _discoverState = MutableStateFlow<DiscoverState>(DiscoverState.Idle)
+    val discoverState: StateFlow<DiscoverState> = _discoverState.asStateFlow()
+
+    fun discoverDevices() {
+        if (_discoverState.value == DiscoverState.Searching) return
+        viewModelScope.launch {
+            _discoverState.value = DiscoverState.Searching
+            _discoverState.value = try {
+                DiscoverState.Results(SyncDiscovery.scan())
+            } catch (_: Exception) {
+                DiscoverState.Failed("Discovery unavailable. Enter the sharing TV's address manually.")
+            }
+        }
+    }
 
     sealed interface ReceiveState {
         data object Idle : ReceiveState
@@ -1310,8 +1335,8 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun startSharing() {
-        viewModelScope.launch { server.start(buildBundleJson()) }
+    fun startSharing(useFixedCode: Boolean = false) {
+        viewModelScope.launch { server.start(buildBundleJson(), useFixedCode) }
     }
 
     fun stopSharing() = server.stop()
@@ -1355,6 +1380,12 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
             } ?: continue
             val mediaKey = "${item.kind}:$localId"
             val existing = graph.playbackPositions.get(profileId, mediaKey)
+            val now = System.currentTimeMillis()
+            // Reject malformed or implausibly future remote timestamps; never let those
+            // dominate progress and block legitimate future local updates.
+            if (item.updatedAtMillis <= 0 || item.updatedAtMillis > now + 5 * 60_000L) continue
+            if (item.positionMillis < 0 || item.durationMillis < 0 ||
+                (item.durationMillis > 0 && item.positionMillis > item.durationMillis + 120_000L)) continue
             if (existing == null || item.updatedAtMillis > existing.updatedAtMillis) {
                 graph.playbackPositions.upsert(
                     PlaybackPosition(
