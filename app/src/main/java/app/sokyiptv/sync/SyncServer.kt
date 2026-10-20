@@ -34,6 +34,10 @@ import kotlinx.coroutines.launch
  */
 class SyncServer(context: Context, private val scope: CoroutineScope) {
     private val preferences = context.applicationContext.getSharedPreferences("soky_lan_pairing", Context.MODE_PRIVATE)
+    val preferFixedCode: Boolean get() = preferences.getBoolean("prefer_fixed", false)
+    fun setPreferFixedCode(enabled: Boolean) {
+        preferences.edit().putBoolean("prefer_fixed", enabled).apply()
+    }
     val fixedCode: String get() = preferences.getString("fixed_code", null)
         ?.takeIf { it.matches(Regex("[0-9]{6}")) } ?: newCode().also {
             preferences.edit().putString("fixed_code", it).apply()
