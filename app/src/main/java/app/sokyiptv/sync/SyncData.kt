@@ -58,6 +58,8 @@ data class SyncPosition(
     val positionMillis: Long,
     val durationMillis: Long,
     val updatedAtMillis: Long,
+    /** Portable same-provider identity; no IPTV credential is sent as this hash. */
+    val identityHash: String = "",
 )
 
 /**
