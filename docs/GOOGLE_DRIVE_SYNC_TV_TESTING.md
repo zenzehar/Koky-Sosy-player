@@ -1,42 +1,41 @@
-# Google Drive watch-history sync — experimental TV test
+# Google Drive progress sync — per-user TV OAuth experiment v0.1.11.14
 
-This isolated experiment is **not merged** into the mainstream Soky IPTV Pro development branch. It uses the existing local playback history and never uploads provider URLs or credentials. It is not yet approved on a real television.
+This feature lives ONLY on `experiment/soky-iptv-pro-lab-2026-10-19`. Main, the rebrand development branch and all golden milestone branches remain unchanged. Draft PR #39 is not approved for merge.
 
-## First-run instructions
+## One-time developer-only setup
 
-1. Install the `v0.1.11.13` experimental Android TV APK, retaining your previous working version and encrypted provider backup.
+1. Open repository **Settings → Secrets and variables → Actions**.
+2. Select **New repository secret** and enter **Name:** `GOOGLE_TV_OAUTH_CLIENT_SECRET`.
+3. For its **Secret** value, paste the existing **TV and Limited Input devices** OAuth Client Secret from Google Auth Platform → Clients. Never enter a user password, Drive token, or provider login here.
+4. Save. If missing, the Android unit tests and APK compilation may still pass, but the direct APK publishing job deliberately fails to avoid releasing a build with a disabled Connect Google Account button.
+5. Re-run the latest GitHub Actions workflow for the experimental draft PR or push a new test commit. The CI build embeds the app-level OAuth configuration automatically.
+6. For production, rotate the already-shared test credential in Google Cloud and update this repository secret; ensure the Google OAuth app is **In production** and required consent details are completed.
+
+**Important:** Google's TV OAuth design assumes a distributed app cannot keep client credentials secret. GitHub Actions secrets protect the source repository and build pipeline, not the compiled APK. Extracting the embedded client secret from an APK is possible; security comes from each user's own Google authorisation and individually issued tokens.
+
+## User experience (no developer credentials on any device)
+
+1. Install the test APK.
 2. Open **Settings → Sync → Google Drive**.
-3. Because the temporary Google TV OAuth Client Secret is intentionally **not bundled with or committed to GitHub**, enter your **test** client secret in the masked field, then choose **Save test configuration**. It stays on-device encrypted by Android Keystore. Do not share it in screenshots.
-4. Select **Connect Google account**. On your phone, open the verification URL shown on TV and enter the **temporary Google user code**. Approve access to the private application folder.
-5. Return to TV and wait for **Connected**. Press **Sync Now** to test the initial round trip.
-6. Open the same Google account in another TV running the identical test APK. Both boxes must have the same IPTV provider catalogue; the URL-derived SHA-256 hashes require identical provider stream URLs.
-7. Play a movie or episode on TV A, watch at least two minutes, pause or leave the app. On TV B choose **Sync Now** and verify the resumed point.
+3. Select **Connect Google account**. No Client ID or Client Secret field exists.
+4. Scan the Google authorisation-page QR code with a phone (or open the verification URL manually).
+5. Sign in to **your own Google account**, enter the TV's temporary case-sensitive code, and approve Drive's private app-data permission.
+6. When connected, press **Sync Now**. The signed-in Google account email is shown if Drive supplies it.
+7. Repeat on another TV with the **same Google account** and the same IPTV provider catalogue. Watch on TV A and sync on TV B to verify matching watch position.
 
-## How sync works
+Each user authorises their own account independently. Progress is stored in that account's own hidden Google Drive `appDataFolder`; it is not stored in the developer's Drive. Local progress remains available offline, and uploads/merges occur at startup, every two minutes during app use, when leaving the app and on Sync Now.
 
-- Google OAuth TV device code login using Drive `drive.appdata` permission.
-- Tokens and test client secret are encrypted locally via Android Keystore.
-- Cloud content is **only** profile name, hashed media key, time position, total time and last update timestamp.
-- Own device maintains a dedicated `soky-progress-v1-<device-id>.json` file; downloads every device snapshot, merges newest clock timestamp, uploads its own snapshot if changed.
-- Sync runs on app foreground startup, every two minutes during active use, and on app background/exit; Sync Now is available on demand. Network failures do not block playback. Offline changes remain in the Room database.
-- It does not attempt to sync provider passwords, streams, subscriptions, favourites, NAS recordings or Live TV.
+## Limits and privacy
 
-## Known experimental limitations
+- The app uploads **only** SHA-256 digests of stream identifiers, profile names, watched time, total duration and timestamps. It does **not** upload IPTV credentials, original provider URLs, subscriptions, NAS recordings or LAN-synchronisation bundles.
+- The hash approach requires identical provider stream URLs on each device to match progress. Catalogue content must already be loaded on both TVs.
+- Cloud files are per device, enabling merges across two active TVs; the newest timestamp wins.
+- When switching to a **different Google account** on the same TV, progress recorded before the account switch is excluded from future cloud uploads to the new Drive. Local watch history, however, remains visible on the device; choose a separate device/app data profile if local privacy between people is important.
+- Delete/reset tombstones are not implemented. Local Continue Watching removal can reappear after syncing another device's historical cloud snapshot.
+- An Android **phone-specific OAuth client** and native phone sign-in UX remain pending.
+- OAuth test-mode refresh tokens can expire after seven days; test users must be on the Google consent screen's allowed list.
+- Production signing is required before a public release. Debug signing may prevent in-place updates from other builds.
+- Google Drive API has per-user and per-project quotas; this is not unlimited free hosting.
+- The current build passes Android CI when confirmed; successful CI does not prove that the Google sign-in or sync works on the user's real TV.
 
-- **Deletes and watch-history reset tombstones are not yet synchronised.** Removing Continue Watching locally can be undone by another device's older cloud snapshot.
-- Files are hidden in Google Drive `appDataFolder`, not visible in My Drive. Other Google accounts cannot see them.
-- Match requires *identical provider stream URLs*, after a local catalogue import on each device; changes to URLs may prevent a match.
-- TV Client Secret is entered once per test device. TV distributed clients cannot reliably keep secrets; rotate the test secret before public distribution. Never commit the secret.
-- **Native Android phone OAuth sign-in is not implemented** yet. This build is TV-only cloud sign-in.
-- Google OAuth apps still in Testing mode may require reauthorisation after around seven days; ensure your Google account is listed as a test user.
-- Debug signing and differing app package IDs can prevent upgrading from earlier builds. Export encrypted credentials before uninstalling any installed version.
-- Android background restrictions may prevent immediate upload after force-killing the app; wait for the next foreground sync.
-- Real TV validation and secure production signing are still required.
-
-## Cloud data privacy
-
-Stream URLs can embed passwords, so the existing LAN/NAS `SyncBundle` is NOT uploaded. A SHA-256 digest of the complete local media URL is used as an opaque match key. This reduces accidental disclosure but does not make all watch-history metadata completely anonymous.
-
-Google Drive API official docs:
-- https://developers.google.com/identity/protocols/oauth2/limited-input-device
-- https://developers.google.com/workspace/drive/api/guides/appdata
+Official references: https://developers.google.com/identity/protocols/oauth2/limited-input-device and https://developers.google.com/workspace/drive/api/guides/appdata
