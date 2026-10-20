@@ -22,9 +22,9 @@ object SyncDiscovery {
     private const val PROBE = "SOKY_SYNC_DISCOVER_V1"
     private const val REPLY = "SOKY_SYNC_HERE_V1"
 
-    data class Peer(val name: String, val address: String)
+    data class Peer(val name: String, val address: String, val deviceId: String = "")
 
-    fun listen(isRunning: () -> Boolean, currentAddress: () -> String): DatagramSocket? {
+    fun listen(isRunning: () -> Boolean, currentAddress: () -> String, deviceId: String): DatagramSocket? {
         val socket = runCatching {
             DatagramSocket(null).apply {
                 reuseAddress = true
@@ -50,7 +50,7 @@ object SyncDiscovery {
                         }
                     }.getOrNull()?.takeIf(PairingHttp::isPrivateAddress)
                         ?: currentAddress().substringBefore(':')
-                    val payload = "$REPLY|$device|$localIp:${currentAddress().substringAfterLast(':')}".toByteArray(Charsets.UTF_8)
+                    val payload = "$REPLY|$device|$localIp:${currentAddress().substringAfterLast(':')}|$deviceId".toByteArray(Charsets.UTF_8)
                     socket.send(DatagramPacket(payload, payload.size, packet.address, packet.port))
                 } catch (_: SocketTimeoutException) {
                     // Check isRunning again.
@@ -93,13 +93,13 @@ object SyncDiscovery {
                         val packet = DatagramPacket(data, data.size)
                         socket.receive(packet)
                         if (!PairingHttp.isPrivateAddress(packet.address.hostAddress)) continue
-                        val parts = String(packet.data, 0, packet.length, Charsets.UTF_8).split('|', limit = 3)
+                        val parts = String(packet.data, 0, packet.length, Charsets.UTF_8).split('|', limit = 4)
                         if (parts.size != 3 || parts[0] != REPLY) continue
                         val address = parts[2]
                         if (!address.matches(Regex("[0-9.]+:[0-9]{1,5}"))) continue
                         val ip = address.substringBefore(':')
                         if (ip != packet.address.hostAddress || !PairingHttp.isPrivateAddress(ip)) continue
-                        peers[address] = Peer(parts[1].take(48), address)
+                        peers[address] = Peer(parts[1].take(48), address, parts.getOrNull(3).orEmpty().takeIf { it.matches(Regex("[a-fA-F0-9-]{36}")) }.orEmpty())
                     } catch (_: SocketTimeoutException) { break }
                     catch (_: Exception) { break }
                 }
