@@ -113,17 +113,45 @@ fun GoogleDriveSyncPane() {
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Google Drive Cloud Sync", style = MaterialTheme.typography.titleLarge)
+    var showHelp by remember { mutableStateOf(false) }
+    if (showHelp) {
+        Dialog(onDismissRequest = { showHelp = false }) {
+            Surface(
+                modifier = Modifier.widthIn(max = 640.dp),
+                shape = MaterialTheme.shapes.large,
+            ) {
+                Column(
+                    Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("How Google Drive Sync works", style = MaterialTheme.typography.titleLarge)
+                    Text("Every user connects their own Google account using the TV verification code.")
+                    Text("Continue Watching positions are uploaded at startup, every two minutes, and when the app goes into the background. Offline viewing still works.")
+                    Text("Soky uses a private Google app-data folder when available, or its own Soky IPTV Pro folder in My Drive. IPTV credentials and stream URLs are never uploaded.")
+                    Text("Watch-history deletion does not currently synchronise across devices.")
+                    TextButton(onClick = { showHelp = false }) { Text("Close") }
+                }
+            }
+        }
+    }
+
+    // Keep the important account and sync status on one television-sized screen.
+    // Longer instructions are available from the focusable 'How it works' button.
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Google Drive Cloud Sync", style = MaterialTheme.typography.titleLarge)
+            TextButton(onClick = { showHelp = true }) { Text("How it works") }
+        }
         Text(
-            "Connect your own Google account. Your viewing progress stays in your own Google Drive. " +
-                "If Google's hidden app storage is unavailable for TV sign-in, Soky creates a " +
-                "normal private-to-you folder in My Drive called Soky IPTV Pro. " +
-                "Use the same account on another TV to sync. IPTV credentials and stream URLs are not uploaded.",
+            "Sync Continue Watching and episode positions using your own Google account. " +
+                "Your IPTV passwords and stream URLs stay on this device.",
             style = MaterialTheme.typography.bodyMedium,
         )
-        Card(Modifier.widthIn(max = 720.dp)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(Modifier.widthIn(max = 640.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     if (state.connected) "Google account connected" else "Google account not connected",
                     style = MaterialTheme.typography.titleMedium,
@@ -133,9 +161,7 @@ fun GoogleDriveSyncPane() {
                 }
                 if (!state.configured) {
                     Text(
-                        "Google sign-in is unavailable in this test build because the developer " +
-                            "has not configured the application's TV OAuth credentials. " +
-                            "Users do not need to enter any Client ID or Client Secret.",
+                        "Developer setup required: this APK has no Google TV OAuth configuration.",
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
@@ -145,7 +171,7 @@ fun GoogleDriveSyncPane() {
                     }
                 }
                 if (state.busy && state.pendingCode == null && !state.connected) {
-                    Text("Contacting Google. Your sign-in code will appear in a popup…")
+                    Text("Checking Google authorisation…")
                 }
                 if (state.connected) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -162,21 +188,15 @@ fun GoogleDriveSyncPane() {
                 if (state.message.isNotBlank()) {
                     Text(
                         state.message,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (state.message.contains("failed", ignoreCase = true) ||
+                            state.message.contains("error", ignoreCase = true) ||
+                            state.message.contains("cannot", ignoreCase = true)
+                            ) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "When connected: sync at startup, every two minutes while the app is in use, " +
-                "and when it goes into the background. Each device has its own cloud snapshot; " +
-                "newer watched positions win. Playback continues offline. Removing history " +
-                "across devices is not yet synchronised. Switching Google accounts does not " +
-                "erase the local watch history on this TV.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
