@@ -1,16 +1,18 @@
 /*
- * Soky IPTV Pro experimental Google Drive Cloud Sync settings.
- * The existing LAN and NAS sync panes remain unchanged.
+ * Soky IPTV Pro per-user Google Drive sign-in. GPL-3.0-or-later.
+ * Application OAuth credentials are injected by the build; users only authorise their own account.
  */
 package app.sokyiptv.ui.settings
 
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,19 +22,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.sokyiptv.sync.cloud.GoogleDriveProgressSync
-import app.sokyiptv.ui.onboarding.TvNativeTextField
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.launch
+
+private fun googleDeviceQr(url: String): Bitmap? = runCatching {
+    val matrix = MultiFormatWriter().encode(url, BarcodeFormat.QR_CODE, 224, 224)
+    Bitmap.createBitmap(224, 224, Bitmap.Config.ARGB_8888).apply {
+        for (y in 0 until 224) for (x in 0 until 224) {
+            setPixel(x, y, if (matrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        }
+    }
+}.getOrNull()
 
 @Composable
 fun GoogleDriveSyncPane() {
@@ -40,62 +50,52 @@ fun GoogleDriveSyncPane() {
     val sync = remember(context) { GoogleDriveProgressSync.get(context) }
     val state by sync.state.collectAsState()
     val scope = rememberCoroutineScope()
-    var clientSecret by remember { mutableStateOf("") }
-    var secretMessage by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("Google Drive watch-progress sync (TV test)",
-            style = MaterialTheme.typography.titleLarge)
+        Text("Google Drive Cloud Sync", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Use the same Google account on your TVs to share Continue Watching and " +
-                "episode positions. This never uploads IPTV passwords, server addresses " +
-                "or streaming URLs. The app keeps working offline.",
+            "Connect your own Google account. Each account stores its own Continue Watching " +
+                "history and episode positions in its private Google Drive app folder. " +
+                "Sign into the same account on another device to sync. IPTV passwords, " +
+                "server addresses and stream URLs are never uploaded.",
             style = MaterialTheme.typography.bodyMedium,
         )
-
-        if (!state.hasTestClientSecret) {
-            Card(Modifier.widthIn(max = 680.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("First-time test setup", style = MaterialTheme.typography.titleMedium)
-                    Text("Enter your temporary Google TV OAuth Client Secret ON THIS DEVICE. " +
-                         "It will be stored encrypted using the Android Keystore, not uploaded " +
-                         "to GitHub. This field is for experimental testing only.")
-                    TvNativeTextField(
-                        value = clientSecret,
-                        onValueChange = { clientSecret = it },
-                        label = "TV OAuth Client Secret (test)",
-                        modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = PasswordVisualTransformation(),
-                    )
-                    Button(
-                        enabled = clientSecret.isNotBlank(),
-                        onClick = {
-                            runCatching { sync.saveTestSecret(clientSecret) }
-                                .onSuccess { secretMessage = "Client settings saved"; clientSecret = "" }
-                                .onFailure { secretMessage = "Could not save the test settings" }
-                        }
-                    ) { Text("Save test configuration") }
-                    if (secretMessage.isNotEmpty()) Text(secretMessage)
-                }
-            }
-        }
-
         Card(Modifier.widthIn(max = 720.dp)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(if (state.connected) "Google Drive connected" else "Google account not connected",
-                    style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (state.connected) "Google account connected" else "Google account not connected",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (state.connected && state.accountLabel.isNotBlank()) {
+                    Text("Account: ${state.accountLabel}")
+                }
+                if (!state.configured) {
+                    Text(
+                        "Google sign-in is unavailable in this test build because the developer " +
+                            "has not configured the application's TV OAuth credentials. " +
+                            "Users do not need to enter any Client ID or Client Secret.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 if (!state.connected && !state.busy) {
-                    Button(
-                        enabled = state.hasTestClientSecret,
-                        onClick = { scope.launch { sync.connect() } },
-                    ) { Text("Connect Google account") }
+                    Button(enabled = state.configured, onClick = { scope.launch { sync.connect() } }) {
+                        Text("Connect Google account")
+                    }
                 }
                 state.pendingCode?.let { code ->
-                    Text("On your phone, open:", style = MaterialTheme.typography.bodyMedium)
+                    Text("Scan this code with your phone, or open the URL:", style = MaterialTheme.typography.bodyMedium)
+                    val qr = remember(code.verificationUrl) { googleDeviceQr(code.verificationUrl) }
+                    if (qr != null) {
+                        Image(
+                            bitmap = qr.asImageBitmap(),
+                            contentDescription = "QR code to open Google's device authorisation page",
+                            modifier = Modifier.size(196.dp),
+                        )
+                    }
                     Text(code.verificationUrl, style = MaterialTheme.typography.titleMedium)
-                    Text("Enter this code:", style = MaterialTheme.typography.bodyMedium)
+                    Text("Enter this code on your phone (case-sensitive):", style = MaterialTheme.typography.bodyMedium)
                     Text(code.userCode, style = MaterialTheme.typography.headlineMedium)
-                    Text("The app will automatically finish signing in after you approve access.")
+                    Text("Approve access to your Google Drive app data. The TV will finish connecting automatically.")
                 }
                 if (state.connected) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -110,18 +110,21 @@ fun GoogleDriveSyncPane() {
                         .format(Date(state.lastSuccessMillis))
                 Text("Last successful sync: $last")
                 if (state.message.isNotBlank()) {
-                    Text(state.message,
+                    Text(
+                        state.message,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium)
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "When connected: sync at app startup, every two minutes while open, and " +
-                "when leaving the app. Multiple devices keep separate cloud snapshots; " +
-                "the newest position wins. Titles must exist in each device's local catalogue. " +
-                "Removal/reset actions are not yet shared between devices in this experiment.",
+            "When connected: sync at startup, every two minutes while the app is in use, " +
+                "and when it goes into the background. Each device has its own cloud snapshot; " +
+                "newer watched positions win. Playback continues offline. Removing history " +
+                "across devices is not yet synchronised. Switching Google accounts does not " +
+                "erase the local watch history on this TV.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
