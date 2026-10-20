@@ -71,7 +71,7 @@ fun SyncScreen(
         Spacer(Modifier.height(8.dp))
         Text(
             when (mode) {
-                Mode.CLOUD -> "Sync viewing progress across devices using each person's own Google Drive. An internet connection is used; IPTV passwords and streaming URLs are not uploaded."
+                Mode.CLOUD -> "Sync watch progress across your TVs with your own Google account. IPTV credentials are never uploaded."
                 Mode.NAS -> stringResource(R.string.sync_nas_desc)
                 else -> stringResource(R.string.sync_desc)
             },
