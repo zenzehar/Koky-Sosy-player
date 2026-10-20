@@ -715,6 +715,24 @@ interface PlaybackPositionDao {
     @Upsert
     suspend fun upsert(position: PlaybackPosition)
 
+    /**
+     * Atomic newest-wins merge. Unlike get() followed by upsert(), this cannot
+     * overwrite progress saved on the player thread between reading and writing.
+     * Equal timestamps keep the local record to avoid ambiguous ties.
+     */
+    @Query("""
+        INSERT INTO playback_positions (profileId, mediaKey, positionMillis, durationMillis, updatedAtMillis)
+        VALUES (:profileId, :mediaKey, :positionMs, :durationMs, :updatedMs)
+        ON CONFLICT(profileId, mediaKey) DO UPDATE SET
+            positionMillis = excluded.positionMillis,
+            durationMillis = excluded.durationMillis,
+            updatedAtMillis = excluded.updatedAtMillis
+        WHERE excluded.updatedAtMillis > playback_positions.updatedAtMillis
+    """)
+    suspend fun mergeIfNewer(
+        profileId: Long, mediaKey: String, positionMs: Long, durationMs: Long, updatedMs: Long,
+    ): Int
+
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)
 
