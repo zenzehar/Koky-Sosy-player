@@ -37,6 +37,8 @@ import app.sokyiptv.sync.NasSync
 import app.sokyiptv.sync.SyncBundle
 import app.sokyiptv.sync.SyncClient
 import app.sokyiptv.sync.SyncPosition
+import app.sokyiptv.sync.SyncIdentityResolver
+import app.sokyiptv.sync.cloud.CloudMediaKeys
 import app.sokyiptv.sync.SyncServer
 import app.sokyiptv.sync.SyncDiscovery
 import kotlinx.serialization.json.Json
@@ -1366,20 +1368,25 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                 "ep" -> graph.catalogRepository.episode(id)?.streamUrl
                 else -> null
             } ?: return@mapNotNull null
-            SyncPosition(profileName, streamUrl, parts[0], pos.positionMillis, pos.durationMillis, pos.updatedAtMillis)
+            SyncPosition(profileName, streamUrl, parts[0], pos.positionMillis, pos.durationMillis, pos.updatedAtMillis, CloudMediaKeys.hash(parts[0], streamUrl))
         }
         return Json.encodeToString(SyncBundle.serializer(), SyncBundle(positions = items))
     }
 
     private suspend fun merge(bundle: SyncBundle): Int {
         var merged = 0
+        val portableIndex = SyncIdentityResolver.build(graph)
         for (item in bundle.positions) {
             val profileId = profileIdFor(item.profile) ?: continue
             val localId = when (item.kind) {
                 "movie" -> graph.catalogRepository.movieByStreamUrl(item.streamUrl)?.id
                 "ep" -> graph.catalogRepository.episodeByStreamUrl(item.streamUrl)?.id
                 else -> null
-            } ?: continue
+            } ?: item.identityHash.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+                ?.let { portableIndex["${item.kind}:$it"] }
+                ?: item.streamUrl.takeIf { it.isNotBlank() && item.kind in setOf("movie", "ep") }
+                    ?.let { portableIndex["${item.kind}:${CloudMediaKeys.hash(item.kind, it)}"] }
+                ?: continue
             val mediaKey = "${item.kind}:$localId"
             val now = System.currentTimeMillis()
             if (item.updatedAtMillis <= 0L || item.updatedAtMillis > now + 5 * 60_000L ||
