@@ -111,6 +111,9 @@ private fun SharePane(viewModel: SyncViewModel) {
     val state by viewModel.serverState.collectAsState()
     var useFixed by remember { mutableStateOf(viewModel.preferFixedCode) }
     var confirmedPin by remember { mutableStateOf("") }
+    var editingPin by remember { mutableStateOf(false) }
+    var customPin by remember { mutableStateOf("") }
+    var pinMessage by remember { mutableStateOf("") }
     Card {
         Column(Modifier.padding(18.dp).widthIn(max = 670.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -131,7 +134,24 @@ private fun SharePane(viewModel: SyncViewModel) {
                     enabled = state !is SyncServer.State.Sharing,
                     onClick = { confirmedPin = viewModel.rotateFixedCode() },
                 ) { Text("Generate new reusable code") }
+                OutlinedButton(
+                    enabled = state !is SyncServer.State.Sharing,
+                    onClick = { editingPin = !editingPin; customPin = "" },
+                ) { Text("Set my own six-digit code") }
+                if (editingPin) {
+                    Text("New pairing code: ${customPin.padEnd(6, '•')}")
+                    NumPad(
+                        onKey = { if (it.length == 1 && it[0].isDigit() && customPin.length < 6) customPin += it },
+                        onBackspace = { customPin = customPin.dropLast(1) },
+                    )
+                    Button(enabled = customPin.length == 6, onClick = {
+                        viewModel.setFixedCode(customPin)
+                        pinMessage = "Code updated. Previously paired TVs must pair again."
+                        editingPin = false
+                    }) { Text("Save code") }
+                }
                 if (confirmedPin.isNotEmpty()) Text("Reusable code changed. Re-pair other TVs if needed.")
+                if (pinMessage.isNotBlank()) Text(pinMessage)
             }
             when (val current = state) {
                 is SyncServer.State.Sharing -> {
@@ -160,6 +180,7 @@ private fun ReceivePane(viewModel: SyncViewModel) {
     val state by viewModel.receiveState.collectAsState()
     val discovery by viewModel.discoverState.collectAsState()
     var selectedAddress by remember { mutableStateOf("") }
+    var selectedDeviceId by remember { mutableStateOf("") }
     var entry by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { viewModel.discoverDevices() }
 
@@ -179,11 +200,13 @@ private fun ReceivePane(viewModel: SyncViewModel) {
                     found.peers.forEach { peer ->
                         OutlinedButton(onClick = {
                             selectedAddress = peer.address
+                            selectedDeviceId = peer.deviceId
                             entry = ""
                             viewModel.resetReceive()
                         }) {
                             Text("${peer.name}  ·  ${peer.address}" +
-                                if (selectedAddress == peer.address) "  (selected)" else "")
+                                (if (viewModel.isPaired(peer.deviceId)) "  · Paired" else "") +
+                                (if (selectedAddress == peer.address) "  (selected)" else ""))
                         }
                     }
                 }
@@ -192,15 +215,17 @@ private fun ReceivePane(viewModel: SyncViewModel) {
             }
             if (selectedAddress.isNotBlank()) {
                 Text("Selected device: $selectedAddress")
-                OutlinedButton(onClick = { selectedAddress = ""; entry = "" }) { Text("Enter address manually") }
+                OutlinedButton(onClick = { selectedAddress = ""; selectedDeviceId = ""; entry = "" }) { Text("Enter address manually") }
             }
+            val alreadyPaired = selectedAddress.isNotBlank() && viewModel.isPaired(selectedDeviceId)
             Text(
-                if (selectedAddress.isNotBlank())
-                    "Six-digit pairing code: ${entry.ifBlank { "______" }}"
+                if (alreadyPaired) "Paired TV selected. No code needed."
+                else if (selectedAddress.isNotBlank())
+                    "Enter code once: ${entry.ifBlank { "______" }}"
                 else "Enter IP:port#code: ${entry.ifBlank { "192.168.0.10:12345#123456" }}",
                 style = MaterialTheme.typography.titleMedium,
             )
-            NumPad(
+            if (!alreadyPaired) NumPad(
                 onKey = { key ->
                     if (selectedAddress.isNotBlank()) {
                         if (key.all(Char::isDigit) && entry.length < 6) entry += key
@@ -210,14 +235,15 @@ private fun ReceivePane(viewModel: SyncViewModel) {
             )
             Button(
                 enabled = state !is SyncViewModel.ReceiveState.Connecting &&
-                    (if (selectedAddress.isNotBlank()) entry.matches(Regex("[0-9]{6}"))
+                    (if (alreadyPaired) true
+                     else if (selectedAddress.isNotBlank()) entry.matches(Regex("[0-9]{6}"))
                      else entry.contains('#') && entry.substringAfter('#').matches(Regex("[0-9]{6}"))),
                 onClick = {
                     val address = selectedAddress.ifBlank { entry.substringBefore('#') }
-                    val code = if (selectedAddress.isNotBlank()) entry else entry.substringAfter('#')
-                    viewModel.receive(address, code)
+                    val code = if (alreadyPaired) "" else if (selectedAddress.isNotBlank()) entry else entry.substringAfter('#')
+                    viewModel.receive(address, code, selectedDeviceId)
                 },
-            ) { Text("Connect and receive") }
+            ) { Text(if (alreadyPaired) "Connect paired TV" else "Pair and receive") }
             when (val result = state) {
                 is SyncViewModel.ReceiveState.Connecting -> Text("Connecting (maximum 12 seconds)…")
                 is SyncViewModel.ReceiveState.Done -> Text(
