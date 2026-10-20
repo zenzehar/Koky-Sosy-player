@@ -1381,7 +1381,11 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                 else -> null
             } ?: continue
             val mediaKey = "${item.kind}:$localId"
-            $count += graph.playbackPositions.mergeIfNewer(
+            val now = System.currentTimeMillis()
+            if (item.updatedAtMillis <= 0L || item.updatedAtMillis > now + 5 * 60_000L ||
+                item.positionMillis < 0L || item.durationMillis < 0L ||
+                (item.durationMillis > 0L && item.positionMillis > item.durationMillis + 120_000L)) continue
+            merged += graph.playbackPositions.mergeIfNewer(
                 profileId, mediaKey, item.positionMillis, item.durationMillis, item.updatedAtMillis,
             )
         }
