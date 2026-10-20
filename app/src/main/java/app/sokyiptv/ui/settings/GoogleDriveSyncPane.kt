@@ -6,6 +6,15 @@ package app.sokyiptv.ui.settings
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,6 +59,58 @@ fun GoogleDriveSyncPane() {
     val sync = remember(context) { GoogleDriveProgressSync.get(context) }
     val state by sync.state.collectAsState()
     val scope = rememberCoroutineScope()
+    var connectJob by remember { mutableStateOf<Job?>(null) }
+
+    // Keep the user code in a centred TV dialog instead of below the QR.
+    // The previous vertically stacked design pushed it off the television screen.
+    state.pendingCode?.let { code ->
+        Dialog(onDismissRequest = { connectJob?.cancel() }) {
+            Surface(
+                modifier = Modifier.widthIn(max = 760.dp),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Connect your Google account", style = MaterialTheme.typography.titleLarge)
+                    Text("On your phone, open the link or scan the QR code and enter:")
+                    Text(
+                        code.userCode,
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    ) {
+                        val qr = remember(code.verificationUrl) { googleDeviceQr(code.verificationUrl) }
+                        if (qr != null) {
+                            Image(
+                                bitmap = qr.asImageBitmap(),
+                                contentDescription = "QR code to Google's device sign-in page",
+                                modifier = Modifier.size(156.dp),
+                            )
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Verification website:")
+                            Text(code.verificationUrl, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (code.requestedScope.endsWith("/drive.file"))
+                                    "Approve access to files created by Soky IPTV Pro in your Drive."
+                                else "Approve access to Soky IPTV Pro's private application data."
+                            )
+                            Text("Waiting for approval…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    TextButton(onClick = { connectJob?.cancel() }) { Text("Cancel sign-in") }
+                }
+            }
+        }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Google Drive Cloud Sync", style = MaterialTheme.typography.titleLarge)
@@ -78,28 +139,12 @@ fun GoogleDriveSyncPane() {
                     )
                 }
                 if (!state.connected && !state.busy) {
-                    Button(enabled = state.configured, onClick = { scope.launch { sync.connect() } }) {
+                    Button(enabled = state.configured, onClick = { connectJob = scope.launch { sync.connect() } }) {
                         Text("Connect Google account")
                     }
                 }
-                state.pendingCode?.let { code ->
-                    Text("Scan this code with your phone, or open the URL:", style = MaterialTheme.typography.bodyMedium)
-                    val qr = remember(code.verificationUrl) { googleDeviceQr(code.verificationUrl) }
-                    if (qr != null) {
-                        Image(
-                            bitmap = qr.asImageBitmap(),
-                            contentDescription = "QR code to open Google's device authorisation page",
-                            modifier = Modifier.size(196.dp),
-                        )
-                    }
-                    Text(code.verificationUrl, style = MaterialTheme.typography.titleMedium)
-                    Text("Enter this code on your phone (case-sensitive):", style = MaterialTheme.typography.bodyMedium)
-                    Text(code.userCode, style = MaterialTheme.typography.headlineMedium)
-                    Text(
-                        if (code.requestedScope.endsWith("/drive.file"))
-                            "Google will let Soky manage its own files in the Soky IPTV Pro folder in My Drive."
-                        else "Approve access to your Google Drive app data. The TV will finish connecting automatically."
-                    )
+                if (state.busy && state.pendingCode == null && !state.connected) {
+                    Text("Contacting Google. Your sign-in code will appear in a popup…")
                 }
                 if (state.connected) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
