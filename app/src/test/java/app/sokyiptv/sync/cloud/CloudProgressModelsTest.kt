@@ -19,6 +19,29 @@ class CloudProgressModelsTest {
         assertTrue(same.matches(Regex("[a-f0-9]{64}")))
     }
 
+    @Test fun xtreamCredentialDifferencesProduceSameSafeMediaId() {
+        val first = "http://provider.example:8080/series/user-one/password-one/76543.mp4"
+        val second = "http://provider.example:8080/series/user-two/password-two/76543.mp4"
+        assertEquals(CloudMediaKeys.hash("ep", first), CloudMediaKeys.hash("ep", second))
+        assertNotEquals(CloudMediaKeys.legacyHash("ep", first), CloudMediaKeys.legacyHash("ep", second))
+        assertNotEquals(
+            CloudMediaKeys.hash("ep", first),
+            CloudMediaKeys.hash("ep", "http://another-provider.example:8080/series/user-two/password-two/76543.mp4")
+        )
+        assertNotEquals(
+            CloudMediaKeys.hash("ep", first),
+            CloudMediaKeys.hash("ep", "http://provider.example:8080/series/user-two/password-two/76544.mp4")
+        )
+    }
+
+    @Test fun unknownOrQueryBearingMediaRemainsExactToPreventWrongMatches() {
+        val a = "http://provider.example/stream?stream_id=5&token=a"
+        val b = "http://provider.example/stream?stream_id=5&token=b"
+        assertNotEquals(CloudMediaKeys.hash("movie", a), CloudMediaKeys.hash("movie", b))
+        val xtream = "http://provider.example/movie/user/pass/5.mp4"
+        assertNotEquals(CloudMediaKeys.hash("movie", xtream), CloudMediaKeys.hash("movie", xtream + "?variant=other"))
+    }
+
     @Test fun cloudPayloadContainsNoProviderCredentialsOrUrls() {
         val point = CloudWatchPoint(
             profile = "Me",
