@@ -49,7 +49,7 @@ object CloudMediaKeys {
         digest(kind, portableIdentity(kind, streamUrl))
 
     fun portableIdentity(kind: String, url: String): String {
-        val pattern = Regex("""(?i)^(https?://[^/?#]+)/(movie|series)/[^/?#]+/[^/?#]+/([^/?#]+)(?:\?[^#]*)?$""")
+        val pattern = Regex("""(?i)^(https?://[^/?#]+)/(movie|series)/[^/?#]+/[^/?#]+/([^/?#]+)$""")
         val match = pattern.matchEntire(url.trim()) ?: return url
         val route = match.groupValues[2].lowercase()
         if ((kind == "movie" && route != "movie") ||
