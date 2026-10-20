@@ -29,6 +29,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +58,10 @@ fun SyncScreen(
     viewModel: SyncViewModel = viewModel(),
 ) {
     var mode by remember { mutableStateOf(Mode.SHARE) }
+    // Closing or switching away from Share also closes its LAN listener. No hidden timeout.
+    DisposableEffect(mode) {
+        onDispose { if (mode == Mode.SHARE) viewModel.stopSharing() }
+    }
 
     Column(
         Modifier
@@ -66,7 +72,7 @@ fun SyncScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.settings_sync_title), style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
+            OutlinedButton(onClick = { viewModel.stopSharing(); onBack() }) { Text(stringResource(R.string.common_done)) }
         }
         Spacer(Modifier.height(8.dp))
         Text(
@@ -103,35 +109,46 @@ private enum class Mode { SHARE, RECEIVE, NAS, CLOUD }
 @Composable
 private fun SharePane(viewModel: SyncViewModel) {
     val state by viewModel.serverState.collectAsState()
+    var useFixed by remember { mutableStateOf(false) }
+    var confirmedPin by remember { mutableStateOf("") }
     Card {
-        Column(Modifier.padding(20.dp).widthIn(max = 640.dp)) {
-            when (val s = state) {
+        Column(Modifier.padding(18.dp).widthIn(max = 670.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Share watch history over local Wi-Fi", style = MaterialTheme.typography.titleMedium)
+            Text("Both devices must be on the same network. Discovery will show the TV's name and address.")
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Reuse the same six-digit code")
+                Switch(
+                    checked = useFixed,
+                    onCheckedChange = { enabled -> if (state !is SyncServer.State.Sharing) useFixed = enabled },
+                    enabled = state !is SyncServer.State.Sharing,
+                )
+            }
+            if (useFixed) {
+                Text("Reusable code: ${viewModel.fixedCode}", style = MaterialTheme.typography.titleMedium)
+                OutlinedButton(
+                    enabled = state !is SyncServer.State.Sharing,
+                    onClick = { confirmedPin = viewModel.rotateFixedCode() },
+                ) { Text("Generate new reusable code") }
+                if (confirmedPin.isNotEmpty()) Text("Reusable code changed. Re-pair other TVs if needed.")
+            }
+            when (val current = state) {
                 is SyncServer.State.Sharing -> {
-                    Text(stringResource(R.string.sync_ready_to_share), style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
-                    Text(stringResource(R.string.sync_on_other_device))
-                    Spacer(Modifier.height(12.dp))
-                    Field(stringResource(R.string.sync_address), s.session.address)
-                    Spacer(Modifier.height(8.dp))
-                    Field(stringResource(R.string.sync_code), s.session.code)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        stringResource(R.string.sync_type_in_one_go, s.session.address, s.session.code),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedButton(onClick = { viewModel.stopSharing() }) { Text(stringResource(R.string.sync_stop_sharing)) }
+                    Text("Sharing is active until you stop it or leave this screen.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Field("Device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
+                    Field("Address", current.session.address)
+                    Field("Pairing code", current.session.code)
+                    Text(if (current.session.persistent) "Reusable code is enabled" else "Temporary pairing code")
+                    OutlinedButton(onClick = { viewModel.stopSharing() }) { Text("Stop sharing") }
                 }
                 is SyncServer.State.Failed -> {
-                    Text(s.reason, color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { viewModel.startSharing() }) { Text(stringResource(R.string.common_try_again)) }
+                    Text(current.reason, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = { viewModel.startSharing(useFixed) }) { Text("Try again") }
                 }
                 else -> {
-                    Text(stringResource(R.string.sync_will_share))
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = { viewModel.startSharing() }) { Text(stringResource(R.string.sync_start_sharing)) }
+                    Button(onClick = { viewModel.startSharing(useFixed) }) { Text("Start sharing") }
                 }
             }
         }
@@ -141,48 +158,76 @@ private fun SharePane(viewModel: SyncViewModel) {
 @Composable
 private fun ReceivePane(viewModel: SyncViewModel) {
     val state by viewModel.receiveState.collectAsState()
+    val discovery by viewModel.discoverState.collectAsState()
+    var selectedAddress by remember { mutableStateOf("") }
     var entry by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) { viewModel.discoverDevices() }
 
-    Row {
-        Card {
-            Column(Modifier.padding(20.dp).widthIn(max = 520.dp)) {
-                Text(stringResource(R.string.sync_type_what_shows), style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    entry.ifEmpty { "address:port#code" },
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = if (entry.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(16.dp))
-                NumPad(
-                    onKey = { if (entry.length < 40) entry += it },
-                    onBackspace = { entry = entry.dropLast(1) },
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        enabled = entry.contains('#') && state !is SyncViewModel.ReceiveState.Connecting,
-                        onClick = {
-                            val address = entry.substringBefore('#')
-                            val code = entry.substringAfter('#')
-                            viewModel.receive(address, code)
-                        },
-                    ) { Text(stringResource(R.string.sync_connect)) }
-
-                    when (val s = state) {
-                        is SyncViewModel.ReceiveState.Connecting -> Text(stringResource(R.string.sync_connecting))
-                        is SyncViewModel.ReceiveState.Done -> Text(
-                            stringResource(R.string.sync_synced_items, s.merged),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        is SyncViewModel.ReceiveState.Failed -> Text(
-                            s.message,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        else -> Unit
+    Card {
+        Column(Modifier.padding(18.dp).widthIn(max = 660.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Receive watch history", style = MaterialTheme.typography.titleMedium)
+            Button(
+                enabled = discovery !is SyncViewModel.DiscoverState.Searching,
+                onClick = { viewModel.discoverDevices() },
+            ) { Text(if (discovery is SyncViewModel.DiscoverState.Searching) "Searching…" else "Discover devices") }
+            when (val found = discovery) {
+                is SyncViewModel.DiscoverState.Results -> {
+                    if (found.peers.isEmpty()) {
+                        Text("No sharing TVs found. Start sharing on the other TV, and check Wi-Fi client isolation. You can still enter its IP:port below.")
+                    }
+                    found.peers.forEach { peer ->
+                        OutlinedButton(onClick = {
+                            selectedAddress = peer.address
+                            entry = ""
+                            viewModel.resetReceive()
+                        }) {
+                            Text("${peer.name}  ·  ${peer.address}" +
+                                if (selectedAddress == peer.address) "  (selected)" else "")
+                        }
                     }
                 }
+                is SyncViewModel.DiscoverState.Failed -> Text(found.detail)
+                else -> Unit
+            }
+            if (selectedAddress.isNotBlank()) {
+                Text("Selected device: $selectedAddress")
+                OutlinedButton(onClick = { selectedAddress = ""; entry = "" }) { Text("Enter address manually") }
+            }
+            Text(
+                if (selectedAddress.isNotBlank())
+                    "Six-digit pairing code: ${entry.ifBlank { "______" }}"
+                else "Enter IP:port#code: ${entry.ifBlank { "192.168.0.10:12345#123456" }}",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            NumPad(
+                onKey = { key ->
+                    if (selectedAddress.isNotBlank()) {
+                        if (key.all(Char::isDigit) && entry.length < 6) entry += key
+                    } else if (entry.length < 48) entry += key
+                },
+                onBackspace = { entry = entry.dropLast(1) },
+            )
+            Button(
+                enabled = state !is SyncViewModel.ReceiveState.Connecting &&
+                    (if (selectedAddress.isNotBlank()) entry.matches(Regex("[0-9]{6}"))
+                     else entry.contains('#') && entry.substringAfter('#').matches(Regex("[0-9]{6}"))),
+                onClick = {
+                    val address = selectedAddress.ifBlank { entry.substringBefore('#') }
+                    val code = if (selectedAddress.isNotBlank()) entry else entry.substringAfter('#')
+                    viewModel.receive(address, code)
+                },
+            ) { Text("Connect and receive") }
+            when (val result = state) {
+                is SyncViewModel.ReceiveState.Connecting -> Text("Connecting (maximum 12 seconds)…")
+                is SyncViewModel.ReceiveState.Done -> Text(
+                    "${result.merged} matching positions updated. Open Movies/Series Continue Watching.",
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                is SyncViewModel.ReceiveState.Failed -> Text(
+                    result.message, color = MaterialTheme.colorScheme.error,
+                )
+                else -> Unit
             }
         }
     }
