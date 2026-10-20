@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.17-soky-google-signin-dialog \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.17_TV_Google_Code_Dialog_Test.apk" \
+          gh release create v0.1.11.18-soky-google-sync-fix \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.18_Google_Drive_Connection_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.17 visible TV Google sign-in code" \
+            --title "Soky IPTV Pro v0.1.11.18 Google Drive connection and layout fix" \
             --notes "UNAPPROVED TV TEST: fully rebuilt after Google OAuth secret setup; fixed cloud/privacy text and TV scroll. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
