@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 37
-        versionName = "0.1.11.16-drive-scope-fallback-tv-test"
+        versionCode = 38
+        versionName = "0.1.11.17-google-tv-code-dialog"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
