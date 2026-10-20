@@ -62,7 +62,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
     private fun authorizePairing(): String {
         val token = UUID.randomUUID().toString() + UUID.randomUUID().toString()
         val saved = preferences.getStringSet("paired_tokens", emptySet()).orEmpty()
-        preferences.edit().putStringSet("paired_tokens", (saved + hashToken(token)).takeLast(30).toSet()).apply()
+        preferences.edit().putStringSet("paired_tokens", (saved + hashToken(token)).toList().takeLast(30).toSet()).apply()
         return token
     }
     private fun newCode(): String = "%06d".format(SecureRandom().nextInt(1_000_000))
