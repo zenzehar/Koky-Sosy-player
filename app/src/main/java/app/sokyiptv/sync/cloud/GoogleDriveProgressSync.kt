@@ -69,6 +69,12 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             lastSuccessMillis = prefs.getLong("last_success", 0),
         )
     )
+    init {
+        // Discard temporary secrets entered in the prior test release. New builds never
+        // ask the user to supply an OAuth credential.
+        vault.write("test_secret", null)
+    }
+
     val state: StateFlow<CloudSyncState> = _state
 
     fun disconnect() {
