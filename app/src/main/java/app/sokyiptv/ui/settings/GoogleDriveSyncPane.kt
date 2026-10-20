@@ -185,6 +185,18 @@ fun GoogleDriveSyncPane() {
                     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
                         .format(Date(state.lastSuccessMillis))
                 Text("Last successful sync: $last")
+                if (state.remoteCount > 0) {
+                    Text("Cloud entries: ${state.remoteCount}  ·  Matched: ${state.matchedCount}  ·  " +
+                        "Unmatched: ${state.unmatchedCount}  ·  Imported: ${state.importedCount}")
+                    if (state.matchedCount == 0) {
+                        Text(
+                            "Google Drive is connected, but no cloud media matched this TV. " +
+                                "Use the same provider catalogue on both devices and check the active " +
+                                "viewing profile. Soky will not guess by title or overwrite different media.",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
                 if (state.message.isNotBlank()) {
                     Text(
                         state.message,
