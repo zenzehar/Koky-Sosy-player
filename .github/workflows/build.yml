@@ -22,6 +22,8 @@ jobs:
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+      # Application-owned TV OAuth credential, NOT a user's Google credential.
+      GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +73,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Verify application OAuth setup before publishing
+        env:
+          GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
+        run: |
+          if [ -z "$GOOGLE_TV_OAUTH_CLIENT_SECRET" ]; then
+            echo "::error::Repository Actions secret GOOGLE_TV_OAUTH_CLIENT_SECRET is required for a usable TV Google sign-in APK."
+            exit 1
+          fi
+
       - name: Retrieve assembled APK
         uses: actions/download-artifact@v4
         with:
@@ -84,9 +95,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.13-soky-drive-tv-alpha \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.13_Google_Drive_TV_Test.apk" \
+          gh release create v0.1.11.14-soky-drive-user-oauth \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.14_User_Google_SignIn.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.13 Google Drive TV sync experiment" \
-            --notes "UNAPPROVED TV CLOUD SYNC TEST: Private Google Drive appDataFolder progress snapshots; TV OAuth device-code login configured on device; no credentials in repository. Phone OAuth not included. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
+            --title "Soky IPTV Pro v0.1.11.14 per-user Google Drive sign-in" \
+            --notes "UNAPPROVED PER-USER GOOGLE DRIVE TV TEST. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
