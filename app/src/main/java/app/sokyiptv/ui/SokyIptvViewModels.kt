@@ -1370,7 +1370,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                 "ep" -> graph.catalogRepository.episode(id)?.streamUrl
                 else -> null
             } ?: return@mapNotNull null
-            SyncPosition(profileName, streamUrl, parts[0], pos.positionMillis, pos.durationMillis, pos.updatedAtMillis, CloudMediaKeys.hash(parts[0], streamUrl))
+            SyncPosition(profileName, "", parts[0], pos.positionMillis, pos.durationMillis, pos.updatedAtMillis, CloudMediaKeys.hash(parts[0], streamUrl))
         }
         return Json.encodeToString(SyncBundle.serializer(), SyncBundle(positions = items))
     }
