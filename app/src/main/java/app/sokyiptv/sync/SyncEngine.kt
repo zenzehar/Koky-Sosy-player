@@ -192,7 +192,7 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
             if (item.updatedAtMillis <= 0 || item.updatedAtMillis > now + 5 * 60_000L ||
                 item.positionMillis < 0 || item.durationMillis < 0 ||
                 (item.durationMillis > 0 && item.positionMillis > item.durationMillis + 120_000L)) continue
-            $count += graph.playbackPositions.mergeIfNewer(
+            positions += graph.playbackPositions.mergeIfNewer(
                 profileId, mediaKey, item.positionMillis, item.durationMillis, item.updatedAtMillis,
             )
         }
