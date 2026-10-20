@@ -5,20 +5,21 @@
  */
 package app.sokyiptv.sync
 
+import android.content.Context
+import android.os.Build
 import android.util.Log
 import app.sokyiptv.pairing.PairingHttp
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,9 +32,21 @@ import kotlinx.coroutines.launch
  * server on the LAN, gated by a six-digit code shown on screen, private-network only, and torn
  * down on a timeout. The bundle is a snapshot taken when sharing starts, served as-is.
  */
-class SyncServer(private val scope: CoroutineScope) {
+class SyncServer(context: Context, private val scope: CoroutineScope) {
+    private val preferences = context.applicationContext.getSharedPreferences("soky_lan_pairing", Context.MODE_PRIVATE)
+    val fixedCode: String get() = preferences.getString("fixed_code", null)
+        ?.takeIf { it.matches(Regex("[0-9]{6}")) } ?: newCode().also {
+            preferences.edit().putString("fixed_code", it).apply()
+        }
+    fun renewFixedCode(): String {
+        val next = newCode()
+        preferences.edit().putString("fixed_code", next).apply()
+        return next
+    }
+    private fun newCode(): String = "%06d".format(SecureRandom().nextInt(1_000_000))
 
-    data class Session(val host: String, val port: Int, val code: String) {
+
+    data class Session(val host: String, val port: Int, val code: String, val persistent: Boolean) {
         val address: String get() = "$host:$port"
     }
 
@@ -47,19 +60,19 @@ class SyncServer(private val scope: CoroutineScope) {
     val state: StateFlow<State> = _state.asStateFlow()
 
     private var serverSocket: ServerSocket? = null
+    private var discoverySocket: DatagramSocket? = null
     private var code: String = ""
     private var bundle: String = ""
     private var wrongAttempts = 0
     @Volatile private var running = false
 
-    fun start(bundleJson: String) {
+    fun start(bundleJson: String, persistent: Boolean = false) {
         if (running) return
         val host = lanAddress() ?: run {
             _state.value = State.Failed("This device isn't on a network, so it can't share.")
             return
         }
-        val random = SecureRandom()
-        code = "%06d".format(random.nextInt(1_000_000))
+        code = if (persistent) fixedCode else newCode()
         bundle = bundleJson
         wrongAttempts = 0
 
@@ -72,7 +85,8 @@ class SyncServer(private val scope: CoroutineScope) {
         }
         serverSocket = socket
         running = true
-        _state.value = State.Sharing(Session(host, socket.localPort, code))
+        _state.value = State.Sharing(Session(host, socket.localPort, code, persistent))
+        discoverySocket = SyncDiscovery.listen({ running }, { "$host:${socket.localPort}" })
 
         thread(name = "sokyiptv-sync", isDaemon = true) {
             while (running) {
@@ -86,18 +100,16 @@ class SyncServer(private val scope: CoroutineScope) {
             }
         }
 
-        scope.launch(Dispatchers.Default) {
-            delay(TimeUnit.MINUTES.toMillis(TIMEOUT_MINUTES))
-            if (running) {
-                stop()
-                _state.value = State.Failed("Sharing timed out. Start again when you're ready.")
-            }
-        }
+        // No arbitrary five-minute countdown: sharing is deliberately active only while
+        // the user is on the sharing screen. It is stopped on Back / Done / screen close.
+
     }
 
     fun stop() {
         running = false
         runCatching { serverSocket?.close() }
+        runCatching { discoverySocket?.close() }
+        discoverySocket = null
         serverSocket = null
         code = ""
         bundle = ""
@@ -162,7 +174,6 @@ class SyncServer(private val scope: CoroutineScope) {
 
     private companion object {
         const val TAG = "SokyIPTV"
-        const val TIMEOUT_MINUTES = 5L
         const val SOCKET_TIMEOUT_MILLIS = 10_000
         const val MAX_ATTEMPTS = 5
     }
