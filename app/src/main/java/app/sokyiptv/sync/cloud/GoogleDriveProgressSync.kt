@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -169,7 +170,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             val url = buildString {
                 append("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder")
                 append("&fields=nextPageToken%2Cfiles(id%2Cname)&pageSize=100")
-                if (page != null) append("&pageToken=").append(URLEncoder.encode(page, "UTF-8"))
+                page?.let { append("&pageToken=").append(URLEncoder.encode(it, "UTF-8")) }
             }
             val objectList = driveRequest(token, Request.Builder().url(url).get().build())
             val files = objectList.optJSONArray("files")
