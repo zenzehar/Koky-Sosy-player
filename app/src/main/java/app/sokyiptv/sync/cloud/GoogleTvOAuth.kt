@@ -70,7 +70,7 @@ internal class CloudCredentialVault(context: Context) {
     }
 
     fun clearAuthorization() {
-        prefs.edit().remove("access").remove("refresh").remove("expiry").apply()
+        prefs.edit().remove("access").remove("refresh").remove("expiry").remove("drive_scope").apply()
     }
 }
 
@@ -80,6 +80,7 @@ data class TvGoogleCode(
     internal val deviceCode: String,
     internal val pollSeconds: Long,
     internal val expiresAtMillis: Long,
+    internal val requestedScope: String,
 )
 
 internal class GoogleTvOAuth(
@@ -92,6 +93,9 @@ internal class GoogleTvOAuth(
     val connected: Boolean get() = !vault.read("refresh").isNullOrBlank()
 
     val configured: Boolean get() = clientId.isNotBlank() && clientSecret.isNotBlank()
+    val driveScope: String get() = vault.read("drive_scope")
+        ?: "https://www.googleapis.com/auth/drive.appdata"
+    val usingDriveFile: Boolean get() = driveScope == "https://www.googleapis.com/auth/drive.file"
     fun disconnect() = vault.clearAuthorization()
 
     private fun post(endpoint: String, vararg fields: Pair<String, String>): JSONObject {
@@ -114,18 +118,40 @@ internal class GoogleTvOAuth(
         require(clientSecret.isNotBlank()) {
             "Google Drive sign-in is not configured in this build. The app developer must configure the OAuth build secret."
         }
-        val result = post(
+        // Google's TV documentation lists drive.appdata as supported, but some TV
+        // OAuth clients receive invalid_scope. Fallback to narrower per-file access
+        // rather than asking end users to change credentials.
+        val appDataScope = "https://www.googleapis.com/auth/drive.appdata"
+        val driveFileScope = "https://www.googleapis.com/auth/drive.file"
+        var chosenScope = appDataScope
+        var result = post(
             "https://oauth2.googleapis.com/device/code",
             "client_id" to clientId,
-            "scope" to "https://www.googleapis.com/auth/drive.appdata",
+            "scope" to chosenScope,
         )
-        if (result.has("error")) throw IllegalStateException("Google device authorisation was declined: ${result.optString("error")}.")
+        if (result.optString("error") == "invalid_scope") {
+            chosenScope = driveFileScope
+            result = post(
+                "https://oauth2.googleapis.com/device/code",
+                "client_id" to clientId,
+                "scope" to chosenScope,
+            )
+        }
+        if (result.has("error")) {
+            val error = result.optString("error")
+            throw IllegalStateException(
+                if (error == "invalid_scope")
+                    "Google rejected Drive permissions. Developer: enable drive.file under Google Auth Platform > Data Access."
+                else "Google could not start account sign-in ($error)."
+            )
+        }
         TvGoogleCode(
             userCode = result.getString("user_code"),
             verificationUrl = result.getString("verification_url"),
             deviceCode = result.getString("device_code"),
             pollSeconds = result.optLong("interval", 5L).coerceAtLeast(5L),
             expiresAtMillis = System.currentTimeMillis() + result.optLong("expires_in", 900L) * 1000L,
+            requestedScope = chosenScope,
         )
     }
 
@@ -143,6 +169,7 @@ internal class GoogleTvOAuth(
             when (val error = result.optString("error")) {
                 "" -> {
                     rememberTokens(result)
+                    vault.write("drive_scope", code.requestedScope)
                     return@withContext
                 }
                 "authorization_pending" -> Unit
