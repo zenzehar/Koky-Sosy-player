@@ -27,6 +27,9 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
 
     fun isPaired(deviceId: String): Boolean =
         deviceId.matches(Regex("[a-fA-F0-9-]{36}")) && !vault.read("lan_peer_$deviceId").isNullOrBlank()
+    fun forgetPairing(deviceId: String) {
+        if (deviceId.matches(Regex("[a-fA-F0-9-]{36}"))) vault.write("lan_peer_$deviceId", null)
+    }
 
     suspend fun pull(address: String, code: String, expectedDeviceId: String = ""): Result<SyncBundle> =
         withContext(Dispatchers.IO) {
@@ -72,8 +75,9 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
                     .get().build()
                 val bundle = http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
+                        if (response.code == 401 && paired) forgetPairing(expectedDeviceId)
                         error(if (response.code == 401)
-                            "Pairing has expired or was revoked. Re-enter the sharing TV's code."
+                            "Pairing expired or was revoked. Enter the new pairing code once."
                         else "The sharing TV rejected the transfer (HTTP ${response.code}).")
                     }
                     json.decodeFromString(SyncBundle.serializer(), response.body?.string().orEmpty())
