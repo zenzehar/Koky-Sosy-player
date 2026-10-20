@@ -26,11 +26,36 @@ data class CloudWatchSnapshot(
 )
 
 object CloudMediaKeys {
-    /** The stable key is kept on the device; only its SHA-256 digest leaves it. */
-    fun hash(kind: String, streamUrl: String): String {
+    /** SHA-256 of media identity, never a plaintext URL or login credential. */
+    private fun digest(kind: String, identifier: String): String {
         require(kind == "movie" || kind == "ep")
         val bytes = MessageDigest.getInstance("SHA-256")
-            .digest((kind + "\u0000" + streamUrl).toByteArray(Charsets.UTF_8))
+            .digest((kind + "\u0000" + identifier).toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    /** Identifies old v1 cloud files for a safe, gradual migration. */
+    fun legacyHash(kind: String, streamUrl: String): String = digest(kind, streamUrl)
+
+    /**
+     * Xtream links are generally /movie/username/password/stream-id.ext and
+     * /series/username/password/episode-id.ext. The two credential segments
+     * are different for each user/device; the server and stream ID are stable.
+     * Strip ONLY for this known URL format. Never guess identities by title.
+     *
+     * Other URL formats retain their exact v1 hash, preventing false matches.
+     */
+    fun hash(kind: String, streamUrl: String): String =
+        digest(kind, portableIdentity(kind, streamUrl))
+
+    fun portableIdentity(kind: String, url: String): String {
+        val pattern = Regex("""(?i)^(https?://[^/?#]+)/(movie|series)/[^/?#]+/[^/?#]+/([^/?#]+)(?:\?[^#]*)?$""")
+        val match = pattern.matchEntire(url.trim()) ?: return url
+        val route = match.groupValues[2].lowercase()
+        if ((kind == "movie" && route != "movie") ||
+            (kind == "ep" && route != "series")) return url
+        val server = match.groupValues[1].lowercase()
+        val streamId = match.groupValues[3]
+        return "$server/$route/$streamId"
     }
 }
