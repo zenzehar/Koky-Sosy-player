@@ -292,7 +292,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("Cannot download Drive progress (HTTP ${response.code}).")
             // Limit damage from accidentally huge/corrupt cloud files.
-            val payload = response.body?.bytes() ?: return null
+            val payload = response.body?.bytes()
+                ?: throw IllegalStateException("A Drive sync file had no content. No cloud data changed.")
             if (payload.size > 3_000_000) throw IllegalStateException("Cloud watch-history file is unexpectedly large.")
             val parsed = runCatching { json.decodeFromString(CloudWatchSnapshot.serializer(), String(payload, Charsets.UTF_8)) }
                 .getOrElse { throw IllegalStateException("Drive contains an unreadable sync file. No cloud data changed.") }
@@ -329,22 +330,21 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private suspend fun indexLocalMedia(): Pair<Map<String, String>, Map<String, String>> {
         val byLocalKey = HashMap<String, String>()
         val byCloudKey = HashMap<String, String>()
-        graph.database.movies().cloudRefs().forEach { row ->
-            if (row.streamUrl.isNotBlank()) {
-                val local = "movie:${row.id}"
-                val key = CloudMediaKeys.hash("movie", row.streamUrl)
-                byLocalKey[local] = key
-                byCloudKey.putIfAbsent("movie:$key", local)
-            }
+        val ambiguous = HashSet<String>()
+        fun add(kind: String, id: Long, url: String) {
+            if (url.isBlank()) return
+            val localKey = "$kind:$id"
+            val digest = CloudMediaKeys.hash(kind, url)
+            val cloudKey = "$kind:$digest"
+            byLocalKey[localKey] = digest
+            val prior = byCloudKey.putIfAbsent(cloudKey, localKey)
+            if (prior != null && prior != localKey) ambiguous += cloudKey
         }
-        graph.database.episodes().cloudRefs().forEach { row ->
-            if (row.streamUrl.isNotBlank()) {
-                val local = "ep:${row.id}"
-                val key = CloudMediaKeys.hash("ep", row.streamUrl)
-                byLocalKey[local] = key
-                byCloudKey.putIfAbsent("ep:$key", local)
-            }
-        }
+        graph.database.movies().cloudRefs().forEach { add("movie", it.id, it.streamUrl) }
+        graph.database.episodes().cloudRefs().forEach { add("ep", it.id, it.streamUrl) }
+        // If the same provider URL is used for multiple local rows, we cannot know
+        // which row is the correct playback history target. Skip it; never guess.
+        ambiguous.forEach { byCloudKey.remove(it) }
         return byLocalKey to byCloudKey
     }
 
