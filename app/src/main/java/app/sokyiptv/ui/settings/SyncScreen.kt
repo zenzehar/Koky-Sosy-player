@@ -78,6 +78,7 @@ fun SyncScreen(
             ModeChip(stringResource(R.string.sync_share_from_here), mode == Mode.SHARE) { mode = Mode.SHARE }
             ModeChip(stringResource(R.string.sync_receive), mode == Mode.RECEIVE) { mode = Mode.RECEIVE }
             ModeChip(stringResource(R.string.sync_nas), mode == Mode.NAS) { mode = Mode.NAS }
+            ModeChip("Google Drive", mode == Mode.CLOUD) { mode = Mode.CLOUD }
         }
         Spacer(Modifier.height(20.dp))
 
@@ -85,11 +86,12 @@ fun SyncScreen(
             Mode.SHARE -> SharePane(viewModel)
             Mode.RECEIVE -> ReceivePane(viewModel)
             Mode.NAS -> NasPane(viewModel)
+            Mode.CLOUD -> GoogleDriveSyncPane()
         }
     }
 }
 
-private enum class Mode { SHARE, RECEIVE, NAS }
+private enum class Mode { SHARE, RECEIVE, NAS, CLOUD }
 
 @Composable
 private fun SharePane(viewModel: SyncViewModel) {
