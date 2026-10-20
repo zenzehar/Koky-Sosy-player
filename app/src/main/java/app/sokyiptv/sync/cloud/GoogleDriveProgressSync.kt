@@ -35,7 +35,8 @@ import org.json.JSONObject
 
 data class CloudSyncState(
     val connected: Boolean = false,
-    val hasTestClientSecret: Boolean = false,
+    val configured: Boolean = true,
+    val accountLabel: String = "",
     val pendingCode: TvGoogleCode? = null,
     val busy: Boolean = false,
     val message: String = "",
@@ -63,25 +64,20 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val _state = MutableStateFlow(
         CloudSyncState(
             connected = oauth.connected,
-            hasTestClientSecret = oauth.hasTestSecret(),
+            configured = oauth.configured,
+            accountLabel = prefs.getString("owner_email", "").orEmpty(),
             lastSuccessMillis = prefs.getLong("last_success", 0),
         )
     )
     val state: StateFlow<CloudSyncState> = _state
-
-    fun saveTestSecret(value: String) {
-        require(value.isNotBlank()) { "The temporary client secret cannot be blank." }
-        vault.write("test_secret", value.trim())
-        _state.value = _state.value.copy(hasTestClientSecret = oauth.hasTestSecret(), message = "Test credentials saved on this device.")
-    }
 
     fun disconnect() {
         oauth.disconnect()
         prefs.edit().remove("last_digest").apply()
         _state.value = CloudSyncState(
             connected = false,
-            hasTestClientSecret = oauth.hasTestSecret(),
-            message = "Google account disconnected from this device.",
+            configured = oauth.configured,
+            message = "Google account disconnected. Local viewing history remains on this device.",
         )
     }
 
@@ -91,6 +87,9 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             val code = oauth.createDeviceCode()
             _state.value = _state.value.copy(busy = true, pendingCode = code, message = "Open the link on your phone, then enter the code.")
             oauth.waitForUser(code)
+            // Resolve account identity before syncing any local history to the newly authorised Drive.
+            // Drive's about.get supports the drive.appdata scope and identifies the actual user.
+            registerAuthorizedAccount(oauth.accessToken())
             prefs.edit().remove("last_digest").apply()
             _state.value = _state.value.copy(
                 connected = true, pendingCode = null, busy = false, message = "Connected to Google Drive. Synchronising…",
@@ -100,7 +99,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             _state.value = _state.value.copy(busy = false, pendingCode = null, message = "Sign-in cancelled.")
             throw c
         } catch (e: Exception) {
-            _state.value = _state.value.copy(busy = false, pendingCode = null, message = safeMessage(e))
+            if (oauth.connected && _state.value.connected != true) oauth.disconnect()
+            _state.value = _state.value.copy(busy = false, pendingCode = null, connected = oauth.connected, message = safeMessage(e))
         }
     }
 
@@ -161,6 +161,31 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             }
             return if (body.isBlank()) JSONObject() else JSONObject(body)
         }
+    }
+
+    /**
+     * Each installation can switch between Google accounts. Never upload the previous account's
+     * existing local history into a NEW Google Drive when the account changes.
+     * Existing Room history stays local; only watch events after the account change may upload.
+     */
+    private fun registerAuthorizedAccount(token: String) {
+        val about = driveRequest(
+            token,
+            Request.Builder().url("https://www.googleapis.com/drive/v3/about?fields=user(permissionId%2CemailAddress)").get().build(),
+        ).optJSONObject("user") ?: throw IllegalStateException("Google Drive did not identify the connected account.")
+        val owner = about.optString("permissionId")
+        require(owner.isNotBlank()) { "The Google account identifier was unavailable. Try signing in again." }
+        val email = about.optString("emailAddress").take(120)
+        val previous = prefs.getString("owner_id", null)
+        if (previous != null && previous != owner) {
+            prefs.edit()
+                .putLong("upload_cutoff", System.currentTimeMillis())
+                .remove("last_digest")
+                .remove("last_success")
+                .apply()
+        }
+        prefs.edit().putString("owner_id", owner).putString("owner_email", email).apply()
+        _state.value = _state.value.copy(accountLabel = email)
     }
 
     private fun listSnapshots(token: String): List<CloudFile> {
@@ -248,7 +273,11 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     private suspend fun localSnapshot(index: Map<String, String>): CloudWatchSnapshot {
         val names = graph.profiles.all().associate { it.id to it.name }
+        // A different Google account must not inherit historical watch positions from the
+        // preceding account on this device. Remote points still merge into local Room safely.
+        val cutoff = prefs.getLong("upload_cutoff", 0L)
         val positions = graph.playbackPositions.all().mapNotNull { position ->
+            if (position.updatedAtMillis < cutoff) return@mapNotNull null
             val name = names[position.profileId]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val key = index[position.mediaKey] ?: return@mapNotNull null
             CloudWatchPoint(
@@ -265,6 +294,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     private suspend fun performSync(): Pair<Int, Boolean> {
         val token = oauth.accessToken()
+        registerAuthorizedAccount(token)
         val files = listSnapshots(token)
         val remote = mutableMapOf<String, CloudWatchPoint>()
         // Own snapshot is included so remote points survive reinstall even if only one device exists.
