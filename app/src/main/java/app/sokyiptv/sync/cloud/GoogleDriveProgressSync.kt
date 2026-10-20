@@ -94,7 +94,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             _state.value = _state.value.copy(busy = true, pendingCode = code, message = "Open the link on your phone, then enter the code.")
             oauth.waitForUser(code)
             // Resolve account identity before syncing any local history to the newly authorised Drive.
-            // Drive's about.get supports the drive.appdata scope and identifies the actual user.
+            // Drive about.get works with both drive.appdata and drive.file scopes.
             registerAuthorizedAccount(oauth.accessToken())
             prefs.edit().remove("last_digest").apply()
             _state.value = _state.value.copy(
@@ -158,6 +158,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     private data class CloudFile(val id: String, val name: String)
+    private data class CloudListing(val files: List<CloudFile>, val parentId: String)
+    private val visibleFolderName = "Soky IPTV Pro"
 
     private fun driveRequest(token: String, request: Request): JSONObject {
         http.newCall(request.newBuilder().header("Authorization", "Bearer $token").build()).execute().use { response ->
@@ -194,12 +196,50 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         _state.value = _state.value.copy(accountLabel = email)
     }
 
-    private fun listSnapshots(token: String): List<CloudFile> {
+    /**
+     * Google TV's device-code endpoint sometimes returns invalid_scope for
+     * drive.appdata even though it is listed in the official allowed scopes.
+     * The drive.file alternative uses a visible, app-created folder in My Drive.
+     * No pre-existing user files are accessed.
+     */
+    private fun findOrCreateVisibleFolder(token: String): String {
+        val query = "name = '$visibleFolderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        val url = "https://www.googleapis.com/drive/v3/files?fields=nextPageToken%2Cfiles(id%2Cname)" +
+            "&pageSize=100&q=" + URLEncoder.encode(query, "UTF-8")
+        val response = driveRequest(token, Request.Builder().url(url).get().build())
+        val files = response.optJSONArray("files")
+        val candidates = mutableListOf<String>()
+        if (files != null) for (i in 0 until files.length()) {
+            val file = files.optJSONObject(i) ?: continue
+            if (file.optString("name") == visibleFolderName) {
+                file.optString("id").takeIf { it.isNotBlank() }?.let { candidates += it }
+            }
+        }
+        // For typical accounts there is one application-created folder. If a
+        // former device created a duplicate, consistently pick the first ID.
+        if (candidates.isNotEmpty()) return candidates.minOrNull()!!
+        val body = JSONObject()
+            .put("name", visibleFolderName)
+            .put("mimeType", "application/vnd.google-apps.folder")
+            .toString()
+        val request = Request.Builder().url("https://www.googleapis.com/drive/v3/files?fields=id")
+            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        val id = driveRequest(token, request).optString("id")
+        require(id.isNotBlank()) { "Google Drive did not return the sync folder ID." }
+        return id
+    }
+
+    private fun listSnapshots(token: String): CloudListing {
         val found = mutableListOf<CloudFile>()
+        val folderId = if (oauth.usingDriveFile) findOrCreateVisibleFolder(token) else "appDataFolder"
         var page: String? = null
         do {
             val url = buildString {
-                append("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder")
+                append("https://www.googleapis.com/drive/v3/files?")
+                if (!oauth.usingDriveFile) append("spaces=appDataFolder&")
+                val folderQuery = "'$folderId' in parents and trashed = false"
+                append("q=").append(URLEncoder.encode(folderQuery, "UTF-8"))
                 append("&fields=nextPageToken%2Cfiles(id%2Cname)&pageSize=100")
                 page?.let { append("&pageToken=").append(URLEncoder.encode(it, "UTF-8")) }
             }
@@ -215,7 +255,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             }
             page = objectList.optString("nextPageToken").takeIf { it.isNotBlank() }
         } while (page != null && found.size < 1000)
-        return found
+        return CloudListing(found, folderId)
     }
 
     private fun downloadSnapshot(token: String, file: CloudFile): CloudWatchSnapshot? {
@@ -232,7 +272,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         }
     }
 
-    private fun uploadSnapshot(token: String, existing: CloudFile?, payload: String) {
+    private fun uploadSnapshot(token: String, existing: CloudFile?, payload: String, parentId: String) {
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val request = if (existing != null) {
             val url = "https://www.googleapis.com/upload/drive/v3/files/" +
@@ -241,7 +281,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         } else {
             val boundary = "soky-" + UUID.randomUUID().toString()
             val meta = JSONObject().put("name", ownName).put("mimeType", "application/json")
-                .put("parents", org.json.JSONArray().put("appDataFolder")).toString()
+                .put("parents", org.json.JSONArray().put(parentId)).toString()
             val multipart =
                 "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + meta +
                 "\r\n--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" +
@@ -301,7 +341,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private suspend fun performSync(): Pair<Int, Boolean> {
         val token = oauth.accessToken()
         registerAuthorizedAccount(token)
-        val files = listSnapshots(token)
+        val listing = listSnapshots(token)
+        val files = listing.files
         val remote = mutableMapOf<String, CloudWatchPoint>()
         // Own snapshot is included so remote points survive reinstall even if only one device exists.
         for (file in files) {
@@ -368,7 +409,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         val currentOwnFile = files.firstOrNull { it.name == ownName }
         val alreadyUploaded = currentOwnFile != null && prefs.getString("last_digest", null) == digest
         if (!alreadyUploaded) {
-            uploadSnapshot(token, currentOwnFile, payload)
+            uploadSnapshot(token, currentOwnFile, payload, listing.parentId)
             prefs.edit().putString("last_digest", digest).apply()
         }
         return imported to !alreadyUploaded
