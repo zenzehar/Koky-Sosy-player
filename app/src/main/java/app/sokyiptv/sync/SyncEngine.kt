@@ -61,7 +61,8 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
             } ?: return@mapNotNull null
             SyncPosition(
                 profile = profileName,
-                streamUrl = streamUrl,
+                // Only portable SHA-256 identity travels; never expose Xtream logins.
+                streamUrl = "",
                 kind = parts[0],
                 positionMillis = pos.positionMillis,
                 durationMillis = pos.durationMillis,
