@@ -182,6 +182,7 @@ private fun ReceivePane(viewModel: SyncViewModel) {
     val discovery by viewModel.discoverState.collectAsState()
     var selectedAddress by remember { mutableStateOf("") }
     var selectedDeviceId by remember { mutableStateOf("") }
+    var pairingRevision by remember { mutableStateOf(0) }
     var entry by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { viewModel.discoverDevices() }
 
@@ -219,6 +220,13 @@ private fun ReceivePane(viewModel: SyncViewModel) {
                 OutlinedButton(onClick = { selectedAddress = ""; selectedDeviceId = ""; entry = "" }) { Text("Enter address manually") }
             }
             val alreadyPaired = selectedAddress.isNotBlank() && viewModel.isPaired(selectedDeviceId)
+            if (alreadyPaired) {
+                OutlinedButton(onClick = {
+                    viewModel.forgetPairing(selectedDeviceId)
+                    pairingRevision++
+                    entry = ""
+                }) { Text("Re-pair with a different code") }
+            }
             Text(
                 if (alreadyPaired) "Paired TV selected. No code needed."
                 else if (selectedAddress.isNotBlank())
