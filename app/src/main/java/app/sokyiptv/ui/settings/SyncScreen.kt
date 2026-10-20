@@ -109,7 +109,7 @@ private enum class Mode { SHARE, RECEIVE, NAS, CLOUD }
 @Composable
 private fun SharePane(viewModel: SyncViewModel) {
     val state by viewModel.serverState.collectAsState()
-    var useFixed by remember { mutableStateOf(false) }
+    var useFixed by remember { mutableStateOf(viewModel.preferFixedCode) }
     var confirmedPin by remember { mutableStateOf("") }
     Card {
         Column(Modifier.padding(18.dp).widthIn(max = 670.dp),
@@ -121,7 +121,7 @@ private fun SharePane(viewModel: SyncViewModel) {
                 Text("Reuse the same six-digit code")
                 Switch(
                     checked = useFixed,
-                    onCheckedChange = { enabled -> if (state !is SyncServer.State.Sharing) useFixed = enabled },
+                    onCheckedChange = { enabled -> if (state !is SyncServer.State.Sharing) { useFixed = enabled; viewModel.setPreferFixedCode(enabled) } },
                     enabled = state !is SyncServer.State.Sharing,
                 )
             }
