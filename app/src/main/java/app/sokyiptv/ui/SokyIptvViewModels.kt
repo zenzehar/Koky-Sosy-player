@@ -1263,6 +1263,8 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     private val client = SyncClient(graph.httpClient)
 
     val serverState: StateFlow<SyncServer.State> = server.state
+    val preferFixedCode: Boolean get() = server.preferFixedCode
+    fun setPreferFixedCode(enabled: Boolean) = server.setPreferFixedCode(enabled)
     val fixedCode: String get() = server.fixedCode
     fun rotateFixedCode(): String = server.renewFixedCode()
 
