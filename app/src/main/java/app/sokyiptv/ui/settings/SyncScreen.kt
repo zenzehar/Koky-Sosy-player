@@ -160,6 +160,7 @@ private fun SharePane(viewModel: SyncViewModel) {
                     Field("Device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
                     Field("Address", current.session.address)
                     Field("Pairing code", current.session.code)
+                    Text("Watch positions available: ${current.session.positionsAvailable}")
                     Text(if (current.session.persistent) "Reusable code is enabled" else "Temporary pairing code")
                     OutlinedButton(onClick = { viewModel.stopSharing() }) { Text("Stop sharing") }
                 }
@@ -247,7 +248,11 @@ private fun ReceivePane(viewModel: SyncViewModel) {
             when (val result = state) {
                 is SyncViewModel.ReceiveState.Connecting -> Text("Connecting (maximum 12 seconds)…")
                 is SyncViewModel.ReceiveState.Done -> Text(
-                    "${result.merged} matching positions updated. Open Movies/Series Continue Watching.",
+                    "Received: ${result.received}  ·  Matched: ${result.matched}  ·  Updated: ${result.merged}. " +
+                        if (result.received == 0) "No saved watch positions on the sharing TV." else
+                            if (result.matched == 0) "No matching provider media on this TV." else
+                                if (result.merged == 0) "Matching history is already as recent as received." else
+                                    "Open Movies/Series Continue Watching.",
                     color = MaterialTheme.colorScheme.primary,
                 )
                 is SyncViewModel.ReceiveState.Failed -> Text(
