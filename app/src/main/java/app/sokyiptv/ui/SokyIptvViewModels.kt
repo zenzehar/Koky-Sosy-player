@@ -1297,7 +1297,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     sealed interface ReceiveState {
         data object Idle : ReceiveState
         data object Connecting : ReceiveState
-        data class Done(val merged: Int) : ReceiveState
+        data class Done(val merged: Int, val matched: Int, val received: Int) : ReceiveState
         data class Failed(val message: String) : ReceiveState
     }
 
@@ -1351,7 +1351,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _receiveState.value = ReceiveState.Connecting
             client.pull(address, code, deviceId)
-                .onSuccess { _receiveState.value = ReceiveState.Done(merge(it)) }
+                .onSuccess { val stats = merge(it); _receiveState.value = ReceiveState.Done(stats.updated, stats.matched, it.positions.size) }
                 .onFailure { _receiveState.value = ReceiveState.Failed(it.message ?: "Sync failed.") }
         }
     }
@@ -1375,8 +1375,11 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         return Json.encodeToString(SyncBundle.serializer(), SyncBundle(positions = items))
     }
 
-    private suspend fun merge(bundle: SyncBundle): Int {
+    private data class MergeStats(val updated: Int, val matched: Int)
+
+    private suspend fun merge(bundle: SyncBundle): MergeStats {
         var merged = 0
+        var matched = 0
         val portableIndex = SyncIdentityResolver.build(graph)
         for (item in bundle.positions) {
             val profileId = profileIdFor(item.profile) ?: continue
@@ -1390,6 +1393,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                     ?.let { portableIndex["${item.kind}:${CloudMediaKeys.hash(item.kind, it)}"] }
                 ?: continue
             val mediaKey = "${item.kind}:$localId"
+            matched++
             val now = System.currentTimeMillis()
             if (item.updatedAtMillis <= 0L || item.updatedAtMillis > now + 5 * 60_000L ||
                 item.positionMillis < 0L || item.durationMillis < 0L ||
@@ -1398,7 +1402,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
                 profileId, mediaKey, item.positionMillis, item.durationMillis, item.updatedAtMillis,
             )
         }
-        return merged
+        return MergeStats(merged, matched)
     }
 
     private suspend fun profileIdFor(name: String): Long? {
