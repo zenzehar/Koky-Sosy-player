@@ -60,7 +60,7 @@ fun SyncScreen(
     var mode by remember { mutableStateOf(Mode.SHARE) }
     // Closing or switching away from Share also closes its LAN listener. No hidden timeout.
     DisposableEffect(mode) {
-        onDispose { if (mode == Mode.SHARE) viewModel.stopSharing() }
+        onDispose { viewModel.stopSharing() }
     }
 
     Column(
