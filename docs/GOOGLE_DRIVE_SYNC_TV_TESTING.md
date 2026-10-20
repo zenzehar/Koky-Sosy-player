@@ -1,4 +1,4 @@
-# Google Drive progress sync — per-user TV OAuth experiment v0.1.11.15
+# Google Drive progress sync — per-user TV OAuth experiment v0.1.11.16
 
 This feature lives ONLY on `experiment/soky-iptv-pro-lab-2026-10-19`. Main, the rebrand development branch and all golden milestone branches remain unchanged. Draft PR #39 is not approved for merge.
 
@@ -8,7 +8,7 @@ This feature lives ONLY on `experiment/soky-iptv-pro-lab-2026-10-19`. Main, the 
 2. Select **New repository secret** and enter **Name:** `GOOGLE_TV_OAUTH_CLIENT_SECRET`.
 3. For its **Secret** value, paste the existing **TV and Limited Input devices** OAuth Client Secret from Google Auth Platform → Clients. Never enter a user password, Drive token, or provider login here.
 4. Save. If missing, the CI job now fails **before compilation**, preventing a disabled Connect Google Account button from shipping.
-5. Run the **whole build workflow**, not only its failed publishing job. Rerunning only a failed publish job reuses an APK built before the secret was configured. The v0.1.11.14 artifact had this defect; use v0.1.11.15 or newer after successful new compilation.
+5. Run the **whole build workflow**, not only its failed publishing job. Rerunning only a failed publish job reuses an APK built before the secret was configured. The v0.1.11.14 artifact had this defect; use v0.1.11.16 or newer after successful new compilation.
 6. For production, rotate the already-shared test credential in Google Cloud and update this repository secret; ensure the Google OAuth app is **In production** and required consent details are completed.
 
 **Important:** Google's TV OAuth design assumes a distributed app cannot keep client credentials secret. GitHub Actions secrets protect the source repository and build pipeline, not the compiled APK. Extracting the embedded client secret from an APK is possible; security comes from each user's own Google authorisation and individually issued tokens.
