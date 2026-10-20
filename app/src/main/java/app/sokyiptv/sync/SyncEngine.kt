@@ -188,19 +188,13 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
                 else -> null
             } ?: continue
             val mediaKey = "${item.kind}:$localId"
-            val existing = graph.playbackPositions.get(profileId, mediaKey)
-            if (existing == null || item.updatedAtMillis > existing.updatedAtMillis) {
-                graph.playbackPositions.upsert(
-                    PlaybackPosition(
-                        profileId = profileId,
-                        mediaKey = mediaKey,
-                        positionMillis = item.positionMillis,
-                        durationMillis = item.durationMillis,
-                        updatedAtMillis = item.updatedAtMillis,
-                    ),
-                )
-                positions++
-            }
+            val now = System.currentTimeMillis()
+            if (item.updatedAtMillis <= 0 || item.updatedAtMillis > now + 5 * 60_000L ||
+                item.positionMillis < 0 || item.durationMillis < 0 ||
+                (item.durationMillis > 0 && item.positionMillis > item.durationMillis + 120_000L)) continue
+            $count += graph.playbackPositions.mergeIfNewer(
+                profileId, mediaKey, item.positionMillis, item.durationMillis, item.updatedAtMillis,
+            )
         }
         return MergeResult(
             positions = positions,
