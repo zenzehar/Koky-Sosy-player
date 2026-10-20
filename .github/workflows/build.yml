@@ -89,5 +89,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
             --title "Soky IPTV Pro v0.1.11.13 Google Drive TV sync experiment" \
-            --notes "UNAPPROVED TV CLOUD SYNC TEST: Private Google Drive appDataFolder progress snapshots; TV OAuth device-code login configured on device; no credentials in repository. Phone OAuth not included. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." \\
-            --prerelease
+            --notes "UNAPPROVED TV CLOUD SYNC TEST: Private Google Drive appDataFolder progress snapshots; TV OAuth device-code login configured on device; no credentials in repository. Phone OAuth not included. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
