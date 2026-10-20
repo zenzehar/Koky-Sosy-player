@@ -188,13 +188,25 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val visibleFolderName = "Soky IPTV Pro"
 
     private fun driveRequest(token: String, request: Request): JSONObject {
-        http.newCall(request.newBuilder().header("Authorization", "Bearer $token").build()).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw IllegalStateException("Google Drive request failed (HTTP ${response.code}).")
+        val authenticated = request.newBuilder().header("Authorization", "Bearer $token").build()
+        val repeatable = authenticated.method == "GET" || authenticated.method == "PATCH"
+        for (attempt in 0..2) {
+            http.newCall(authenticated).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) {
+                    return if (body.isBlank()) JSONObject() else JSONObject(body)
+                }
+                if (repeatable && attempt < 2 &&
+                    response.code in setOf(429, 500, 502, 503, 504)) {
+                    // GET and media-PATCH may be repeated safely. Never retry a create
+                    // POST automatically: the server may have created the file already.
+                    Thread.sleep(500L * (1L shl attempt))
+                } else {
+                    throw IllegalStateException("Google Drive request failed (HTTP ${response.code}).")
+                }
             }
-            return if (body.isBlank()) JSONObject() else JSONObject(body)
         }
+        throw IllegalStateException("Google Drive remained unavailable after retries.")
     }
 
     /**
