@@ -33,6 +33,9 @@ import kotlinx.coroutines.flow.Flow
 /** Rows per upsert statement. Keeps a 40,000-channel playlist from building one huge query. */
 private const val UPSERT_CHUNK = 500
 
+/** Minimal reference projection: never include provider credentials in cloud payloads. */
+data class CloudMediaRef(val id: Long, val streamUrl: String)
+
 @Dao
 interface SourceDao {
     @Query("SELECT * FROM sources ORDER BY id")
@@ -429,6 +432,9 @@ data class VodCategoryCount(val categoryId: String?, val count: Int)
 
 @Dao
 interface MovieDao {
+    @Query("SELECT id, streamUrl FROM movies")
+    suspend fun cloudRefs(): List<CloudMediaRef>
+
     @Query("""SELECT * FROM movies
         WHERE (:sourceId IS NULL OR sourceId = :sourceId)
         AND (:categoryId IS NULL OR categoryId = :categoryId)
@@ -655,6 +661,9 @@ interface SeriesDao {
 
 @Dao
 interface EpisodeDao {
+    @Query("SELECT id, streamUrl FROM episodes")
+    suspend fun cloudRefs(): List<CloudMediaRef>
+
     @Query("SELECT COUNT(*) FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId")
     suspend fun countForSeries(sourceId: Long, seriesId: String): Int
 
