@@ -39,6 +39,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Fail before compiling: rerunning a publish-only job does not rebuild the APK.
+      - name: Validate TV OAuth before compilation
+        run: |
+          if [ -z "$GOOGLE_TV_OAUTH_CLIENT_SECRET" ]; then
+            echo "::error::Missing GOOGLE_TV_OAUTH_CLIENT_SECRET. Add the Actions repository secret and rerun the entire workflow."
+            exit 1
+          fi
+
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
@@ -95,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.14-soky-drive-user-oauth \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.14_User_Google_SignIn.apk" \
+          gh release create v0.1.11.15-soky-drive-oauth-fix \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.15_Google_Account_Sync_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.14 per-user Google Drive sign-in" \
-            --notes "UNAPPROVED PER-USER GOOGLE DRIVE TV TEST. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
+            --title "Soky IPTV Pro v0.1.11.15 rebuilt Google Drive account sync" \
+            --notes "UNAPPROVED TV TEST: fully rebuilt after Google OAuth secret setup; fixed cloud/privacy text and TV scroll. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
