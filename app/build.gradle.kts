@@ -22,6 +22,10 @@ android {
         val tmdbReadToken = providers.environmentVariable("TMDB_READ_TOKEN").orNull.orEmpty()
         buildConfigField("String", "TMDB_DEFAULT_KEY", "\""+ tmdbKey + "\"")
         buildConfigField("String", "TMDB_DEFAULT_READ_TOKEN", "\"" + tmdbReadToken + "\"")
+
+        // A public OAuth client ID; the TV client secret is entered once on the device.
+        buildConfigField("String", "GOOGLE_TV_CLIENT_ID", "\"432118217322-6qqfb4c5c0s6ecqg45i82l4q5h7rjvtf.apps.googleusercontent.com\"")
+        buildConfigField("String", "GOOGLE_TV_CLIENT_SECRET", "\"\"")
     }
 
     signingConfigs {
