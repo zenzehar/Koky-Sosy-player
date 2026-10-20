@@ -54,10 +54,10 @@ fun GoogleDriveSyncPane() {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("Google Drive Cloud Sync", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Connect your own Google account. Each account stores its own Continue Watching " +
-                "history and episode positions in its private Google Drive app folder. " +
-                "Sign into the same account on another device to sync. IPTV passwords, " +
-                "server addresses and stream URLs are never uploaded.",
+            "Connect your own Google account. Your viewing progress stays in your own Google Drive. " +
+                "If Google's hidden app storage is unavailable for TV sign-in, Soky creates a " +
+                "normal private-to-you folder in My Drive called Soky IPTV Pro. " +
+                "Use the same account on another TV to sync. IPTV credentials and stream URLs are not uploaded.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Card(Modifier.widthIn(max = 720.dp)) {
@@ -95,7 +95,11 @@ fun GoogleDriveSyncPane() {
                     Text(code.verificationUrl, style = MaterialTheme.typography.titleMedium)
                     Text("Enter this code on your phone (case-sensitive):", style = MaterialTheme.typography.bodyMedium)
                     Text(code.userCode, style = MaterialTheme.typography.headlineMedium)
-                    Text("Approve access to your Google Drive app data. The TV will finish connecting automatically.")
+                    Text(
+                        if (code.requestedScope.endsWith("/drive.file"))
+                            "Google will let Soky manage its own files in the Soky IPTV Pro folder in My Drive."
+                        else "Approve access to your Google Drive app data. The TV will finish connecting automatically."
+                    )
                 }
                 if (state.connected) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
