@@ -8,6 +8,8 @@ package app.sokyiptv.ui.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +60,7 @@ fun SyncScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp, vertical = 24.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -67,7 +70,11 @@ fun SyncScreen(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            stringResource(R.string.sync_desc),
+            when (mode) {
+                Mode.CLOUD -> "Sync viewing progress across devices using each person's own Google Drive. An internet connection is used; IPTV passwords and streaming URLs are not uploaded."
+                Mode.NAS -> stringResource(R.string.sync_nas_desc)
+                else -> stringResource(R.string.sync_desc)
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.widthIn(max = 720.dp),
