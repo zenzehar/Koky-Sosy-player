@@ -42,6 +42,9 @@ data class CloudSyncState(
     val message: String = "",
     val lastSuccessMillis: Long = 0,
     val importedCount: Int = 0,
+    val matchedCount: Int = 0,
+    val remoteCount: Int = 0,
+    val unmatchedCount: Int = 0,
 )
 
 class GoogleDriveProgressSync private constructor(context: Context) {
@@ -137,14 +140,20 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         gate.withLock {
             _state.value = _state.value.copy(busy = true, message = "Synchronising watch history…")
             try {
-                val (count, uploaded) = withContext(Dispatchers.IO) { performSync() }
+                val result = withContext(Dispatchers.IO) { performSync() }
                 val now = System.currentTimeMillis()
                 prefs.edit().putLong("last_success", now).apply()
                 _state.value = _state.value.copy(
                     connected = true, busy = false, pendingCode = null,
-                    lastSuccessMillis = now, importedCount = count,
-                    message = "Cloud sync complete: $count positions updated locally" +
-                        if (uploaded) " and your latest progress uploaded." else "; cloud upload already current.",
+                    lastSuccessMillis = now,
+                    importedCount = result.imported,
+                    matchedCount = result.matched,
+                    remoteCount = result.remote,
+                    unmatchedCount = result.unmatched,
+                    message = "Drive sync: ${result.imported} new positions imported; " +
+                        "${result.matched}/${result.remote} remote records matched this TV." +
+                        if (result.unmatched > 0) " ${result.unmatched} skipped (missing or different catalogue URLs)." else
+                            if (result.uploaded) " Progress uploaded." else " Already up to date.",
                 )
             } catch (c: CancellationException) {
                 _state.value = _state.value.copy(busy = false)
@@ -272,6 +281,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             }
             page = objectList.optString("nextPageToken").takeIf { it.isNotBlank() }
         } while (page != null && found.size < 1000)
+        require(page == null) { "More than 1,000 Drive sync files detected. Sync cancelled to prevent partial overwrite." }
         return CloudListing(found, folderId)
     }
 
@@ -284,8 +294,12 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             // Limit damage from accidentally huge/corrupt cloud files.
             val payload = response.body?.bytes() ?: return null
             if (payload.size > 3_000_000) throw IllegalStateException("Cloud watch-history file is unexpectedly large.")
-            return runCatching { json.decodeFromString(CloudWatchSnapshot.serializer(), String(payload, Charsets.UTF_8)) }
-                .getOrNull()?.takeIf { it.version == 1 && it.positions.size <= 12_000 }
+            val parsed = runCatching { json.decodeFromString(CloudWatchSnapshot.serializer(), String(payload, Charsets.UTF_8)) }
+                .getOrElse { throw IllegalStateException("Drive contains an unreadable sync file. No cloud data changed.") }
+            require(parsed.version == 1 && parsed.positions.size <= 12_000) {
+                "Unsupported or excessively large Drive history detected. No cloud data changed."
+            }
+            return parsed
         }
     }
 
@@ -355,52 +369,62 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         return CloudWatchSnapshot(deviceId = deviceId, generatedAtMillis = System.currentTimeMillis(), positions = positions)
     }
 
-    private suspend fun performSync(): Pair<Int, Boolean> {
+    private data class SyncOutcome(
+        val imported: Int, val matched: Int, val remote: Int,
+        val unmatched: Int, val uploaded: Boolean,
+    )
+
+    private suspend fun performSync(): SyncOutcome {
         val token = oauth.accessToken()
         registerAuthorizedAccount(token)
         val listing = listSnapshots(token)
         val files = listing.files
-        val remote = mutableMapOf<String, CloudWatchPoint>()
-        // Own snapshot is included so remote points survive reinstall even if only one device exists.
+        val remote = linkedMapOf<String, CloudWatchPoint>()
+        val now = System.currentTimeMillis()
+        var rejected = 0
+        val conflicting = mutableSetOf<String>()
+        // Download and validate ALL snapshots before modifying local or uploading data.
         for (file in files) {
             val snapshot = downloadSnapshot(token, file) ?: continue
-            for (item in snapshot.positions) {
-                if (item.kind !in setOf("movie", "ep") || item.profile.isBlank() ||
-                    item.mediaHash.length != 64 || item.updatedAtMillis <= 0) continue
-                val combinedKey = item.profile + "\u0000" + item.kind + "\u0000" + item.mediaHash
-                val previous = remote[combinedKey]
-                if (previous == null || item.updatedAtMillis > previous.updatedAtMillis) {
-                    remote[combinedKey] = item
+            for (point in snapshot.positions) {
+                if (!CloudMergeRules.valid(point, now)) {
+                    rejected++
+                    continue
+                }
+                val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
+                val previous = remote[key]
+                if (previous != null &&
+                    previous.updatedAtMillis == point.updatedAtMillis &&
+                    (previous.positionMillis != point.positionMillis ||
+                     previous.durationMillis != point.durationMillis)) {
+                    conflicting += key
+                }
+                if (previous == null || point.updatedAtMillis > previous.updatedAtMillis) {
+                    remote[key] = point
                 }
             }
+        }
+        require(conflicting.isEmpty()) {
+            "Conflicting cloud versions detected. Sync cancelled to protect viewing history."
         }
 
         val (byLocal, byCloud) = indexLocalMedia()
         val existingProfiles = graph.profiles.all().associate { it.name to it.id }.toMutableMap()
-        val now = System.currentTimeMillis()
         var imported = 0
+        var matched = 0
         for (point in remote.values) {
-            // Don't import timestamps far in the future from a clock that's badly misconfigured.
-            if (point.updatedAtMillis > now + 5 * 60_000L) continue
+            // No speculative matching by title. Different stream URLs are intentionally
+            // skipped rather than potentially merging different content.
             val localKey = byCloud["${point.kind}:${point.mediaHash}"] ?: continue
+            matched++
             val profileId = existingProfiles[point.profile] ?: run {
                 graph.profiles.insert(Profile(name = point.profile, createdAtMillis = now)).also {
                     existingProfiles[point.profile] = it
                 }
             }
-            val current = graph.playbackPositions.get(profileId, localKey)
-            if (current == null || point.updatedAtMillis > current.updatedAtMillis) {
-                graph.playbackPositions.upsert(
-                    PlaybackPosition(
-                        profileId = profileId,
-                        mediaKey = localKey,
-                        positionMillis = point.positionMillis.coerceAtLeast(0L),
-                        durationMillis = point.durationMillis.coerceAtLeast(0L),
-                        updatedAtMillis = point.updatedAtMillis,
-                    )
-                )
-                imported++
-            }
+            imported += graph.playbackPositions.mergeIfNewer(
+                profileId, localKey, point.positionMillis, point.durationMillis, point.updatedAtMillis,
+            )
         }
 
         // Preserve this Google account's existing Drive progress when the same TV switches
@@ -409,7 +433,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         // an empty/partial snapshot and erase watched positions.
         val local = localSnapshot(byLocal)
         val merged = LinkedHashMap<String, CloudWatchPoint>()
-        for (point in remote.values + local.positions) {
+        for (point in remote.values + local.positions.filter { CloudMergeRules.valid(it, now) }) {
             val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
             val existing = merged[key]
             if (existing == null || point.updatedAtMillis > existing.updatedAtMillis) {
@@ -429,7 +453,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             uploadSnapshot(token, currentOwnFile, payload, listing.parentId)
             prefs.edit().putString("last_digest", digest).apply()
         }
-        return imported to !alreadyUploaded
+        return SyncOutcome(imported, matched, remote.size, remote.size - matched + rejected, !alreadyUploaded)
     }
 
     companion object {
