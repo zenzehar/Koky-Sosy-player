@@ -1270,6 +1270,7 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     val fixedCode: String get() = server.fixedCode
     fun setFixedCode(code: String) = server.setFixedCode(code)
     fun isPaired(deviceId: String) = client.isPaired(deviceId)
+    fun forgetPairing(deviceId: String) = client.forgetPairing(deviceId)
     fun rotateFixedCode(): String = server.renewFixedCode()
 
     sealed interface DiscoverState {
