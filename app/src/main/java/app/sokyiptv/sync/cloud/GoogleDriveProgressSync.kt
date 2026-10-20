@@ -73,14 +73,16 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         )
     )
     init {
-        // Discard temporary secrets entered in the prior test release. New builds never
-        // ask the user to supply an OAuth credential.
         vault.write("test_secret", null)
+        // Re-establish periodic background work after Android process restart.
+        if (oauth.connected) DriveBackgroundSyncWorker.schedule(appContext)
     }
+    val authorized: Boolean get() = oauth.connected
 
     val state: StateFlow<CloudSyncState> = _state
 
     fun disconnect() {
+        DriveBackgroundSyncWorker.cancel(appContext)
         oauth.disconnect()
         prefs.edit().remove("last_digest").apply()
         _state.value = CloudSyncState(
@@ -109,6 +111,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             _state.value = _state.value.copy(
                 connected = true, pendingCode = null, busy = false, message = "Connected to Google Drive. Synchronising…",
             )
+            DriveBackgroundSyncWorker.schedule(appContext)
             syncNow()
         } catch (c: CancellationException) {
             _state.value = _state.value.copy(busy = false, pendingCode = null, message = "Sign-in cancelled.")
