@@ -87,14 +87,11 @@ internal class GoogleTvOAuth(
     private val vault: CloudCredentialVault,
 ) {
     private val clientId: String get() = BuildConfig.GOOGLE_TV_CLIENT_ID
-    private val clientSecret: String
-        get() = vault.read("test_secret")?.takeIf { it.isNotBlank() }
-            ?: BuildConfig.GOOGLE_TV_CLIENT_SECRET
+    private val clientSecret: String get() = BuildConfig.GOOGLE_TV_CLIENT_SECRET
 
     val connected: Boolean get() = !vault.read("refresh").isNullOrBlank()
 
-    fun hasTestSecret(): Boolean = clientSecret.isNotBlank()
-    fun saveTestSecret(value: String) = vault.write("test_secret", value.trim())
+    val configured: Boolean get() = clientId.isNotBlank() && clientSecret.isNotBlank()
     fun disconnect() = vault.clearAuthorization()
 
     private fun post(endpoint: String, vararg fields: Pair<String, String>): JSONObject {
@@ -115,7 +112,7 @@ internal class GoogleTvOAuth(
     suspend fun createDeviceCode(): TvGoogleCode = withContext(Dispatchers.IO) {
         require(clientId.isNotBlank()) { "Google TV Client ID is missing from the build." }
         require(clientSecret.isNotBlank()) {
-            "Enter your temporary TV OAuth Client Secret in Google Drive Sync settings first."
+            "Google Drive sign-in is not configured in this build. The app developer must configure the OAuth build secret."
         }
         val result = post(
             "https://oauth2.googleapis.com/device/code",
