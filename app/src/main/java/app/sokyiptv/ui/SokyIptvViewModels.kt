@@ -1262,12 +1262,14 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
 class SyncViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
     private val server = SyncServer(app.applicationContext, viewModelScope)
-    private val client = SyncClient(graph.httpClient)
+    private val client = SyncClient(graph.httpClient, app.applicationContext)
 
     val serverState: StateFlow<SyncServer.State> = server.state
     val preferFixedCode: Boolean get() = server.preferFixedCode
     fun setPreferFixedCode(enabled: Boolean) = server.setPreferFixedCode(enabled)
     val fixedCode: String get() = server.fixedCode
+    fun setFixedCode(code: String) = server.setFixedCode(code)
+    fun isPaired(deviceId: String) = client.isPaired(deviceId)
     fun rotateFixedCode(): String = server.renewFixedCode()
 
     sealed interface DiscoverState {
@@ -1345,10 +1347,10 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stopSharing() = server.stop()
 
-    fun receive(address: String, code: String) {
+    fun receive(address: String, code: String, deviceId: String = "") {
         viewModelScope.launch {
             _receiveState.value = ReceiveState.Connecting
-            client.pull(address, code)
+            client.pull(address, code, deviceId)
                 .onSuccess { _receiveState.value = ReceiveState.Done(merge(it)) }
                 .onFailure { _receiveState.value = ReceiveState.Failed(it.message ?: "Sync failed.") }
         }
