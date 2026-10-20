@@ -93,9 +93,15 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             val code = oauth.createDeviceCode()
             _state.value = _state.value.copy(busy = true, pendingCode = code, message = "Open the link on your phone, then enter the code.")
             oauth.waitForUser(code)
-            // Resolve account identity before syncing any local history to the newly authorised Drive.
-            // Drive about.get works with both drive.appdata and drive.file scopes.
-            registerAuthorizedAccount(oauth.accessToken())
+            // Resolve identity on Dispatchers.IO. The UI coroutine resumes on Main
+            // after OAuth polling. Calling OkHttp.execute() there caused a
+            // NetworkOnMainThreadException and discarded an otherwise valid sign-in.
+            // Both Drive about.get and files.list use the authenticated user's token.
+            val token = oauth.accessToken()
+            _state.value = _state.value.copy(
+                busy = true, pendingCode = null, message = "Google approved your account. Checking Drive access…",
+            )
+            withContext(Dispatchers.IO) { registerAuthorizedAccount(token) }
             prefs.edit().remove("last_digest").apply()
             _state.value = _state.value.copy(
                 connected = true, pendingCode = null, busy = false, message = "Connected to Google Drive. Synchronising…",
@@ -152,8 +158,19 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private fun safeMessage(e: Exception): String {
         // Never display tokens, signed URLs, request bodies, or Google error payloads.
         return when (e) {
-            is IllegalStateException, is IllegalArgumentException -> e.message?.take(170) ?: "Cloud sync failed."
-            else -> "Cloud sync failed. Check your internet connection and Google account permissions."
+            is android.os.NetworkOnMainThreadException ->
+                "Internal TV networking error. Update to the latest test APK."
+            is java.net.UnknownHostException ->
+                "Cannot reach Google Drive. Check the TV's internet connection."
+            is java.net.SocketTimeoutException ->
+                "Google Drive timed out. Select Sync Now to retry."
+            is javax.net.ssl.SSLException ->
+                "Unable to establish a secure Google connection. Check the TV clock and network."
+            is IllegalStateException, is IllegalArgumentException ->
+                e.message?.take(170) ?: "Google Drive request failed."
+            else ->
+                // Show only the exception class, never OAuth tokens or raw HTTP bodies.
+                "Cloud connection failed (${e.javaClass.simpleName}). Retry, then report this error type."
         }
     }
 
