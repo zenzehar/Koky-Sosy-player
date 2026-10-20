@@ -61,6 +61,8 @@ This source distribution includes GPL-licensed material and must preserve applic
 
 ## Development status
 
-The latest approved pre-rebrand checkpoint is `milestone/v0.1.11.11-tv-approved`. The complete Soky IPTV Pro rebrand is on a separate experimental branch until CI and hardware acceptance are completed. Known remaining checks include precise ±10-second seek landing, first-run automatic content refresh and end-to-end installation/migration.
+**Current user-approved golden standard: [Soky IPTV Pro v0.1.11.12](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.12-soky-iptv-pro)** at [`milestone/v0.1.11.12-soky-iptv-pro-golden`](https://github.com/zenzehar/Koky-Sosy-player/tree/milestone/v0.1.11.12-soky-iptv-pro-golden). Exact accepted commit: `4334c26291c8555a0bb37f6a0f6c99f53cf0b5e1`. [Approval record](https://github.com/zenzehar/Koky-Sosy-player/issues/40). This **README on `main` is the public project homepage**, while the named golden branch contains the actual approved application source; do not assume `main` contains the current gold app code. Future fixes and features must branch from that golden commit without modifying the approved APK. Prior golden versions remain archived.
+
+Outstanding v1.0 checks include precise ±10-second seek landing, automatic initial catalogue refresh, phone/TV regression and production signing. This golden designation is user-approved; it does not itself constitute newly completed device tests of the rebrand.
 
 **Soky IPTV Pro is not affiliated with IPTV content providers, television networks or streaming subscription services.**
