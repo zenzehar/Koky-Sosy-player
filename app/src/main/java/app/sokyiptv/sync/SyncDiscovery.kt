@@ -24,6 +24,25 @@ object SyncDiscovery {
 
     data class Peer(val name: String, val address: String, val deviceId: String = "")
 
+    /** Accept both v1 three-field and v2 four-field advertisements.
+     * Never trust an address in the UDP payload that differs from its source.
+     */
+    internal fun parseReply(payload: String, senderIp: String): Peer? {
+        val parts = payload.split('|', limit = 5)
+        if (parts.size !in 3..4 || parts[0] != REPLY) return null
+        val address = parts[2]
+        if (!address.matches(Regex("[0-9.]+:[0-9]{1,5}"))) return null
+        val ip = address.substringBefore(':')
+        val port = address.substringAfter(':').toIntOrNull() ?: return null
+        if (port !in 1..65535 || ip != senderIp || !PairingHttp.isPrivateAddress(ip)) return null
+        val uuid = parts.getOrNull(3).orEmpty()
+        if (uuid.isNotEmpty() && !uuid.matches(
+            Regex("[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}")
+        )) return null
+        return Peer(parts[1].take(48), address, uuid)
+    }
+
+
     fun listen(isRunning: () -> Boolean, currentAddress: () -> String, deviceId: String): DatagramSocket? {
         val socket = runCatching {
             DatagramSocket(null).apply {
@@ -93,13 +112,9 @@ object SyncDiscovery {
                         val packet = DatagramPacket(data, data.size)
                         socket.receive(packet)
                         if (!PairingHttp.isPrivateAddress(packet.address.hostAddress)) continue
-                        val parts = String(packet.data, 0, packet.length, Charsets.UTF_8).split('|', limit = 4)
-                        if (parts.size != 3 || parts[0] != REPLY) continue
-                        val address = parts[2]
-                        if (!address.matches(Regex("[0-9.]+:[0-9]{1,5}"))) continue
-                        val ip = address.substringBefore(':')
-                        if (ip != packet.address.hostAddress || !PairingHttp.isPrivateAddress(ip)) continue
-                        peers[address] = Peer(parts[1].take(48), address, parts.getOrNull(3).orEmpty().takeIf { it.matches(Regex("[a-fA-F0-9-]{36}")) }.orEmpty())
+                        val reply = String(packet.data, packet.offset, packet.length, Charsets.UTF_8)
+                        val peer = parseReply(reply, packet.address.hostAddress) ?: continue
+                        peers[peer.deviceId.ifBlank { peer.address }] = peer
                     } catch (_: SocketTimeoutException) { break }
                     catch (_: Exception) { break }
                 }
