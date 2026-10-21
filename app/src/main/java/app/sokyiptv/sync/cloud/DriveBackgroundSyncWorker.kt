@@ -22,8 +22,7 @@ class DriveBackgroundSyncWorker(
         val sync = GoogleDriveProgressSync.get(applicationContext)
         if (!sync.authorized) return Result.success()
         return try {
-            sync.syncNow()
-            Result.success()
+            if (sync.syncNow()) Result.success() else Result.retry()
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
