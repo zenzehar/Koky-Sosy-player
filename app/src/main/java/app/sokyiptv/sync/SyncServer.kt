@@ -68,7 +68,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
     private fun newCode(): String = "%06d".format(SecureRandom().nextInt(1_000_000))
 
 
-    data class Session(val host: String, val port: Int, val code: String, val persistent: Boolean, val positionsAvailable: Int) {
+    data class Session(val host: String, val port: Int, val code: String, val persistent: Boolean, val positionsAvailable: Int, val discoveryActive: Boolean) {
         val address: String get() = "$host:$port"
     }
 
@@ -107,13 +107,14 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
         }
         serverSocket = socket
         running = true
+        discoverySocket = SyncDiscovery.listen({ running }, { "$host:${socket.localPort}" }, deviceId)
         _state.value = State.Sharing(Session(
             host, socket.localPort, code, persistent,
             runCatching {
                 kotlinx.serialization.json.Json.decodeFromString(SyncBundle.serializer(), bundleJson).positions.size
             }.getOrDefault(0),
+            discoverySocket != null,
         ))
-        discoverySocket = SyncDiscovery.listen({ running }, { "$host:${socket.localPort}" }, deviceId)
 
         thread(name = "sokyiptv-sync", isDaemon = true) {
             while (running) {
