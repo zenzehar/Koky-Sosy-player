@@ -161,6 +161,13 @@ private fun SharePane(viewModel: SyncViewModel) {
                     Field("Address", current.session.address)
                     Field("Pairing code", current.session.code)
                     Text("Watch positions available: ${current.session.positionsAvailable}")
+                    Text(
+                        if (current.session.discoveryActive) "Device discovery: Listening (UDP 38692)"
+                        else "Device discovery unavailable on this TV. Use the address shown above.",
+                        color = if (current.session.discoveryActive)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.error,
+                    )
                     Text(if (current.session.persistent) "Reusable code is enabled" else "Temporary pairing code")
                     OutlinedButton(onClick = { viewModel.stopSharing() }) { Text("Stop sharing") }
                 }
