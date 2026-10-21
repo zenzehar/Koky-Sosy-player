@@ -188,6 +188,11 @@ fun GoogleDriveSyncPane() {
                 if (state.remoteCount > 0) {
                     Text("Cloud entries: ${state.remoteCount}  ·  Matched: ${state.matchedCount}  ·  " +
                         "Unmatched: ${state.unmatchedCount}  ·  Imported: ${state.importedCount}")
+                    Text(
+                        "Viewing history is linked to a profile. Select the same profile on both TVs " +
+                            "when checking Continue Watching.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     if (state.matchedCount == 0) {
                         Text(
                             "Google Drive is connected, but no cloud media matched this TV. " +
