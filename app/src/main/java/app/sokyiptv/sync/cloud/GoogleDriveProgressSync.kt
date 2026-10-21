@@ -112,9 +112,20 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 connected = true, pendingCode = null, busy = false, message = "Connected to Google Drive. Synchronising…",
             )
             DriveBackgroundSyncWorker.schedule(appContext)
-            syncNow()
+            // Do not tie initial upload to a transient Settings/QR dialog.
+            // The app-owned scope keeps going when the user leaves the screen.
+            scope.launch { syncNow() }
         } catch (c: CancellationException) {
-            _state.value = _state.value.copy(busy = false, pendingCode = null, message = "Sign-in cancelled.")
+            if (oauth.connected) {
+                _state.value = _state.value.copy(
+                    connected = true, busy = false, pendingCode = null,
+                    message = "Google authorised. Sync will continue in the background.",
+                )
+                DriveBackgroundSyncWorker.schedule(appContext)
+                scope.launch { syncNow() }
+            } else {
+                _state.value = _state.value.copy(busy = false, pendingCode = null, message = "Sign-in cancelled.")
+            }
             throw c
         } catch (e: Exception) {
             if (oauth.connected && _state.value.connected != true) oauth.disconnect()
@@ -138,9 +149,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         if (oauth.connected) scope.launch { syncNow() }
     }
 
-    suspend fun syncNow() {
-        if (!oauth.connected) return
-        gate.withLock {
+    /** Returns true only if a complete cloud read/merge/write succeeds. */
+    suspend fun syncNow(): Boolean {
+        if (!oauth.connected) return false
+        return gate.withLock {
             _state.value = _state.value.copy(busy = true, message = "Synchronising watch history…")
             try {
                 val result = withContext(Dispatchers.IO) { performSync() }
@@ -158,11 +170,13 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                         if (result.unmatched > 0) " ${result.unmatched} skipped (missing or different catalogue URLs)." else
                             if (result.uploaded) " Progress uploaded." else " Already up to date.",
                 )
+                true
             } catch (c: CancellationException) {
                 _state.value = _state.value.copy(busy = false)
                 throw c
             } catch (e: Exception) {
                 _state.value = _state.value.copy(busy = false, message = safeMessage(e))
+                false
             }
         }
     }
