@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.20-soky-paired-cloud-progress \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.20_Paired_LAN_Cloud_Progress_Test.apk" \
+          gh release create v0.1.11.21-soky-discovery-cloud-repair \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.21_Discovery_Cloud_Repair_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.20 paired devices and portable cloud progress" \
+            --title "Soky IPTV Pro v0.1.11.21 LAN discovery parser and Google Drive sync repair" \
             --notes "UNAPPROVED TV TEST: LAN device discovery, reusable six-digit pairing code, no five-minute sharing expiry, 12-second receiver timeout, atomic newer-only progress merge and cloud match diagnostics. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
