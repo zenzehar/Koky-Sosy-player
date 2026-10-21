@@ -352,7 +352,11 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             val digest = CloudMediaKeys.hash(kind, url)
             val cloudKey = "$kind:$digest"
             byLocalKey[localKey] = digest
-            val keys = setOf(cloudKey, "$kind:${CloudMediaKeys.legacyHash(kind, url)}")
+            val keys = setOf(
+                cloudKey,
+                "$kind:${CloudMediaKeys.previousHash(kind, url)}",
+                "$kind:${CloudMediaKeys.legacyHash(kind, url)}",
+            )
             for (candidate in keys) {
                 val prior = byCloudKey.putIfAbsent(candidate, localKey)
                 if (prior != null && prior != localKey) ambiguous += candidate
