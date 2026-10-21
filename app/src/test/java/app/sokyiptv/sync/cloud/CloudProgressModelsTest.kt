@@ -42,6 +42,17 @@ class CloudProgressModelsTest {
         assertNotEquals(CloudMediaKeys.hash("movie", xtream), CloudMediaKeys.hash("movie", xtream + "?variant=other"))
     }
 
+    @Test fun numericXtreamIdMatchesAcrossContainerExtensions() {
+        val a = "https://panel.test:443/series/alice/secret/89242.mp4"
+        val b = "https://panel.test:443/series/bob/other/89242.mkv"
+        assertEquals(CloudMediaKeys.hash("ep", a), CloudMediaKeys.hash("ep", b))
+        assertNotEquals(CloudMediaKeys.previousHash("ep", a), CloudMediaKeys.previousHash("ep", b))
+        assertNotEquals(CloudMediaKeys.hash("ep", a), CloudMediaKeys.hash("ep",
+            "https://panel.test:443/series/bob/other/89243.mkv"))
+        assertNotEquals(CloudMediaKeys.hash("ep", a), CloudMediaKeys.hash("ep",
+            "https://another.test:443/series/bob/other/89242.mkv"))
+    }
+
     @Test fun cloudPayloadContainsNoProviderCredentialsOrUrls() {
         val point = CloudWatchPoint(
             profile = "Me",
