@@ -45,8 +45,25 @@ object CloudMediaKeys {
      *
      * Other URL formats retain their exact v1 hash, preventing false matches.
      */
-    fun hash(kind: String, streamUrl: String): String =
+    /** v0.1.11.20 identity, retained as an alias while migrating saved snapshots. */
+    fun previousHash(kind: String, streamUrl: String): String =
         digest(kind, portableIdentity(kind, streamUrl))
+
+    fun hash(kind: String, streamUrl: String): String =
+        digest(kind, canonicalIdentity(kind, streamUrl))
+
+    /**
+     * Xtream provider IDs are numeric and stable even if one catalogue uses mp4
+     * and another uses mkv. Keep the exact server, route and numeric media ID;
+     * never fall back to title matching or normalize unrelated URL schemes.
+     */
+    private fun canonicalIdentity(kind: String, url: String): String {
+        val identity = portableIdentity(kind, url)
+        if (identity == url) return url
+        val match = Regex("""^(https?://[^/]+)/(movie|series)/([0-9]+)\.[a-zA-Z0-9]{2,6}$""")
+            .matchEntire(identity) ?: return identity
+        return "${match.groupValues[1]}/${match.groupValues[2]}/${match.groupValues[3]}"
+    }
 
     fun portableIdentity(kind: String, url: String): String {
         val pattern = Regex("""(?i)^(https?://[^/?#]+)/(movie|series)/[^/?#]+/[^/?#]+/([^/?#]+)$""")
