@@ -25,6 +25,12 @@ internal class ProgressMediaIndex private constructor(
     fun find(kind: String, hash: String): Media? =
         if (hash.matches(Regex("[a-f0-9]{64}"))) byHash["$kind:$hash"] else null
 
+    /** Fail closed if independently supplied strong identifiers disagree. */
+    fun findAny(kind: String, hashes: Collection<String>): Media? {
+        val matches = hashes.asSequence().mapNotNull { find(kind, it) }.distinctBy { it.key }.toList()
+        return matches.singleOrNull()
+    }
+
     companion object {
         private fun digest(value: String): String = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
