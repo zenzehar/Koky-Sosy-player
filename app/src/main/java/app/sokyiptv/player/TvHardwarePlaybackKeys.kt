@@ -10,8 +10,7 @@ internal object TvHardwarePlaybackKeys {
     fun isTransportKey(keyCode: Int): Boolean = when (keyCode) {
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
         KeyEvent.KEYCODE_MEDIA_PLAY,
-        KeyEvent.KEYCODE_MEDIA_PAUSE,
-        KeyEvent.KEYCODE_HEADSETOOK -> true
+        KeyEvent.KEYCODE_MEDIA_PAUSE -> true
         else -> false
     }
 
@@ -19,7 +18,7 @@ internal object TvHardwarePlaybackKeys {
     fun actionForInitialPress(keyCode: Int, repeatCount: Int): Action? {
         if (repeatCount != 0) return null
         return when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETOOK -> Action.TOGGLE
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> Action.TOGGLE
             KeyEvent.KEYCODE_MEDIA_PLAY -> Action.PLAY
             KeyEvent.KEYCODE_MEDIA_PAUSE -> Action.PAUSE
             else -> null
