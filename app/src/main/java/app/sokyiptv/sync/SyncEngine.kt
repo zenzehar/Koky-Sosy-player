@@ -47,29 +47,9 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
     }
 
     suspend fun gather(): SyncBundle {
-        val profiles = graph.profiles.all()
-        val names = profiles.associate { it.id to it.name }
-        val positions = graph.playbackPositions.all().mapNotNull { pos ->
-            val profileName = names[pos.profileId] ?: return@mapNotNull null
-            val parts = pos.mediaKey.split(":", limit = 2)
-            if (parts.size != 2) return@mapNotNull null
-            val id = parts[1].toLongOrNull() ?: return@mapNotNull null
-            val streamUrl = when (parts[0]) {
-                "movie" -> graph.catalogRepository.movie(id)?.streamUrl
-                "ep" -> graph.catalogRepository.episode(id)?.streamUrl
-                else -> null
-            } ?: return@mapNotNull null
-            SyncPosition(
-                profile = profileName,
-                // Only portable SHA-256 identity travels; never expose Xtream logins.
-                streamUrl = "",
-                kind = parts[0],
-                positionMillis = pos.positionMillis,
-                durationMillis = pos.durationMillis,
-                updatedAtMillis = pos.updatedAtMillis,
-                identityHash = CloudMediaKeys.hash(parts[0], streamUrl),
-            )
-        }
+        // Profile propagation is deferred. All transports use this device's
+        // currently selected viewing profile and one newest position per title.
+        val positions = decode(WatchHistorySync.snapshot(graph)).positions
         // Only finished recordings that live on the shared NAS travel — a device-local (file://)
         // capture can't be opened from another box, so sharing its metadata would just create a
         // library row that fails to play everywhere but here.
@@ -93,7 +73,7 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
             }
         return SyncBundle(
             generatedAtMillis = System.currentTimeMillis(),
-            profiles = profiles.map { it.name },
+            profiles = emptyList(),
             positions = positions,
             favouriteChannels = graph.catalogRepository.favouriteChannelUrls(),
             hiddenChannels = graph.catalogRepository.hiddenChannelUrls(),
@@ -111,14 +91,7 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
 
     /** Applies a received bundle. Returns what changed, so callers can report "Synced N items". */
     suspend fun apply(bundle: SyncBundle): MergeResult {
-        // Profiles — add any the peer has that we're missing. Never remove (that would delete a
-        // local profile's watch history).
-        for (name in bundle.profiles) {
-            if (name.isNotBlank() && graph.profiles.byName(name) == null) {
-                runCatching { graph.profiles.insert(Profile(name = name, createdAtMillis = 0)) }
-            }
-        }
-
+        // No profile creation, copying or name matching in this release.
         // Curation — additive union, keyed by stable identifiers. Count only genuinely new keys
         // (ones we hadn't already curated) so the "Synced N" line means "new to this device".
         val localFavChannels = graph.catalogRepository.favouriteChannelUrls().toHashSet()
@@ -181,29 +154,7 @@ class SyncEngine(private val graph: ServiceLocator.Graph) {
             if (inserted) recordings++
         }
 
-        // Watch positions — two-way, newest wins.
-        var positions = 0
-        val portableIndex = SyncIdentityResolver.build(graph)
-        for (item in bundle.positions) {
-            val profileId = profileIdFor(item.profile) ?: continue
-            val localId = when (item.kind) {
-                "movie" -> graph.catalogRepository.movieByStreamUrl(item.streamUrl)?.id
-                "ep" -> graph.catalogRepository.episodeByStreamUrl(item.streamUrl)?.id
-                else -> null
-            } ?: item.identityHash.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
-                ?.let { portableIndex["${item.kind}:$it"] }
-                ?: item.streamUrl.takeIf { it.isNotBlank() && item.kind in setOf("movie", "ep") }
-                    ?.let { portableIndex["${item.kind}:${CloudMediaKeys.hash(item.kind, it)}"] }
-                ?: continue
-            val mediaKey = "${item.kind}:$localId"
-            val now = System.currentTimeMillis()
-            if (item.updatedAtMillis <= 0 || item.updatedAtMillis > now + 5 * 60_000L ||
-                item.positionMillis < 0 || item.durationMillis < 0 ||
-                (item.durationMillis > 0 && item.positionMillis > item.durationMillis + 120_000L)) continue
-            positions += graph.playbackPositions.mergeIfNewer(
-                profileId, mediaKey, item.positionMillis, item.durationMillis, item.updatedAtMillis,
-            )
-        }
+        val positions = WatchHistorySync.apply(graph, bundle).updated
         return MergeResult(
             positions = positions,
             favourites = favourites,
