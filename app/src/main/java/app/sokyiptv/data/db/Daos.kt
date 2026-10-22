@@ -36,6 +36,16 @@ private const val UPSERT_CHUNK = 500
 /** Minimal reference projection: never include provider credentials in cloud payloads. */
 data class CloudMediaRef(val id: Long, val streamUrl: String)
 
+data class CloudMovieRef(
+    val id: Long, val streamUrl: String, val name: String,
+    val year: Int?, val tmdbId: String?, val durationSeconds: Int?,
+)
+data class CloudEpisodeRef(
+    val id: Long, val streamUrl: String, val season: Int, val episodeNumber: Int,
+    val seriesName: String?, val seriesYear: Int?, val seriesTmdbId: String?,
+    val durationSeconds: Int?,
+)
+
 @Dao
 interface SourceDao {
     @Query("SELECT * FROM sources ORDER BY id")
@@ -432,6 +442,9 @@ data class VodCategoryCount(val categoryId: String?, val count: Int)
 
 @Dao
 interface MovieDao {
+    @Query("SELECT id, streamUrl, name, year, tmdbId, durationSeconds FROM movies")
+    suspend fun progressRefs(): List<CloudMovieRef>
+
     @Query("SELECT id, streamUrl FROM movies")
     suspend fun cloudRefs(): List<CloudMediaRef>
 
@@ -661,6 +674,16 @@ interface SeriesDao {
 
 @Dao
 interface EpisodeDao {
+    @Query("""
+        SELECT e.id AS id, e.streamUrl AS streamUrl, e.season AS season,
+               e.episodeNumber AS episodeNumber, s.name AS seriesName,
+               s.year AS seriesYear, s.tmdbId AS seriesTmdbId,
+               e.durationSeconds AS durationSeconds
+          FROM episodes e LEFT JOIN series s
+            ON s.sourceId = e.sourceId AND s.seriesId = e.seriesId
+    """)
+    suspend fun progressRefs(): List<CloudEpisodeRef>
+
     @Query("SELECT id, streamUrl FROM episodes")
     suspend fun cloudRefs(): List<CloudMediaRef>
 
