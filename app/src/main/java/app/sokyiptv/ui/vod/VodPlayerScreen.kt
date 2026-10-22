@@ -109,6 +109,7 @@ import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.WatchProgressCapture
+import app.sokyiptv.player.VodProgressStore
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -321,7 +322,7 @@ fun VodPlayerScreen(
             elapsedMs = pos,
             reportedDurationMs = dur,
             updatedAtMs = System.currentTimeMillis(),
-        )?.let { graph.playbackPositions.upsert(it) }
+        )?.let { VodProgressStore.persist(graph, it) }
     }
 
     fun naturalEnd() {
@@ -335,13 +336,14 @@ fun VodPlayerScreen(
             else null
             val next = if (autoplay && currentEpisode != null)
                 graph.catalogRepository.nextEpisode(currentEpisode.id) else null
+            // A real end-of-stream confirms completion even if the length was missing.
             val duration = if (usingVlc) durationMs else controller.player.duration
-            if (duration > 0L) {
-                graph.playbackPositions.upsert(
-                    app.sokyiptv.data.model.PlaybackPosition(
-                        settings.activeProfileId.value, mediaKey, duration, duration,
-                        System.currentTimeMillis(),
-                    ),
+            val elapsedAtEnd = if (usingVlc) positionMs else controller.player.currentPosition
+            val finishAt = maxOf(duration, elapsedAtEnd)
+            if (finishAt > 0L) {
+                graph.playbackPositions.mergeIfNewer(
+                    settings.activeProfileId.value, mediaKey,
+                    finishAt, finishAt, System.currentTimeMillis(),
                 )
             }
             if (next != null) {
@@ -421,12 +423,9 @@ fun VodPlayerScreen(
                 reportedDurationMs = endingDuration,
                 updatedAtMs = System.currentTimeMillis(),
             ) else null
-            if (finalProgress != null) {
-                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                    runCatching { graph.playbackPositions.upsert(finalProgress) }
-                        .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
-                }
-            }
+            // The screen scope is cancelled below. Persist independently so
+            // Back/episode navigation cannot silently discard the exit position.
+            VodProgressStore.enqueue(graph, finalProgress)
             if (media3Holder.isInitialized()) controller.release()
             scope.cancel()
         }
@@ -573,12 +572,8 @@ fun VodPlayerScreen(
                     reportedDurationMs = dur,
                     updatedAtMs = System.currentTimeMillis(),
                 ) else null
-                if (snapshot != null) {
-                    scope.launch(Dispatchers.IO) {
-                        runCatching { graph.playbackPositions.upsert(snapshot) }
-                            .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
-                    }
-                }
+                // VLC teardown can cancel the screen scope before its last write.
+                VodProgressStore.enqueue(graph, snapshot)
             },
         )
     } else Box(
