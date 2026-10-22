@@ -249,7 +249,7 @@ fun VlcFallbackScreen(
     }
 
     LaunchedEffect(player) {
-        var lastSaved = 0L
+        var lastSavedAtMs = 0L
         var previousHealth = VlcPlaybackHealth.State.STARTING
         while (isActive) {
             runCatching {
@@ -275,10 +275,11 @@ fun VlcFallbackScreen(
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
                 }
-                if (ready && positionMs - lastSaved >= 10_000L) {
-                    // Elapsed time is valid even when LibVLC reports an unknown
-                    // duration. Don't suppress periodic Continue Watching writes.
-                    lastSaved = positionMs
+                if (ready && positionMs > 5_000L && tick - lastSavedAtMs >= 10_000L) {
+                    // Wall-clock cadence, not playback-position delta. Rewinding from
+                    // 60m to 20m must not disable saves until the viewer reaches 60m!
+                    // An unknown total duration must also never disable persistence.
+                    lastSavedAtMs = tick
                     onProgress(positionMs, durationMs)
                 }
             }
