@@ -25,7 +25,9 @@ internal object WatchProgressCapture {
         // Do not invent a movie length from elapsed time: completed status
         // and progress percentages require credible media duration metadata.
         val usableDuration = reportedDurationMs.takeIf {
-            it > 0L && elapsedMs <= it + 2_000L
+            // Never assume completion purely from an IPTV header claiming the
+            // end is near. Only the actual player EndReached event marks complete.
+            it > 0L && elapsedMs < it * 93L / 100L
         } ?: 0L
 
         return PlaybackPosition(
