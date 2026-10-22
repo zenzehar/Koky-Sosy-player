@@ -186,8 +186,8 @@ fun GoogleDriveSyncPane() {
                         .format(Date(state.lastSuccessMillis))
                 Text("Last successful sync: $last")
                 if (state.remoteCount > 0) {
-                    Text("Cloud entries: ${state.remoteCount}  ·  Matched: ${state.matchedCount}  ·  " +
-                        "Unmatched: ${state.unmatchedCount}  ·  Imported: ${state.importedCount}")
+                    Text("Cloud records: ${state.remoteCount}  ·  Unique titles matched: ${state.matchedCount}  ·  " +
+                        "Unmatched records: ${state.unmatchedCount}  ·  Updated: ${state.importedCount}")
                     Text(
                         "Viewing history is linked to a profile. Select the same profile on both TVs " +
                             "when checking Continue Watching.",
@@ -196,8 +196,9 @@ fun GoogleDriveSyncPane() {
                     if (state.matchedCount == 0) {
                         Text(
                             "Google Drive is connected, but no cloud media matched this TV. " +
-                                "Use the same provider catalogue on both devices and check the active " +
-                                "viewing profile. Soky will not guess by title or overwrite different media.",
+                                "No cloud items match the local catalogue uniquely. Try updating the " +
+                                "Movies and Series catalogues on both TVs, then sync the TV with history first. " +
+                                "Ambiguous titles are intentionally skipped.",
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
