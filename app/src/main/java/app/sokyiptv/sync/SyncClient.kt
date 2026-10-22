@@ -18,6 +18,10 @@ import org.json.JSONObject
 class SyncClient(httpClient: OkHttpClient, context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private val vault = CloudCredentialVault(context.applicationContext)
+    private val prefs = context.applicationContext.getSharedPreferences("soky_lan_peers", Context.MODE_PRIVATE)
+    fun pairedIds(): Set<String> = prefs.getStringSet("paired_ids", emptySet()).orEmpty().toSet()
+    fun lastAddress(deviceId: String): String? = prefs.getString("address_$deviceId", null)
+
     private val http = httpClient.newBuilder()
         .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -28,7 +32,11 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
     fun isPaired(deviceId: String): Boolean =
         deviceId.matches(Regex("[a-fA-F0-9-]{36}")) && !vault.read("lan_peer_$deviceId").isNullOrBlank()
     fun forgetPairing(deviceId: String) {
-        if (deviceId.matches(Regex("[a-fA-F0-9-]{36}"))) vault.write("lan_peer_$deviceId", null)
+        if (deviceId.matches(Regex("[a-fA-F0-9-]{36}"))) {
+            vault.write("lan_peer_$deviceId", null)
+            prefs.edit().putStringSet("paired_ids", pairedIds() - deviceId)
+                .remove("address_$deviceId").apply()
+        }
     }
 
     suspend fun pull(address: String, code: String, expectedDeviceId: String = ""): Result<SyncBundle> =
@@ -83,6 +91,10 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
                     json.decodeFromString(SyncBundle.serializer(), response.body?.string().orEmpty())
                 }
                 if (!paired) vault.write("lan_peer_$deviceId", token)
+                if (isPaired(deviceId)) {
+                    prefs.edit().putStringSet("paired_ids", pairedIds() + deviceId)
+                        .putString("address_$deviceId", host).apply()
+                }
                 bundle
             }.recoverCatching { e ->
                 when (e) {
