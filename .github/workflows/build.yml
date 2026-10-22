@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'rebuild/v0.1.11.27-proven-v21-baseline' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.28-v21-player-dpad-time-seeking' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'rebuild/v0.1.11.27-proven-v21-baseline'
+      github.head_ref == 'fix/v0.1.11.28-v21-player-dpad-time-seeking'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.27-soky-proven-v21-baseline \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.27_Validated_v21_Baseline.apk" \
+          gh release create v0.1.11.28-soky-time-dpad-seeking \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.28_DPad_Time_Seek_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.27 proven v21 baseline recovery" \
-            --notes "PRE-REGRESSION REBUILD STAGE ZERO. This recovery APK uses the precise app runtime source tree of v0.1.11.21, the latest version confirmed by the user to work on physical TV hardware. No runtime Kotlin/Java/Compose/manifest changes. Only versionCode=48, versionName and GitHub Actions prerelease names are modified. In-place update from v0.1.11.26 is supported when APK signing certificates match; never clear storage. All v0.1.11.22 to v0.1.11.26 changes are EXCLUDED pending fresh design and feature-by-feature real-TV verification. Preserves v21 Google Drive and manual LAN features as they worked. This is not the finished bidirectional background syncing implementation. Test title browsing, D-pad navigation, focus, Continue Watching, categories and Live TV. Golden v0.1.11.12 untouched. No IPTV credentials included." --prerelease
+            --title "Soky IPTV Pro v0.1.11.28 D-pad timed seeking TV test" \
+            --notes "UNAPPROVED TV TEST based directly on physical-TV validated v0.1.11.27. Two isolated player improvements: Left/Right on Android TV D-pad focuses the seek timeline instead of moving among transport buttons, and relative seeks use explicit 10000-millisecond targets rather than Slider percentage steps or clamping to potentially wrong provider-reported total duration. VLC already uses setTime(milliseconds, false) for precise seek; retain that and avoid bogus length clamping. Media3 TV remote input explicitly requests seekTo(milliseconds), while pointer dragging still uses its visual Slider. Preserve all v21 VOD catalogue, Continue Watching and synchronization runtime code unchanged. Tests compile under CI. Native network/container may still land on keyframes or report wrong clock; verify on real TVs, including rapid taps, holds and backward/forward accuracy. Never clear data. Golden v0.1.11.12 and v0.1.11.27 preserved." --prerelease
