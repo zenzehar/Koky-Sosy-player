@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/soky-lan-bidirectional-resume-20261022'
+      github.head_ref == 'fix/v0.1.11.25-minimal-sync-load-regression'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.24-soky-lan-bidirectional-sync-test \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.24_LAN_Drive_Two_Way_Test.apk" \
+          gh release create v0.1.11.25-soky-minimal-vod-sync-regression-fix \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.25_Minimal_Regression_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.24 bidirectional LAN, discovery and Drive-first sync TV test" \
-            --notes "UNAPPROVED EXPERIMENTAL TV TEST. Preserves golden v0.1.11.12. Pair once, then paired LAN history can flow both directions via authenticated POST /exchange, even with Settings closed. Previously paired IPs are probed directly when broadcast discovery fails. Google Drive sync takes priority and LAN is a fallback after cloud sync failure. New wire tests, Kotlin unit tests and Android APK assembly required by CI. Re-pair older TVs as needed. Google TV account QR uses the user's own Google account. Still NOT hardware accepted: test both directions, Drive outage recovery, newest single Continue Watching entry, focus and navigation. Native phone OAuth, cloud delete tombstones and all-network discovery remain pending. No IPTV credentials uploaded." --prerelease
+            --title "Soky IPTV Pro v0.1.11.25 minimal sync load regression hotfix" \
+            --notes "UNAPPROVED EXPERIMENTAL TV TEST, not a golden release. This is a MINIMAL regression fix from v0.1.11.24. The LAN poller no longer triggers an additional full Google Drive VOD catalogue reconciliation every cycle; Google Drive continues using its original dedicated foreground and WorkManager schedulers and remains preferred to background LAN when authorized. Restore LAN poll cadence to two minutes. No changes to Movies, Series, Continue Watching, playback, Google Drive sync logic, authentication, or UI. All existing golden versions remain unchanged. Validate Movies and Series D-pad interactions and watch progress on actual TVs before approval." --prerelease
