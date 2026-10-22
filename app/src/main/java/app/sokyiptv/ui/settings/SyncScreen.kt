@@ -47,6 +47,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sokyiptv.R
 import app.sokyiptv.sync.SyncServer
 import app.sokyiptv.ui.SyncViewModel
+import app.sokyiptv.ui.theme.tvFocusRing
 
 /**
  * Local watch-history sync between two SokyIPTV devices on the same wifi. No servers of ours: one
@@ -374,6 +375,7 @@ private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
+            .tvFocusRing()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     )
@@ -404,6 +406,7 @@ private fun NumKey(label: String, onClick: () -> Unit) {
         Modifier
             .size(54.dp)
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing()
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .then(
