@@ -372,6 +372,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 durationMillis = position.durationMillis.coerceAtLeast(0L),
                 updatedAtMillis = position.updatedAtMillis,
                 logicalHash = item.logicalHash,
+                identityAliases = item.aliases.toList(),
             )
             newest.putIfAbsent(item.logicalHash, point)
         }
@@ -404,7 +405,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         var matched = 0
         for (point in raw) {
             if (!CloudMergeRules.valid(point, now)) continue
-            val media = index.find(point.kind, point.mediaHash) ?: continue
+            val media = index.findAny(point.kind, listOf(point.mediaHash) + point.identityAliases) ?: continue
             if (!ProgressMediaIndex.plausibleDuration(media.durationMillis, point.durationMillis)) continue
             matched++
             val existing = newest[media.logicalHash]
