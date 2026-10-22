@@ -40,7 +40,6 @@ import app.sokyiptv.sync.SyncPosition
 import app.sokyiptv.sync.SyncIdentityResolver
 import app.sokyiptv.sync.cloud.CloudMediaKeys
 import app.sokyiptv.sync.LanSyncManager
-import app.sokyiptv.sync.cloud.ProgressMediaIndex
 import app.sokyiptv.sync.SyncServer
 import app.sokyiptv.sync.SyncDiscovery
 import kotlinx.serialization.json.Json
@@ -781,20 +780,23 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         settings.activeProfileId
             .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 300) }
             .mapLatest { positions ->
-                // The DAO sorts newest first. Group BEFORE discarding completed entries;
-                // otherwise an old incomplete episode resurfaces after a newer completion.
+                // Do NOT call ProgressMediaIndex.build() from this screen-facing
+                // flow: it scans and hashes the entire VOD catalogue. Repeated
+                // scans on every position update starve the UI on large playlists.
+                // Resolve only the 300 most recent positions by indexed local key.
                 val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
-                val globalIndex = ProgressMediaIndex.build(graph)
                 for (position in positions) {
                     val resolved = resolveResume(position) ?: continue
-                    val logical = globalIndex.byLocal[position.mediaKey]?.logicalHash ?: resolved.logicalKey
-                    groups.getOrPut(logical) { mutableListOf() }.add(resolved.copy(logicalKey = logical))
+                    groups.getOrPut(resolved.logicalKey) { mutableListOf() }.add(resolved)
                 }
+                // Newest-first DAO order; use the most recent item even if the
+                // last episode was completed (never resurrect an older episode).
                 groups.values.mapNotNull { versions ->
                     val latest = versions.first()
                     if (latest.finished) null else latest.copy(resetKeys = versions.map { it.mediaKey })
                 }
             }
+            .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
