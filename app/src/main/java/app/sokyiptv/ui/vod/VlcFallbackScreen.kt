@@ -73,6 +73,7 @@ import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
 import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
+import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
@@ -151,6 +152,18 @@ fun VlcFallbackScreen(
     fun togglePlayback() {
         if (paused) player.play() else player.pause()
         paused = !paused
+        showControls()
+    }
+
+    fun setHardwarePlayback(shouldPlay: Boolean) {
+        // Dedicated Play/Pause keys are idempotent; a repeat never toggles twice.
+        if (shouldPlay && paused) {
+            player.play()
+            paused = false
+        } else if (!shouldPlay && !paused) {
+            player.pause()
+            paused = true
+        }
         showControls()
     }
     fun showReport() {
@@ -383,8 +396,22 @@ fun VlcFallbackScreen(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (controlsVisible) {
+                val hardwareKeyCode = event.nativeKeyEvent.keyCode
+                if (TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode)) {
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (TvHardwarePlaybackKeys.actionForInitialPress(
+                            hardwareKeyCode, event.nativeKeyEvent.repeatCount,
+                        )) {
+                            TvHardwarePlaybackKeys.Action.TOGGLE -> togglePlayback()
+                            TvHardwarePlaybackKeys.Action.PLAY -> setHardwarePlayback(true)
+                            TvHardwarePlaybackKeys.Action.PAUSE -> setHardwarePlayback(false)
+                            null -> Unit
+                        }
+                    }
+                    // Consume the matching KeyUp as well to prevent duplicate actions.
+                    true
+                } else if (event.type != KeyEventType.KeyDown) false
+                else if (controlsVisible) {
                     // Exactly 3 deterministic ordered levels, one press per move.
                     // Never rely on stale Compose focus-change callbacks to choose
                     // the next row. Native seek left/right/hold handlers remain intact.
