@@ -28,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import app.sokyiptv.ui.theme.TvOutlinedButton as OutlinedButton
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
