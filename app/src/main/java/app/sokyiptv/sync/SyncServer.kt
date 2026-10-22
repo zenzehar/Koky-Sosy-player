@@ -85,10 +85,11 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
     private var discoverySocket: DatagramSocket? = null
     private var code: String = ""
     private var bundle: String = ""
+    @Volatile private var bundleProvider: (() -> String)? = null
     private var wrongAttempts = 0
     @Volatile private var running = false
 
-    fun start(bundleJson: String, persistent: Boolean = false) {
+    fun start(bundleJson: String, persistent: Boolean = false, newestBundle: (() -> String)? = null) {
         if (running) return
         val host = lanAddress() ?: run {
             _state.value = State.Failed("This device isn't on a network, so it can't share.")
@@ -96,10 +97,11 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
         }
         code = if (persistent) fixedCode else newCode()
         bundle = bundleJson
+        bundleProvider = newestBundle
         wrongAttempts = 0
 
         val socket = try {
-            ServerSocket(0)
+            ServerSocket(38693)
         } catch (e: Exception) {
             Log.w(TAG, "Could not open a socket", e)
             _state.value = State.Failed("Could not start sharing on this device.")
@@ -141,6 +143,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
         serverSocket = null
         code = ""
         bundle = ""
+        bundleProvider = null
         if (_state.value is State.Sharing) _state.value = State.Idle
     }
 
@@ -194,7 +197,16 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
             output.write(PairingHttp.httpResponse("401 Unauthorized", "text/plain", "Device not paired."))
             return
         }
-        output.write(PairingHttp.httpResponse("200 OK", "application/json", bundle))
+        val latest = runCatching { bundleProvider?.invoke() ?: bundle }.getOrElse {
+            output.write(PairingHttp.httpResponse("503 Service Unavailable", "text/plain", "History unavailable."))
+            return
+        }
+        val available = runCatching {
+            kotlinx.serialization.json.Json.decodeFromString(SyncBundle.serializer(), latest).positions.size
+        }.getOrDefault(0)
+        val state = _state.value as? State.Sharing
+        if (state != null) _state.value = State.Sharing(state.session.copy(positionsAvailable = available))
+        output.write(PairingHttp.httpResponse("200 OK", "application/json", latest))
     }
 
     private fun lanAddress(): String? {
