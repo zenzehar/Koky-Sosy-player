@@ -10,6 +10,24 @@ class TvSeekPolicyTest {
         assertEquals(0L, TvSeekPolicy.tap(5_000L, 100_000L, SeekDirection.BACKWARD))
         assertEquals(100_000L, TvSeekPolicy.tap(95_000L, 100_000L, SeekDirection.FORWARD))
     }
+    @Test fun unknownOrIncorrectDurationDoesNotChangeTimeStep() {
+        // A bad 12-minute provider length cannot transform a +10s request
+        // into a percentage jump or clamp a 45-minute playback position.
+        assertEquals(2_710_000L, TvSeekPolicy.tap(2_700_000L, null, SeekDirection.FORWARD))
+        assertEquals(2_690_000L, TvSeekPolicy.tap(2_700_000L, null, SeekDirection.BACKWARD))
+        assertEquals(10_000L, TvSeekPolicy.tap(0L, null, SeekDirection.FORWARD))
+        assertEquals(0L, TvSeekPolicy.tap(5_000L, null, SeekDirection.BACKWARD))
+    }
+
+    @Test fun repeatedTimeBasedTapsRemainTenSecondsApart() {
+        val a = TvSeekPolicy.tap(90_000L, null, SeekDirection.FORWARD)
+        val b = TvSeekPolicy.tap(a, null, SeekDirection.FORWARD)
+        val c = TvSeekPolicy.tap(b, null, SeekDirection.BACKWARD)
+        assertEquals(100_000L, a)
+        assertEquals(110_000L, b)
+        assertEquals(100_000L, c)
+    }
+
     @Test fun heldPreviewStartsOnlyAfterLongPressThreshold() {
         assertEquals(50_000L, TvSeekPolicy.heldPreview(50_000L, 500L, SeekDirection.FORWARD, 180_000L))
     }
