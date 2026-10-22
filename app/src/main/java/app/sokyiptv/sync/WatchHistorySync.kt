@@ -19,7 +19,7 @@ internal object WatchHistorySync {
                 profile = "active", streamUrl = "", kind = media.key.substringBefore(':'),
                 positionMillis = pos.positionMillis, durationMillis = pos.durationMillis,
                 updatedAtMillis = pos.updatedAtMillis, identityHash = media.hash,
-                logicalHash = media.logicalHash,
+                logicalHash = media.logicalHash, identityAliases = media.aliases.toList(),
             ))
         }
         return json.encodeToString(SyncBundle.serializer(), SyncBundle(
@@ -39,7 +39,7 @@ internal object WatchHistorySync {
             if (point.updatedAtMillis <= 0L || point.updatedAtMillis > now + CloudMergeRules.MAX_CLOCK_SKEW_MS ||
                 point.positionMillis < 0 || point.durationMillis < 0 ||
                 (point.durationMillis > 0 && point.positionMillis > point.durationMillis + 120_000L)) continue
-            val media = index.find(point.kind, point.identityHash) ?: continue
+            val media = index.findAny(point.kind, listOf(point.identityHash) + point.identityAliases) ?: continue
             if (!ProgressMediaIndex.plausibleDuration(media.durationMillis, point.durationMillis)) continue
             matched++
             val existing = latest[media.logicalHash]
