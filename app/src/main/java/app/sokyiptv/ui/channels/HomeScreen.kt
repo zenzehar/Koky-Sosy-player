@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import app.sokyiptv.ui.theme.tvFocusRing
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -896,6 +897,7 @@ private fun RecordActionRow(label: String, primary: Boolean = false, onClick: ()
             .fillMaxWidth()
             .padding(vertical = 3.dp)
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing()
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .clickable(onClick = onClick)
@@ -924,6 +926,7 @@ private fun QualityChip(label: String, selected: Boolean, onClick: () -> Unit) {
         color = fg,
         modifier = Modifier
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing()
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable(onClick = onClick)
