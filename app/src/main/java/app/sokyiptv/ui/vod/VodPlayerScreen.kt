@@ -111,6 +111,8 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.WatchProgressCapture
 import app.sokyiptv.player.VodProgressStore
 import app.sokyiptv.player.VlcSeekClock
+import app.sokyiptv.player.AdaptiveVodTimeline
+import app.sokyiptv.player.PostSeekPlaybackGate
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlinx.coroutines.CoroutineScope
@@ -269,6 +271,9 @@ fun VodPlayerScreen(
     var durationMs by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
+    val timelineScale = AdaptiveVodTimeline.scale(
+        durationMs, positionMs, if (scrubbing) scrubValue.toLong() else positionMs,
+    )
 
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -283,6 +288,8 @@ fun VodPlayerScreen(
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     // Keep rapid absolute-time taps anchored while Media3's native clock settles.
     val media3SeekClock = remember(controller) { VlcSeekClock() }
+    val postSeekGate = remember(controller) { PostSeekPlaybackGate() }
+    var awaitingSeekPlayback by remember(controller) { mutableStateOf(false) }
 
     fun reveal() { controlsVisible = true; interaction++ }
 
@@ -302,8 +309,11 @@ fun VodPlayerScreen(
         val recordedExtent = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0) else null
         val target = TvSeekPolicy.tap(positionMs, recordedExtent, direction)
         // Seek in absolute milliseconds; only the visual progress bar needs a fraction.
+        val now = android.os.SystemClock.elapsedRealtime()
+        postSeekGate.requested(now)
+        awaitingSeekPlayback = true
         controller.player.seekTo(target)
-        positionMs = media3SeekClock.requested(target, android.os.SystemClock.elapsedRealtime())
+        positionMs = media3SeekClock.requested(target, now)
         scrubValue = target.toFloat()
         scrubbing = false
         interaction++
@@ -489,6 +499,16 @@ fun VodPlayerScreen(
                 // can skip ahead) is what's been read into the buffer.
                 durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
                 else controller.player.duration.takeIf { it > 0 } ?: 0
+                if (postSeekGate.observe(
+                    android.os.SystemClock.elapsedRealtime(),
+                    controller.player.currentPosition,
+                    controller.player.isPlaying && controller.player.playbackState == Player.STATE_READY,
+                    controller.player.playbackState == Player.STATE_BUFFERING,
+                )) {
+                    awaitingSeekPlayback = false
+                    // Only playback after this seek starts the hide countdown.
+                    interaction++
+                }
                 PlaybackDiagnostics.sample(positionMs, durationMs, 0)
             }
             delay(500)
@@ -498,10 +518,11 @@ fun VodPlayerScreen(
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
-    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel) {
+    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel, awaitingSeekPlayback) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
-        if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE && activelyPlaying) {
+        if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE &&
+            activelyPlaying && !awaitingSeekPlayback) {
             delay(5_000)
             controlsVisible = false
         }
@@ -708,7 +729,8 @@ fun VodPlayerScreen(
                     rawTitle = title,
                     isEpisode = mediaKey.startsWith("ep:"),
                     elapsedText = formatDuration(if (scrubbing) scrubValue.toLong() else positionMs),
-                    durationText = formatDuration(durationMs),
+                    durationText = if (timelineScale.approximate)
+                        "~" + formatDuration(timelineScale.maximumMs) else formatDuration(durationMs),
                     modifier = Modifier.align(Alignment.TopStart)
                         .padding(start = 46.dp, top = 44.dp),
                 )
@@ -736,14 +758,16 @@ fun VodPlayerScreen(
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
                     Slider(
-                        value = if (scrubbing) scrubValue else positionMs.toFloat(),
-                        valueRange = 0f..(durationMs.takeIf { it > 0 }?.toFloat() ?: 1f),
+                        value = (if (scrubbing) scrubValue else positionMs.toFloat())
+                            .coerceIn(0f, timelineScale.maximumMs.toFloat()),
+                        valueRange = 0f..timelineScale.maximumMs.toFloat(),
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            postSeekGate.requested(now)
+                            awaitingSeekPlayback = true
                             controller.player.seekTo(scrubValue.toLong())
-                            positionMs = media3SeekClock.requested(
-                                scrubValue.toLong(), android.os.SystemClock.elapsedRealtime(),
-                            )
+                            positionMs = media3SeekClock.requested(scrubValue.toLong(), now)
                             scrubbing = false
                             interaction++
                         },
@@ -774,7 +798,8 @@ fun VodPlayerScreen(
                             },
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(formatDuration(durationMs), color = Color.White)
+                    Text(if (timelineScale.approximate) "~" + formatDuration(timelineScale.maximumMs)
+                         else formatDuration(durationMs), color = Color.White)
                 }
                 CinematicTransport(
                     isEpisode = mediaKey.startsWith("ep:"),

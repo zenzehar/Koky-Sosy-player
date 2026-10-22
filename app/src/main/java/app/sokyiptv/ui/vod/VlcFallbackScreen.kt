@@ -75,6 +75,8 @@ import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
+import app.sokyiptv.player.AdaptiveVodTimeline
+import app.sokyiptv.player.PostSeekPlaybackGate
 import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
@@ -127,6 +129,8 @@ fun VlcFallbackScreen(
     // repeated +/-10 presses anchored to the latest requested target until
     // the native clock catches up or a short bounded timeout expires.
     val seekClock = remember(player) { VlcSeekClock() }
+    val postSeekGate = remember(player) { PostSeekPlaybackGate() }
+    var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
     val nativeSeekCorrection = remember(player) { VlcNativeSeekCorrection() }
     var durationMs by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
@@ -135,6 +139,9 @@ fun VlcFallbackScreen(
     var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var timelineFocused by remember { mutableStateOf(false) }
+    val timelineScale = AdaptiveVodTimeline.scale(
+        durationMs, positionMs, if (scrubbing) previewMs else positionMs,
+    )
     var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
@@ -199,6 +206,8 @@ fun VlcFallbackScreen(
         // Retain the bounded logical-clock guard for repeated fast presses.
         val now = android.os.SystemClock.elapsedRealtime()
         nativeSeekCorrection.requested(capped, player.time, now)
+        postSeekGate.requested(now)
+        awaitingSeekPlayback = true
         player.setTime(capped, false)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
         positionMs = seekClock.requested(capped, now)
@@ -269,6 +278,10 @@ fun VlcFallbackScreen(
                     )) {
                         is VlcNativeSeekCorrection.Decision.RetryAt -> {
                             // One bounded native-time correction. Do not setPosition(%).
+                            postSeekGate.requested(tick)
+                            awaitingSeekPlayback = true
+                            controlsVisible = true
+                            interaction++
                             player.setTime(correction.commandTimeMs, false)
                             positionMs = seekClock.requested(correction.intendedMs, tick)
                             PlaybackDiagnostics.event(
@@ -291,6 +304,14 @@ fun VlcFallbackScreen(
                         null -> Unit
                     }
                 }
+                if (!scrubbing && postSeekGate.observe(
+                    tick, nativeTime, ready && player.isPlaying && !paused,
+                    diagHealth.networkBuffering,
+                )) {
+                    awaitingSeekPlayback = false
+                    // Start a fresh five-second visibility interval only now.
+                    interaction++
+                }
                 healthSnapshot = health
                 PlaybackDiagnostics.sample(positionMs, durationMs, health.interruptions)
                 if (health.state != previousHealth) {
@@ -305,6 +326,9 @@ fun VlcFallbackScreen(
                 if (ready && initialSeekPending && player.isSeekable) {
                     val initialTarget = initialPositionMs.coerceAtLeast(0L)
                     nativeSeekCorrection.requested(initialTarget, player.time, tick)
+                    postSeekGate.requested(tick)
+                    awaitingSeekPlayback = true
+                    controlsVisible = true
                     player.setTime(initialTarget, false)
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
@@ -381,8 +405,9 @@ fun VlcFallbackScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed, ended) {
-        if (controlsVisible && ready && !paused && !scrubbing && !failed && !ended) {
+    LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed, ended, awaitingSeekPlayback) {
+        if (controlsVisible && ready && !paused && !scrubbing && !failed && !ended &&
+            !awaitingSeekPlayback) {
             delay(5_000)
             controlsVisible = false
         }
@@ -575,7 +600,8 @@ fun VlcFallbackScreen(
                     rawTitle = title,
                     isEpisode = showEpisodeControls,
                     elapsedText = clock(if (scrubbing) previewMs else positionMs),
-                    durationText = if (durationMs > 0L) clock(durationMs) else "--:--",
+                    durationText = if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
+                        else clock(durationMs),
                     modifier = Modifier.align(Alignment.TopStart)
                         .padding(start = 46.dp, top = 44.dp),
                 )
@@ -695,10 +721,11 @@ fun VlcFallbackScreen(
                                     end = androidx.compose.ui.geometry.Offset(endX, centerY),
                                     strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round,
                                 )
-                                val fraction = if (durationMs > 0L) {
-                                    (if (scrubbing) previewMs else positionMs)
-                                        .coerceIn(0L, durationMs).toFloat() / durationMs.toFloat()
-                                } else 0f
+                                // Timeline horizon grows instead of running out near
+                                // an understated provider duration. Not a verified EOF.
+                                val fraction = AdaptiveVodTimeline.fraction(
+                                    if (scrubbing) previewMs else positionMs, timelineScale,
+                                )
                                 val playheadX = startX + (endX - startX) * fraction
                                 drawLine(
                                     color = CinemaBlue,
@@ -714,7 +741,8 @@ fun VlcFallbackScreen(
                             }
                         }
                         Text(
-                            if (durationMs > 0L) clock(durationMs) else "--:--",
+                            if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
+                            else clock(durationMs),
                             color = Color.White,
                         )
                     }
