@@ -279,8 +279,8 @@ fun VodPlayerScreen(
     var timelineFocused by remember { mutableStateOf(false) }
     var autoplayFocused by remember { mutableStateOf(false) }
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
-    // Only direct horizontal presses when hidden select the seekbar.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
+    var horizontalTimelineShortcut by remember { mutableStateOf(true) }
     // Keep rapid absolute-time taps anchored while Media3's native clock settles.
     val media3SeekClock = remember(controller) { VlcSeekClock() }
 
@@ -522,6 +522,7 @@ fun VodPlayerScreen(
                 }
             }
         } else {
+            horizontalTimelineShortcut = true
             runCatching { rootFocus.requestFocus() }
         }
     }
@@ -605,12 +606,24 @@ fun VodPlayerScreen(
                         (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
                         focusSeekOnReveal = true
                         focusLevel = CinematicFocusLevel.SEEK
+                        horizontalTimelineShortcut = false
                         reveal()
                         seekTenSeconds(if (event.key == Key.DirectionRight)
                             SeekDirection.FORWARD else SeekDirection.BACKWARD)
                         true
                     }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
+                    event.type == KeyEventType.KeyDown && controlsVisible &&
+                        vodPanel == VodPanel.NONE && horizontalTimelineShortcut &&
+                        focusLevel != CinematicFocusLevel.SEEK &&
+                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
+                        focusLevel = CinematicFocusLevel.SEEK
+                        horizontalTimelineShortcut = false
+                        timelineFocus.requestFocus()
+                        seekTenSeconds(if (event.key == Key.DirectionRight)
+                            SeekDirection.FORWARD else SeekDirection.BACKWARD)
+                        true
+                    }
                     event.type == KeyEventType.KeyDown && controlsVisible &&
                         (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
                         val next = moveCinematicFocus(
@@ -620,6 +633,7 @@ fun VodPlayerScreen(
                         if (next == focusLevel) false
                         else {
                             focusLevel = next
+                            if (next == CinematicFocusLevel.CONTROLS) horizontalTimelineShortcut = false
                             when (next) {
                                 CinematicFocusLevel.AUTOPLAY -> autoplayFocus.requestFocus()
                                 CinematicFocusLevel.CONTROLS -> barFocus.requestFocus()
