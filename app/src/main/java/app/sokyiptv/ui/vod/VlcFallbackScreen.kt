@@ -75,6 +75,7 @@ import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
+import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -126,6 +127,7 @@ fun VlcFallbackScreen(
     // repeated +/-10 presses anchored to the latest requested target until
     // the native clock catches up or a short bounded timeout expires.
     val seekClock = remember(player) { VlcSeekClock() }
+    val nativeSeekCorrection = remember(player) { VlcNativeSeekCorrection() }
     var durationMs by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
@@ -197,9 +199,11 @@ fun VlcFallbackScreen(
         // +10 to land earlier and -10 to land later than requested. Always
         // request precise decoded-time seeking for transport and timeline taps.
         // Retain the bounded logical-clock guard for repeated fast presses.
+        val now = android.os.SystemClock.elapsedRealtime()
+        nativeSeekCorrection.requested(capped, player.time, now)
         player.setTime(capped, false)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
-        positionMs = seekClock.requested(capped, android.os.SystemClock.elapsedRealtime())
+        positionMs = seekClock.requested(capped, now)
         showControls()
     }
 
@@ -237,6 +241,7 @@ fun VlcFallbackScreen(
             }
         }
         onDispose {
+            nativeSeekCorrection.clear()
             PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
             onProgress(positionMs, durationMs)
             player.setEventListener(null)
@@ -256,8 +261,38 @@ fun VlcFallbackScreen(
                 val length = player.length
                 if (length > 0L) durationMs = length
                 val tick = android.os.SystemClock.elapsedRealtime()
-                if (!scrubbing) positionMs = seekClock.reconcile(player.time, tick)
-                val health = diagHealth.sample(tick, positionMs, player.isPlaying, paused)
+                val nativeTime = player.time
+                if (!scrubbing) positionMs = seekClock.reconcile(nativeTime, tick)
+                val health = diagHealth.sample(tick, nativeTime.coerceAtLeast(0L), player.isPlaying, paused)
+                if (!scrubbing) {
+                    when (val correction = nativeSeekCorrection.observe(
+                        nativeTime, tick, ready && player.isPlaying && !paused,
+                        diagHealth.networkBuffering,
+                    )) {
+                        is VlcNativeSeekCorrection.Decision.RetryAt -> {
+                            // One bounded native-time correction. Do not setPosition(%).
+                            player.setTime(correction.commandTimeMs, false)
+                            positionMs = seekClock.requested(correction.intendedMs, tick)
+                            PlaybackDiagnostics.event(
+                                context, "VLC_SEEK_ADJUST",
+                                ((correction.landedMs - correction.intendedMs) / 1_000L)
+                                    .coerceIn(-999_999L, 999_999L).toInt(),
+                                persistNow = true,
+                            )
+                        }
+                        is VlcNativeSeekCorrection.Decision.Unreliable -> {
+                            // Don't loop indefinitely when the server's timestamps
+                            // cannot be reconciled. Native clock remains authoritative.
+                            PlaybackDiagnostics.event(
+                                context, "VLC_SEEK_MISS",
+                                ((correction.landedMs - correction.intendedMs) / 1_000L)
+                                    .coerceIn(-999_999L, 999_999L).toInt(),
+                                persistNow = true,
+                            )
+                        }
+                        null -> Unit
+                    }
+                }
                 healthSnapshot = health
                 PlaybackDiagnostics.sample(positionMs, durationMs, health.interruptions)
                 if (health.state != previousHealth) {
@@ -271,6 +306,7 @@ fun VlcFallbackScreen(
                 }
                 if (ready && initialSeekPending && player.isSeekable) {
                     val initialTarget = initialPositionMs.coerceAtLeast(0L)
+                    nativeSeekCorrection.requested(initialTarget, player.time, tick)
                     player.setTime(initialTarget, false)
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
