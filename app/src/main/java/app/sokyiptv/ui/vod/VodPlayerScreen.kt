@@ -108,6 +108,7 @@ import app.sokyiptv.player.PlayerController
 import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
+import app.sokyiptv.player.WatchProgressCapture
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -312,18 +313,15 @@ fun VodPlayerScreen(
         val pos = if (usingVlc) positionMs else controller.player.currentPosition
         val dur = if (usingVlc) durationMs
             else controller.player.duration.takeIf { it > 0 } ?: 0L
-        if (dur <= 0L) return
-        if (pos > 5_000) {
-            graph.playbackPositions.upsert(
-                app.sokyiptv.data.model.PlaybackPosition(
-                    profileId = settings.activeProfileId.value,
-                    mediaKey = mediaKey,
-                    positionMillis = pos,
-                    durationMillis = dur,
-                    updatedAtMillis = System.currentTimeMillis(),
-                ),
-            )
-        }
+        // LibVLC/Media3 can know elapsed time while reporting an unknown length.
+        // Saving must not depend on a positive total duration.
+        WatchProgressCapture.snapshot(
+            profileId = settings.activeProfileId.value,
+            mediaKey = mediaKey,
+            elapsedMs = pos,
+            reportedDurationMs = dur,
+            updatedAtMs = System.currentTimeMillis(),
+        )?.let { graph.playbackPositions.upsert(it) }
     }
 
     fun naturalEnd() {
@@ -416,16 +414,16 @@ fun VodPlayerScreen(
                 runCatching { controller.player.duration.takeIf { it > 0L } ?: 0L }.getOrDefault(0L)
             val endingProfile = settings.activeProfileId.value
             val endingIsComplete = advanced.get()
-            if (!endingIsComplete && endingPos > 5_000L && endingDuration > 0L) {
-                val snapshot = app.sokyiptv.data.model.PlaybackPosition(
-                    profileId = endingProfile,
-                    mediaKey = mediaKey,
-                    positionMillis = endingPos,
-                    durationMillis = endingDuration,
-                    updatedAtMillis = System.currentTimeMillis(),
-                )
+            val finalProgress = if (!endingIsComplete) WatchProgressCapture.snapshot(
+                profileId = endingProfile,
+                mediaKey = mediaKey,
+                elapsedMs = endingPos,
+                reportedDurationMs = endingDuration,
+                updatedAtMs = System.currentTimeMillis(),
+            ) else null
+            if (finalProgress != null) {
                 CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                    runCatching { graph.playbackPositions.upsert(snapshot) }
+                    runCatching { graph.playbackPositions.upsert(finalProgress) }
                         .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
                 }
             }
@@ -566,19 +564,16 @@ fun VodPlayerScreen(
             onProgress = { pos, dur ->
                 positionMs = pos
                 durationMs = dur
-                if (!advanced.get() && pos > 5_000L && dur > 0L) {
-                    // Capture active profile and position on the UI thread, then persist only
-                    // immutable values on IO, never touch player or settings after teardown.
-                    val snapshot = app.sokyiptv.data.model.PlaybackPosition(
-                        profileId = settings.activeProfileId.value,
-                        mediaKey = mediaKey,
-                        positionMillis = pos,
-                        durationMillis = dur,
-                        updatedAtMillis = System.currentTimeMillis(),
-                    )
-                    // Reuse the screen-owned coroutine scope. The former code allocated a
-                    // new untracked SupervisorJob on every progress tick (every 10 seconds).
-                    // Final exit progress still uses the independent bounded onDispose save.
+                // Only save a snapshot of primitives, with no native player access on IO.
+                // Unknown VOD duration must not suppress elapsed playback history.
+                val snapshot = if (!advanced.get()) WatchProgressCapture.snapshot(
+                    profileId = settings.activeProfileId.value,
+                    mediaKey = mediaKey,
+                    elapsedMs = pos,
+                    reportedDurationMs = dur,
+                    updatedAtMs = System.currentTimeMillis(),
+                ) else null
+                if (snapshot != null) {
                     scope.launch(Dispatchers.IO) {
                         runCatching { graph.playbackPositions.upsert(snapshot) }
                             .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
