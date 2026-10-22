@@ -57,11 +57,11 @@ fun SyncScreen(
     onBack: () -> Unit,
     viewModel: SyncViewModel = viewModel(),
 ) {
-    var mode by remember { mutableStateOf(Mode.SHARE) }
-    // Closing or switching away from Share also closes its LAN listener. No hidden timeout.
-    DisposableEffect(mode) {
-        onDispose { viewModel.stopSharing() }
-    }
+    var mode by remember { mutableStateOf(
+        if (app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(
+            androidx.compose.ui.platform.LocalContext.current).authorized) Mode.CLOUD else Mode.SHARE
+    ) }
+    // Sharing persists outside this menu. Stop only on explicit user action.
 
     Column(
         Modifier
@@ -72,7 +72,7 @@ fun SyncScreen(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.settings_sync_title), style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = { viewModel.stopSharing(); onBack() }) { Text(stringResource(R.string.common_done)) }
+            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
         }
         Spacer(Modifier.height(8.dp))
         Text(
@@ -90,8 +90,8 @@ fun SyncScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ModeChip(stringResource(R.string.sync_share_from_here), mode == Mode.SHARE) { mode = Mode.SHARE }
             ModeChip(stringResource(R.string.sync_receive), mode == Mode.RECEIVE) { mode = Mode.RECEIVE }
-            ModeChip(stringResource(R.string.sync_nas), mode == Mode.NAS) { mode = Mode.NAS }
             ModeChip("Google Drive", mode == Mode.CLOUD) { mode = Mode.CLOUD }
+            ModeChip(stringResource(R.string.sync_nas), mode == Mode.NAS) { mode = Mode.NAS }
         }
         Spacer(Modifier.height(20.dp))
 
@@ -118,7 +118,7 @@ private fun SharePane(viewModel: SyncViewModel) {
         Column(Modifier.padding(18.dp).widthIn(max = 670.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Share watch history over local Wi-Fi", style = MaterialTheme.typography.titleMedium)
-            Text("Both devices must be on the same network. Discovery will show the TV's name and address.")
+            Text("Both devices must be on the same network. Sharing remains active after you exit this menu while Android keeps the app running.")
             Row(verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Reuse the same six-digit code")
@@ -155,7 +155,7 @@ private fun SharePane(viewModel: SyncViewModel) {
             }
             when (val current = state) {
                 is SyncServer.State.Sharing -> {
-                    Text("Sharing is active until you stop it or leave this screen.",
+                    Text("Sharing continues after leaving this screen; Stop sharing disables background LAN.",
                         style = MaterialTheme.typography.bodyMedium)
                     Field("Device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
                     Field("Address", current.session.address)
@@ -169,7 +169,7 @@ private fun SharePane(viewModel: SyncViewModel) {
                             else MaterialTheme.colorScheme.error,
                     )
                     Text(if (current.session.persistent) "Reusable code is enabled" else "Temporary pairing code")
-                    OutlinedButton(onClick = { viewModel.stopSharing() }) { Text("Stop sharing") }
+                    OutlinedButton(onClick = { viewModel.stopSharing() }) { Text("Stop sharing and disable LAN background sync") }
                 }
                 is SyncServer.State.Failed -> {
                     Text(current.reason, color = MaterialTheme.colorScheme.error)
@@ -197,6 +197,13 @@ private fun ReceivePane(viewModel: SyncViewModel) {
         Column(Modifier.padding(18.dp).widthIn(max = 660.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Receive watch history", style = MaterialTheme.typography.titleMedium)
+            val googlePriority = app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(
+                androidx.compose.ui.platform.LocalContext.current).authorized
+            if (googlePriority) Text(
+                "Google Drive is connected, so automatic background sync uses Drive. " +
+                    "Manual LAN receiving remains available.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Button(
                 enabled = discovery !is SyncViewModel.DiscoverState.Searching,
                 onClick = { viewModel.discoverDevices() },
