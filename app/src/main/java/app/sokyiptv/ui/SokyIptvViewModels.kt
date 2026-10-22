@@ -1274,6 +1274,9 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
     fun setPreferFixedCode(enabled: Boolean) = server.setPreferFixedCode(enabled)
     val fixedCode: String get() = server.fixedCode
     fun setFixedCode(code: String) = server.setFixedCode(code)
+    fun pairedDevices(): List<SyncDiscovery.Peer> = client.pairedIds().mapNotNull { id ->
+        client.lastAddress(id)?.let { SyncDiscovery.Peer("Previously paired TV", it, id) }
+    }
     fun isPaired(deviceId: String) = client.isPaired(deviceId)
     fun forgetPairing(deviceId: String) = client.forgetPairing(deviceId)
     fun rotateFixedCode(): String = server.renewFixedCode()
