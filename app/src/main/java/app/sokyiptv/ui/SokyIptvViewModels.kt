@@ -39,6 +39,7 @@ import app.sokyiptv.sync.SyncClient
 import app.sokyiptv.sync.SyncPosition
 import app.sokyiptv.sync.SyncIdentityResolver
 import app.sokyiptv.sync.cloud.CloudMediaKeys
+import app.sokyiptv.sync.LanSyncManager
 import app.sokyiptv.sync.SyncServer
 import app.sokyiptv.sync.SyncDiscovery
 import kotlinx.serialization.json.Json
@@ -1261,7 +1262,7 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
  */
 class SyncViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
-    private val lan = app.sokyiptv.sync.LanSyncManager.get(app)
+    private val lan = LanSyncManager.get(app)
     private val server = lan.server
     private val client = lan.client
 
