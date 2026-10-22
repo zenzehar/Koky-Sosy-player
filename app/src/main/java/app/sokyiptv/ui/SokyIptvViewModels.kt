@@ -1296,7 +1296,10 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _discoverState.value = DiscoverState.Searching
             _discoverState.value = try {
-                DiscoverState.Results(SyncDiscovery.scan())
+                DiscoverState.Results(
+                    SyncDiscovery.scan(client.pairedIds().mapNotNull(client::lastAddress))
+                        .filter { it.deviceId != server.deviceId }
+                )
             } catch (_: Exception) {
                 DiscoverState.Failed("Discovery unavailable. Enter the sharing TV's address manually.")
             }
