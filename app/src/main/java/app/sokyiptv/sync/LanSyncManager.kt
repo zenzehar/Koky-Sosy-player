@@ -80,7 +80,7 @@ class LanSyncManager private constructor(context: Context) {
         schedule()
     }
 
-    suspend fun receive(address: String, code: String, deviceId: String): Result<WatchHistorySync.Transfer> {
+    internal suspend fun receive(address: String, code: String, deviceId: String): Result<WatchHistorySync.Transfer> {
         return client.pull(address, code, deviceId).mapCatching { WatchHistorySync.apply(graph, it) }
     }
 
