@@ -112,6 +112,7 @@ import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.shownName
 import app.sokyiptv.player.PlaybackQueue
 import app.sokyiptv.player.PlayerController
+import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.ui.RecordingBackgroundDialog
 import app.sokyiptv.ui.RecordingBackgroundPrompt
 import coil.compose.AsyncImage
@@ -407,8 +408,28 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                val digit = keyToDigit(event.key)
+                val mediaKeyCode = event.nativeKeyEvent.keyCode
+                if (TvHardwarePlaybackKeys.isTransportKey(mediaKeyCode)) {
+                    if (event.type == KeyEventType.KeyDown) {
+                        val action = TvHardwarePlaybackKeys.actionForInitialPress(
+                            mediaKeyCode, event.nativeKeyEvent.repeatCount,
+                        )
+                        if (action != null) {
+                            val shouldPlay = when (action) {
+                                TvHardwarePlaybackKeys.Action.TOGGLE -> !controller.player.playWhenReady
+                                TvHardwarePlaybackKeys.Action.PLAY -> true
+                                TvHardwarePlaybackKeys.Action.PAUSE -> false
+                            }
+                            controller.player.playWhenReady = shouldPlay
+                            paused = !shouldPlay
+                            reveal()
+                        }
+                    }
+                    // Hardware media KeyUp and repeat must never toggle twice.
+                    true
+                } else if (event.type != KeyEventType.KeyDown) false
+                else {
+                    val digit = keyToDigit(event.key)
                 when {
                     // Never swallow Back/Escape — they must reach the back handler.
                     event.key == Key.Back || event.key == Key.Escape -> false
@@ -438,6 +459,7 @@ fun PlayerScreen(
                         if (variants.size > 1) { reveal(); panel = Panel.QUALITY }; true
                     }
                     else -> { reveal(); true }
+                }
                 }
             }
             .focusRequester(rootFocus)
