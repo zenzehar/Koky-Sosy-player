@@ -355,54 +355,30 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         driveRequest(token, request)
     }
 
-    /** Only SHA256s of local stream URLs are used for the cross-install lookup. */
-    private suspend fun indexLocalMedia(): Pair<Map<String, String>, Map<String, String>> {
-        val byLocalKey = HashMap<String, String>()
-        val byCloudKey = HashMap<String, String>()
-        val ambiguous = HashSet<String>()
-        fun add(kind: String, id: Long, url: String) {
-            if (url.isBlank()) return
-            val localKey = "$kind:$id"
-            val digest = CloudMediaKeys.hash(kind, url)
-            val cloudKey = "$kind:$digest"
-            byLocalKey[localKey] = digest
-            val keys = setOf(
-                cloudKey,
-                "$kind:${CloudMediaKeys.previousHash(kind, url)}",
-                "$kind:${CloudMediaKeys.legacyHash(kind, url)}",
-            )
-            for (candidate in keys) {
-                val prior = byCloudKey.putIfAbsent(candidate, localKey)
-                if (prior != null && prior != localKey) ambiguous += candidate
-            }
-        }
-        graph.database.movies().cloudRefs().forEach { add("movie", it.id, it.streamUrl) }
-        graph.database.episodes().cloudRefs().forEach { add("ep", it.id, it.streamUrl) }
-        // If the same provider URL is used for multiple local rows, we cannot know
-        // which row is the correct playback history target. Skip it; never guess.
-        ambiguous.forEach { byCloudKey.remove(it) }
-        return byLocalKey to byCloudKey
-    }
-
-    private suspend fun localSnapshot(index: Map<String, String>): CloudWatchSnapshot {
-        val names = graph.profiles.all().associate { it.id to it.name }
-        // A different Google account must not inherit historical watch positions from the
-        // preceding account on this device. Remote points still merge into local Room safely.
+    /** Only the active viewing profile participates in this phase of sync. */
+    private suspend fun localSnapshot(index: ProgressMediaIndex): CloudWatchSnapshot {
         val cutoff = prefs.getLong("upload_cutoff", 0L)
-        val positions = graph.playbackPositions.all().mapNotNull { position ->
-            if (position.updatedAtMillis < cutoff) return@mapNotNull null
-            val name = names[position.profileId]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val key = index[position.mediaKey] ?: return@mapNotNull null
-            CloudWatchPoint(
-                profile = name,
-                mediaHash = key,
-                kind = position.mediaKey.substringBefore(':'),
+        val profileId = graph.settings.activeProfileId.value
+        val newest = linkedMapOf<String, CloudWatchPoint>()
+        for (position in graph.playbackPositions.forProfile(profileId)
+            .sortedByDescending { it.updatedAtMillis }) {
+            if (position.updatedAtMillis < cutoff) continue
+            val item = index.byLocal[position.mediaKey] ?: continue
+            val point = CloudWatchPoint(
+                profile = "active",
+                mediaHash = item.hash,
+                kind = item.key.substringBefore(':'),
                 positionMillis = position.positionMillis.coerceAtLeast(0L),
                 durationMillis = position.durationMillis.coerceAtLeast(0L),
                 updatedAtMillis = position.updatedAtMillis,
+                logicalHash = item.logicalHash,
             )
-        }.sortedByDescending { it.updatedAtMillis }.take(10_000)
-        return CloudWatchSnapshot(deviceId = deviceId, generatedAtMillis = System.currentTimeMillis(), positions = positions)
+            newest.putIfAbsent(item.logicalHash, point)
+        }
+        return CloudWatchSnapshot(
+            deviceId = deviceId, generatedAtMillis = System.currentTimeMillis(),
+            positions = newest.values.take(10_000),
+        )
     }
 
     private data class SyncOutcome(
@@ -415,81 +391,58 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         registerAuthorizedAccount(token)
         val listing = listSnapshots(token)
         val files = listing.files
-        val remote = linkedMapOf<String, CloudWatchPoint>()
         val now = System.currentTimeMillis()
-        var rejected = 0
-        val conflicting = mutableSetOf<String>()
-        // Download and validate ALL snapshots before modifying local or uploading data.
+        val index = ProgressMediaIndex.build(graph)
+        val raw = mutableListOf<CloudWatchPoint>()
+        // Read every file before writing anything. Never truncate bad or missing snapshots.
         for (file in files) {
             val snapshot = downloadSnapshot(token, file) ?: continue
-            for (point in snapshot.positions) {
-                if (!CloudMergeRules.valid(point, now)) {
-                    rejected++
-                    continue
-                }
-                val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
-                val previous = remote[key]
-                if (previous != null &&
-                    previous.updatedAtMillis == point.updatedAtMillis &&
-                    (previous.positionMillis != point.positionMillis ||
-                     previous.durationMillis != point.durationMillis)) {
-                    conflicting += key
-                }
-                if (previous == null || point.updatedAtMillis > previous.updatedAtMillis) {
-                    remote[key] = point
-                }
-            }
+            require(snapshot.version == 1) { "Unsupported cloud history. No changes made." }
+            raw += snapshot.positions
         }
-        require(conflicting.isEmpty()) {
-            "Conflicting cloud versions detected. Sync cancelled to protect viewing history."
-        }
-
-        val (byLocal, byCloud) = indexLocalMedia()
-        val existingProfiles = graph.profiles.all().associate { it.name to it.id }.toMutableMap()
-        var imported = 0
+        val newest = linkedMapOf<String, Pair<CloudWatchPoint, ProgressMediaIndex.Media>>()
         var matched = 0
-        for (point in remote.values) {
-            // No speculative matching by title. Different stream URLs are intentionally
-            // skipped rather than potentially merging different content.
-            val localKey = byCloud["${point.kind}:${point.mediaHash}"] ?: continue
+        for (point in raw) {
+            if (!CloudMergeRules.valid(point, now)) continue
+            val media = index.find(point.kind, point.mediaHash) ?: continue
+            if (!ProgressMediaIndex.plausibleDuration(media.durationMillis, point.durationMillis)) continue
             matched++
-            val profileId = existingProfiles[point.profile] ?: run {
-                graph.profiles.insert(Profile(name = point.profile, createdAtMillis = now)).also {
-                    existingProfiles[point.profile] = it
-                }
+            val existing = newest[media.logicalHash]
+            if (existing == null || point.updatedAtMillis > existing.first.updatedAtMillis) {
+                newest[media.logicalHash] = point to media
             }
+        }
+        val profileId = graph.settings.activeProfileId.value
+        // The locally newest title or episode wins, including when a different
+        // episode of the same series was watched last. Never import older data.
+        val localNewest = graph.playbackPositions.forProfile(profileId)
+            .mapNotNull { progress ->
+                index.byLocal[progress.mediaKey]?.let { it.logicalHash to progress.updatedAtMillis }
+            }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, stamps) -> stamps.maxOrNull() ?: 0L }
+        var imported = 0
+        for ((logical, pair) in newest) {
+            val (point, media) = pair
+            if (point.updatedAtMillis <= (localNewest[logical] ?: 0L)) continue
             imported += graph.playbackPositions.mergeIfNewer(
-                profileId, localKey, point.positionMillis, point.durationMillis, point.updatedAtMillis,
+                profileId, media.key, point.positionMillis, point.durationMillis, point.updatedAtMillis,
             )
         }
-
-        // Preserve this Google account's existing Drive progress when the same TV switches
-        // away to another account and later returns. Uploading only positions newer than
-        // the account-switch cutoff would otherwise overwrite its previous cloud file with
-        // an empty/partial snapshot and erase watched positions.
-        val local = localSnapshot(byLocal)
-        val merged = LinkedHashMap<String, CloudWatchPoint>()
-        for (point in remote.values + local.positions.filter { CloudMergeRules.valid(it, now) }) {
-            val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
-            val existing = merged[key]
-            if (existing == null || point.updatedAtMillis > existing.updatedAtMillis) {
-                merged[key] = point
-            }
-        }
-        val snapshot = local.copy(
-            positions = merged.values.sortedByDescending { it.updatedAtMillis }.take(10_000),
-        )
+        // Per-device snapshot, not a mirrored union of other users' old snapshots.
+        // This avoids exponentially duplicating cloud files and resurrecting stale episodes.
+        val snapshot = localSnapshot(index)
         val payload = json.encodeToString(CloudWatchSnapshot.serializer(), snapshot)
         val digest = MessageDigest.getInstance("SHA-256").digest(
             json.encodeToString(snapshot.positions).toByteArray(Charsets.UTF_8),
         ).joinToString("") { "%02x".format(it) }
-        val currentOwnFile = files.firstOrNull { it.name == ownName }
-        val alreadyUploaded = currentOwnFile != null && prefs.getString("last_digest", null) == digest
+        val current = files.firstOrNull { it.name == ownName }
+        val alreadyUploaded = current != null && prefs.getString("last_digest", null) == digest
         if (!alreadyUploaded) {
-            uploadSnapshot(token, currentOwnFile, payload, listing.parentId)
+            uploadSnapshot(token, current, payload, listing.parentId)
             prefs.edit().putString("last_digest", digest).apply()
         }
-        return SyncOutcome(imported, matched, remote.size, remote.size - matched + rejected, !alreadyUploaded)
+        return SyncOutcome(imported, newest.size, raw.size, raw.size - matched, !alreadyUploaded)
     }
 
     companion object {
