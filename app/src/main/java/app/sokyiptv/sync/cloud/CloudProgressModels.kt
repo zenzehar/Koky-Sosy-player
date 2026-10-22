@@ -15,6 +15,8 @@ data class CloudWatchPoint(
     val positionMillis: Long,
     val durationMillis: Long,
     val updatedAtMillis: Long,
+    /** Stable logical movie / series identifier; legacy files omit it. */
+    val logicalHash: String = "",
 )
 
 @Serializable
