@@ -24,11 +24,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
+import app.sokyiptv.ui.theme.TvTextButton as TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import app.sokyiptv.ui.theme.TvOutlinedButton as OutlinedButton
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
