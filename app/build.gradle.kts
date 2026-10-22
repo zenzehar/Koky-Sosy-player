@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 50
-        versionName = "0.1.11.29-vlc-native-seek-correction-test"
+        versionCode = 51
+        versionName = "0.1.11.30-hidden-only-seekbar-focus"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
