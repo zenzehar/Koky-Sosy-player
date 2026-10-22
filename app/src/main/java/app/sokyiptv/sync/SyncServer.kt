@@ -27,13 +27,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 
 /**
  * Serves this device's watch-history bundle to another SokyIPTV on the same wifi.
  *
  * Deliberately the same shape as [app.sokyiptv.pairing.PairingServer]: no cloud, a short-lived
- * server on the LAN, gated by a six-digit code shown on screen, private-network only, and torn
- * down on a timeout. The bundle is a snapshot taken when sharing starts, served as-is.
+ * server on the LAN, gated by a six-digit code shown on screen, private-network only.
+ * Paired peers can exchange their latest watch positions in both directions.
  */
 class SyncServer(context: Context, private val scope: CoroutineScope) {
     private val preferences = context.applicationContext.getSharedPreferences("soky_lan_pairing", Context.MODE_PRIVATE)
@@ -86,10 +88,16 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
     private var code: String = ""
     private var bundle: String = ""
     @Volatile private var bundleProvider: (() -> String)? = null
+    @Volatile private var bundleImporter: (suspend (SyncBundle) -> Unit)? = null
     private var wrongAttempts = 0
     @Volatile private var running = false
 
-    fun start(bundleJson: String, persistent: Boolean = false, newestBundle: (() -> String)? = null) {
+    fun start(
+        bundleJson: String,
+        persistent: Boolean = false,
+        newestBundle: (() -> String)? = null,
+        incomingBundle: (suspend (SyncBundle) -> Unit)? = null,
+    ) {
         if (running) return
         val host = lanAddress() ?: run {
             _state.value = State.Failed("This device isn't on a network, so it can't share.")
@@ -98,6 +106,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
         code = if (persistent) fixedCode else newCode()
         bundle = bundleJson
         bundleProvider = newestBundle
+        bundleImporter = incomingBundle
         wrongAttempts = 0
 
         val socket = try {
@@ -130,8 +139,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
             }
         }
 
-        // No arbitrary five-minute countdown: sharing is deliberately active only while
-        // the user is on the sharing screen. It is stopped on Back / Done / screen close.
+        // Listener stays active until explicit Stop Sharing or the Android process ends.
 
     }
 
@@ -144,6 +152,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
         code = ""
         bundle = ""
         bundleProvider = null
+        bundleImporter = null
         if (_state.value is State.Sharing) _state.value = State.Idle
     }
 
@@ -165,8 +174,8 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
             PairingHttp.parseHeader(line)?.let { headers[it.first] = it.second }
         }
         val output = client.getOutputStream()
-        if (method != "GET") {
-            output.write(PairingHttp.httpResponse("405 Method Not Allowed", "text/plain", "GET only."))
+        if (method != "GET" && !(method == "POST" && path == "/exchange")) {
+            output.write(PairingHttp.httpResponse("405 Method Not Allowed", "text/plain", "Unsupported method."))
             return
         }
         if (path == "/pair") {
@@ -185,7 +194,7 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
             output.write(PairingHttp.httpResponse("200 OK", "application/json", body))
             return
         }
-        if (path != "/export") {
+        if (path != "/export" && path != "/exchange") {
             output.write(PairingHttp.httpResponse("404 Not Found", "text/plain", "Not found."))
             return
         }
@@ -196,6 +205,45 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
         if (!tokenValid(token) && !(legacyPin.isNotEmpty() && PairingHttp.secretsMatch(legacyPin, code))) {
             output.write(PairingHttp.httpResponse("401 Unauthorized", "text/plain", "Device not paired."))
             return
+        }
+        if (path == "/exchange") {
+            // Only already paired and authorized clients reach this point.
+            // Reject oversized or chunked request bodies rather than allocating unbounded memory.
+            val size = headers["content-length"]?.toIntOrNull() ?: -1
+            if (size !in 1..MAX_IMPORT_BYTES) {
+                output.write(PairingHttp.httpResponse("413 Payload Too Large", "text/plain", "Invalid history size."))
+                return
+            }
+            val buffer = CharArray(minOf(size, 8192))
+            val body = StringBuilder(size)
+            while (body.length < size) {
+                val got = reader.read(buffer, 0, minOf(buffer.size, size - body.length))
+                if (got < 0) return
+                body.append(buffer, 0, got)
+            }
+            // WatchHistorySync snapshots contain only ASCII identifiers/hashes and numerics,
+            // so their Content-Length in bytes equals the UTF-8 character count.
+            val incoming = runCatching {
+                Json { ignoreUnknownKeys = true }.decodeFromString(SyncBundle.serializer(), body.toString())
+            }.getOrElse {
+                output.write(PairingHttp.httpResponse("400 Bad Request", "text/plain", "Invalid history."))
+                return
+            }
+            if (incoming.version !in 1..3 || incoming.positions.size > 10_000) {
+                output.write(PairingHttp.httpResponse("400 Bad Request", "text/plain", "Unsupported history."))
+                return
+            }
+            val applied = runCatching {
+                runBlocking(Dispatchers.IO) {
+                    val importer = bundleImporter ?: error("History import not configured")
+                    importer(incoming)
+                }
+            }
+            if (applied.isFailure) {
+                Log.w(TAG, "Paired history import failed", applied.exceptionOrNull())
+                output.write(PairingHttp.httpResponse("503 Service Unavailable", "text/plain", "History import unavailable."))
+                return
+            }
         }
         val latest = runCatching { bundleProvider?.invoke() ?: bundle }.getOrElse {
             output.write(PairingHttp.httpResponse("503 Service Unavailable", "text/plain", "History unavailable."))
@@ -229,7 +277,8 @@ class SyncServer(context: Context, private val scope: CoroutineScope) {
 
     private companion object {
         const val TAG = "SokyIPTV"
-        const val SOCKET_TIMEOUT_MILLIS = 10_000
+        const val SOCKET_TIMEOUT_MILLIS = 15_000
+        const val MAX_IMPORT_BYTES = 8 * 1024 * 1024
         const val MAX_ATTEMPTS = 5
     }
 }

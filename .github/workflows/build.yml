@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'experiment/soky-iptv-pro-lab-2026-10-19'
+      github.head_ref == 'fix/soky-lan-bidirectional-resume-20261022'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.23-soky-series-resume-sync \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.23_Series_Resume_Cloud_LAN_Test.apk" \
+          gh release create v0.1.11.24-soky-lan-bidirectional-sync-test \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.24_LAN_Drive_Two_Way_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.23 logical series resume and background cloud-LAN sync" \
-            --notes "UNAPPROVED TV TEST: LAN device discovery, reusable six-digit pairing code, no five-minute sharing expiry, 12-second receiver timeout, atomic newer-only progress merge and cloud match diagnostics. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease
+            --title "Soky IPTV Pro v0.1.11.24 bidirectional LAN, discovery and Drive-first sync TV test" \
+            --notes "UNAPPROVED EXPERIMENTAL TV TEST. Preserves golden v0.1.11.12. Pair once, then paired LAN history can flow both directions via authenticated POST /exchange, even with Settings closed. Previously paired IPs are probed directly when broadcast discovery fails. Google Drive sync takes priority and LAN is a fallback after cloud sync failure. New wire tests, Kotlin unit tests and Android APK assembly required by CI. Re-pair older TVs as needed. Google TV account QR uses the user's own Google account. Still NOT hardware accepted: test both directions, Drive outage recovery, newest single Continue Watching entry, focus and navigation. Native phone OAuth, cloud delete tombstones and all-network discovery remain pending. No IPTV credentials uploaded." --prerelease
