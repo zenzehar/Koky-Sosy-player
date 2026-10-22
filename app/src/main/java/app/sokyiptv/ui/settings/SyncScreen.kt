@@ -58,10 +58,11 @@ fun SyncScreen(
     onBack: () -> Unit,
     viewModel: SyncViewModel = viewModel(),
 ) {
-    var mode by remember { mutableStateOf(
-        if (app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(
-            androidx.compose.ui.platform.LocalContext.current).authorized) Mode.CLOUD else Mode.SHARE
-    ) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val cloudWasConnected = remember(appContext) {
+        app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(appContext).authorized
+    }
+    var mode by remember { mutableStateOf(if (cloudWasConnected) Mode.CLOUD else Mode.SHARE) }
     // Sharing persists outside this menu. Stop only on explicit user action.
 
     Column(
