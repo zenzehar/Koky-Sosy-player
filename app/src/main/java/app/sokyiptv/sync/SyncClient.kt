@@ -12,6 +12,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 /** Code needed once per peer; subsequent connections use an encrypted random token. */
@@ -39,7 +41,7 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
         }
     }
 
-    suspend fun pull(address: String, code: String, expectedDeviceId: String = ""): Result<SyncBundle> =
+    suspend fun pull(address: String, code: String, expectedDeviceId: String = "", outgoing: String? = null): Result<SyncBundle> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val host = address.trim().removePrefix("http://").trimEnd('/')
@@ -77,18 +79,32 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
                     newToken to remoteId
                 }
 
+                // A modern peer atomically imports our current active-profile history
+                // and responds with its own refreshed snapshot. This allows BOTH TVs to
+                // converge after a single Receive action; GET remains a legacy fallback.
                 val request = Request.Builder()
-                    .url("http://$host/export")
+                    .url("http://$host/${if (outgoing == null) "export" else "exchange"}")
                     .header("X-Soky-Pair-Token", token)
-                    .get().build()
-                val bundle = http.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        if (response.code == 401 && paired) forgetPairing(expectedDeviceId)
-                        error(if (response.code == 401)
-                            "Pairing expired or was revoked. Enter the new pairing code once."
-                        else "The sharing TV rejected the transfer (HTTP ${response.code}).")
+                    .apply {
+                        if (outgoing == null) get()
+                        else post(outgoing.toRequestBody("application/json; charset=utf-8".toMediaType()))
                     }
-                    json.decodeFromString(SyncBundle.serializer(), response.body?.string().orEmpty())
+                    .build()
+                val firstResponse = http.newCall(request).execute()
+                val response = if (outgoing != null && firstResponse.code in listOf(404, 405)) {
+                    // Older supported TV builds accept only GET /export.
+                    firstResponse.close()
+                    http.newCall(Request.Builder().url("http://$host/export")
+                        .header("X-Soky-Pair-Token", token).get().build()).execute()
+                } else firstResponse
+                val bundle = response.use {
+                    if (!it.isSuccessful) {
+                        if (it.code == 401 && paired) forgetPairing(expectedDeviceId)
+                        error(if (it.code == 401)
+                            "Pairing expired or was revoked. Enter the new pairing code once."
+                        else "The sharing TV rejected the transfer (HTTP ${it.code}).")
+                    }
+                    json.decodeFromString(SyncBundle.serializer(), it.body?.string().orEmpty())
                 }
                 if (!paired) vault.write("lan_peer_$deviceId", token)
                 if (isPaired(deviceId)) {
@@ -98,8 +114,8 @@ class SyncClient(httpClient: OkHttpClient, context: Context) {
                 bundle
             }.recoverCatching { e ->
                 when (e) {
-                    is SocketTimeoutException -> error("TV did not respond within 12 seconds. Check that Share is open.")
-                    is ConnectException -> error("Connection refused. Reopen Share and search for devices.")
+                    is SocketTimeoutException -> error("TV did not respond within 12 seconds. Check that sharing is enabled on the other TV.")
+                    is ConnectException -> error("Connection refused. Enable Share on the other TV and search again.")
                     is NoRouteToHostException -> error("Peer unreachable. Check Wi-Fi client isolation.")
                     else -> throw e
                 }
