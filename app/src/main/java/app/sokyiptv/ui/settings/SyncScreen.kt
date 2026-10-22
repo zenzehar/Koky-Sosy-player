@@ -212,10 +212,14 @@ private fun ReceivePane(viewModel: SyncViewModel) {
             ) { Text(if (discovery is SyncViewModel.DiscoverState.Searching) "Searching…" else "Discover devices") }
             when (val found = discovery) {
                 is SyncViewModel.DiscoverState.Results -> {
-                    if (found.peers.isEmpty()) {
-                        Text("No sharing TVs found. Start sharing on the other TV, and check Wi-Fi client isolation. You can still enter its IP:port below.")
+                    val peers = (found.peers + viewModel.pairedDevices())
+                        .distinctBy { it.deviceId.ifBlank { it.address } }
+                    if (peers.isEmpty()) {
+                        Text("No sharing TVs found. Start sharing on the other TV or enter its IP:port manually.")
+                    } else if (found.peers.isEmpty()) {
+                        Text("Using previously paired devices and their last known addresses.")
                     }
-                    found.peers.forEach { peer ->
+                    peers.forEach { peer ->
                         OutlinedButton(onClick = {
                             selectedAddress = peer.address
                             selectedDeviceId = peer.deviceId
