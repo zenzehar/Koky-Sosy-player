@@ -40,6 +40,7 @@ import app.sokyiptv.sync.SyncPosition
 import app.sokyiptv.sync.SyncIdentityResolver
 import app.sokyiptv.sync.cloud.CloudMediaKeys
 import app.sokyiptv.sync.LanSyncManager
+import app.sokyiptv.sync.cloud.ProgressMediaIndex
 import app.sokyiptv.sync.SyncServer
 import app.sokyiptv.sync.SyncDiscovery
 import kotlinx.serialization.json.Json
@@ -783,7 +784,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 // The DAO sorts newest first. Group BEFORE discarding completed entries;
                 // otherwise an old incomplete episode resurfaces after a newer completion.
                 val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
-                val globalIndex = app.sokyiptv.sync.cloud.ProgressMediaIndex.build(graph)
+                val globalIndex = ProgressMediaIndex.build(graph)
                 for (position in positions) {
                     val resolved = resolveResume(position) ?: continue
                     val logical = globalIndex.byLocal[position.mediaKey]?.logicalHash ?: resolved.logicalKey
