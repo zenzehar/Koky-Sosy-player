@@ -86,9 +86,17 @@ class LanSyncManager private constructor(context: Context) {
     }
 
     internal suspend fun receive(address: String, code: String, deviceId: String): Result<WatchHistorySync.Transfer> {
-        val outgoing = WatchHistorySync.snapshot(graph)
-        return client.pull(address, code, deviceId, outgoing)
-            .mapCatching { WatchHistorySync.apply(graph, it) }
+        return try {
+            val outgoing = WatchHistorySync.snapshot(graph)
+            client.pull(address, code, deviceId, outgoing)
+                .mapCatching { WatchHistorySync.apply(graph, it) }
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            // A catalogue/database snapshot failure must appear as a receive error,
+            // not crash the ViewModel coroutine and leave the button stuck on Connecting.
+            Result.failure(e)
+        }
     }
 
     suspend fun pullPaired(): Int = syncMutex.withLock {
