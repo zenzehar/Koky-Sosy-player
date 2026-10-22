@@ -105,6 +105,12 @@ import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.core.SleepTimer
 import app.sokyiptv.core.findActivity
 import app.sokyiptv.player.PlayerController
+import app.sokyiptv.player.SeekDirection
+import app.sokyiptv.player.TvSeekPolicy
+import app.sokyiptv.player.TvHardwarePlaybackKeys
+import app.sokyiptv.player.WatchProgressCapture
+import app.sokyiptv.player.VodProgressStore
+import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlinx.coroutines.CoroutineScope
@@ -273,26 +279,50 @@ fun VodPlayerScreen(
     var timelineFocused by remember { mutableStateOf(false) }
     var autoplayFocused by remember { mutableStateOf(false) }
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
+    var focusSeekOnReveal by remember { mutableStateOf(false) }
+    var horizontalTimelineShortcut by remember { mutableStateOf(true) }
+    // Keep rapid absolute-time taps anchored while Media3's native clock settles.
+    val media3SeekClock = remember(controller) { VlcSeekClock() }
 
     fun reveal() { controlsVisible = true; interaction++ }
+
+    fun setHardwarePlayback(action: TvHardwarePlaybackKeys.Action) {
+        val play = when (action) {
+            TvHardwarePlaybackKeys.Action.TOGGLE -> !controller.player.playWhenReady
+            TvHardwarePlaybackKeys.Action.PLAY -> true
+            TvHardwarePlaybackKeys.Action.PAUSE -> false
+        }
+        controller.player.playWhenReady = play
+        paused = !play
+        reveal()
+    }
+
+    fun seekTenSeconds(direction: SeekDirection) {
+        if (!growingRec && !controller.player.isCurrentMediaItemSeekable) return
+        val recordedExtent = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0) else null
+        val target = TvSeekPolicy.tap(positionMs, recordedExtent, direction)
+        // Seek in absolute milliseconds; only the visual progress bar needs a fraction.
+        controller.player.seekTo(target)
+        positionMs = media3SeekClock.requested(target, android.os.SystemClock.elapsedRealtime())
+        scrubValue = target.toFloat()
+        scrubbing = false
+        interaction++
+    }
 
     suspend fun savePosition() {
         if (advanced.get()) return
         val pos = if (usingVlc) positionMs else controller.player.currentPosition
         val dur = if (usingVlc) durationMs
             else controller.player.duration.takeIf { it > 0 } ?: 0L
-        if (dur <= 0L) return
-        if (pos > 5_000) {
-            graph.playbackPositions.upsert(
-                app.sokyiptv.data.model.PlaybackPosition(
-                    profileId = settings.activeProfileId.value,
-                    mediaKey = mediaKey,
-                    positionMillis = pos,
-                    durationMillis = dur,
-                    updatedAtMillis = System.currentTimeMillis(),
-                ),
-            )
-        }
+        // LibVLC/Media3 can know elapsed time while reporting an unknown length.
+        // Saving must not depend on a positive total duration.
+        WatchProgressCapture.snapshot(
+            profileId = settings.activeProfileId.value,
+            mediaKey = mediaKey,
+            elapsedMs = pos,
+            reportedDurationMs = dur,
+            updatedAtMs = System.currentTimeMillis(),
+        )?.let { VodProgressStore.persist(graph, it) }
     }
 
     fun naturalEnd() {
@@ -306,13 +336,14 @@ fun VodPlayerScreen(
             else null
             val next = if (autoplay && currentEpisode != null)
                 graph.catalogRepository.nextEpisode(currentEpisode.id) else null
+            // A real end-of-stream confirms completion even if the length was missing.
             val duration = if (usingVlc) durationMs else controller.player.duration
-            if (duration > 0L) {
-                graph.playbackPositions.upsert(
-                    app.sokyiptv.data.model.PlaybackPosition(
-                        settings.activeProfileId.value, mediaKey, duration, duration,
-                        System.currentTimeMillis(),
-                    ),
+            val elapsedAtEnd = if (usingVlc) positionMs else controller.player.currentPosition
+            val finishAt = maxOf(duration, elapsedAtEnd)
+            if (finishAt > 0L) {
+                graph.playbackPositions.mergeIfNewer(
+                    settings.activeProfileId.value, mediaKey,
+                    finishAt, finishAt, System.currentTimeMillis(),
                 )
             }
             if (next != null) {
@@ -385,19 +416,16 @@ fun VodPlayerScreen(
                 runCatching { controller.player.duration.takeIf { it > 0L } ?: 0L }.getOrDefault(0L)
             val endingProfile = settings.activeProfileId.value
             val endingIsComplete = advanced.get()
-            if (!endingIsComplete && endingPos > 5_000L && endingDuration > 0L) {
-                val snapshot = app.sokyiptv.data.model.PlaybackPosition(
-                    profileId = endingProfile,
-                    mediaKey = mediaKey,
-                    positionMillis = endingPos,
-                    durationMillis = endingDuration,
-                    updatedAtMillis = System.currentTimeMillis(),
-                )
-                CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                    runCatching { graph.playbackPositions.upsert(snapshot) }
-                        .onFailure { android.util.Log.w("VodPlayerScreen", "Could not save final progress", it) }
-                }
-            }
+            val finalProgress = if (!endingIsComplete) WatchProgressCapture.snapshot(
+                profileId = endingProfile,
+                mediaKey = mediaKey,
+                elapsedMs = endingPos,
+                reportedDurationMs = endingDuration,
+                updatedAtMs = System.currentTimeMillis(),
+            ) else null
+            // The screen scope is cancelled below. Persist independently so
+            // Back/episode navigation cannot silently discard the exit position.
+            VodProgressStore.enqueue(graph, finalProgress)
             if (media3Holder.isInitialized()) controller.release()
             scope.cancel()
         }
@@ -453,7 +481,10 @@ fun VodPlayerScreen(
     LaunchedEffect(Unit) {
         while (isActive) {
             if (!scrubbing && !usingVlc) {
-                positionMs = controller.player.currentPosition.coerceAtLeast(0)
+                positionMs = media3SeekClock.reconcile(
+                    controller.player.currentPosition.coerceAtLeast(0),
+                    android.os.SystemClock.elapsedRealtime(),
+                )
                 // A growing recording has no fixed length; the recorded-so-far extent (how far you
                 // can skip ahead) is what's been read into the buffer.
                 durationMs = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0)
@@ -481,12 +512,17 @@ fun VodPlayerScreen(
             delay(40)
             runCatching {
                 if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
-                else {
+                else if (focusSeekOnReveal) {
+                    timelineFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.SEEK
+                    focusSeekOnReveal = false
+                } else {
                     barFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.CONTROLS
                 }
             }
         } else {
+            horizontalTimelineShortcut = true
             runCatching { rootFocus.requestFocus() }
         }
     }
@@ -527,24 +563,17 @@ fun VodPlayerScreen(
             onProgress = { pos, dur ->
                 positionMs = pos
                 durationMs = dur
-                if (!advanced.get() && pos > 5_000L && dur > 0L) {
-                    // Capture active profile and position on the UI thread, then persist only
-                    // immutable values on IO, never touch player or settings after teardown.
-                    val snapshot = app.sokyiptv.data.model.PlaybackPosition(
-                        profileId = settings.activeProfileId.value,
-                        mediaKey = mediaKey,
-                        positionMillis = pos,
-                        durationMillis = dur,
-                        updatedAtMillis = System.currentTimeMillis(),
-                    )
-                    // Reuse the screen-owned coroutine scope. The former code allocated a
-                    // new untracked SupervisorJob on every progress tick (every 10 seconds).
-                    // Final exit progress still uses the independent bounded onDispose save.
-                    scope.launch(Dispatchers.IO) {
-                        runCatching { graph.playbackPositions.upsert(snapshot) }
-                            .onFailure { android.util.Log.w("VodPlayerScreen", "Progress save failed", it) }
-                    }
-                }
+                // Only save a snapshot of primitives, with no native player access on IO.
+                // Unknown VOD duration must not suppress elapsed playback history.
+                val snapshot = if (!advanced.get()) WatchProgressCapture.snapshot(
+                    profileId = settings.activeProfileId.value,
+                    mediaKey = mediaKey,
+                    elapsedMs = pos,
+                    reportedDurationMs = dur,
+                    updatedAtMs = System.currentTimeMillis(),
+                ) else null
+                // VLC teardown can cancel the screen scope before its last write.
+                VodProgressStore.enqueue(graph, snapshot)
             },
         )
     } else Box(
@@ -552,7 +581,17 @@ fun VodPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
+                val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 when {
+                    TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode) -> {
+                        if (event.type == KeyEventType.KeyDown) {
+                            TvHardwarePlaybackKeys.actionForInitialPress(
+                                hardwareKeyCode, event.nativeKeyEvent.repeatCount,
+                            )?.let(::setHardwarePlayback)
+                        }
+                        // KeyUp/repeat are handled but do not trigger a second action.
+                        true
+                    }
                     event.key == Key.Back || event.key == Key.Escape -> false
                     event.type == KeyEventType.KeyDown && !controlsVisible &&
                         (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
@@ -563,7 +602,28 @@ fun VodPlayerScreen(
                         reveal()
                         true
                     }
+                    event.type == KeyEventType.KeyDown && !controlsVisible &&
+                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
+                        focusSeekOnReveal = true
+                        focusLevel = CinematicFocusLevel.SEEK
+                        horizontalTimelineShortcut = false
+                        reveal()
+                        seekTenSeconds(if (event.key == Key.DirectionRight)
+                            SeekDirection.FORWARD else SeekDirection.BACKWARD)
+                        true
+                    }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
+                    event.type == KeyEventType.KeyDown && controlsVisible &&
+                        vodPanel == VodPanel.NONE && horizontalTimelineShortcut &&
+                        focusLevel != CinematicFocusLevel.SEEK &&
+                        (event.key == Key.DirectionLeft || event.key == Key.DirectionRight) -> {
+                        focusLevel = CinematicFocusLevel.SEEK
+                        horizontalTimelineShortcut = false
+                        timelineFocus.requestFocus()
+                        seekTenSeconds(if (event.key == Key.DirectionRight)
+                            SeekDirection.FORWARD else SeekDirection.BACKWARD)
+                        true
+                    }
                     event.type == KeyEventType.KeyDown && controlsVisible &&
                         (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
                         val next = moveCinematicFocus(
@@ -573,6 +633,7 @@ fun VodPlayerScreen(
                         if (next == focusLevel) false
                         else {
                             focusLevel = next
+                            if (next == CinematicFocusLevel.CONTROLS) horizontalTimelineShortcut = false
                             when (next) {
                                 CinematicFocusLevel.AUTOPLAY -> autoplayFocus.requestFocus()
                                 CinematicFocusLevel.CONTROLS -> barFocus.requestFocus()
@@ -694,7 +755,9 @@ fun VodPlayerScreen(
                         onValueChange = { scrubbing = true; scrubValue = it; interaction++ },
                         onValueChangeFinished = {
                             controller.player.seekTo(scrubValue.toLong())
-                            positionMs = scrubValue.toLong()
+                            positionMs = media3SeekClock.requested(
+                                scrubValue.toLong(), android.os.SystemClock.elapsedRealtime(),
+                            )
                             scrubbing = false
                             interaction++
                         },
@@ -704,6 +767,20 @@ fun VodPlayerScreen(
                             inactiveTrackColor = CinemaTrack,
                         ),
                         modifier = Modifier.weight(1f)
+                            // Override the Slider's fraction-based TV arrow handling.
+                            // Pointer dragging remains continuous, but remote arrows seek
+                            // exactly 10,000 milliseconds per press, not a % of duration.
+                            .onPreviewKeyEvent { event ->
+                                val direction = when (event.key) {
+                                    Key.DirectionLeft -> SeekDirection.BACKWARD
+                                    Key.DirectionRight -> SeekDirection.FORWARD
+                                    else -> null
+                                }
+                                if (direction != null) {
+                                    if (event.type == KeyEventType.KeyDown) seekTenSeconds(direction)
+                                    true
+                                } else false
+                            }
                             .focusRequester(timelineFocus)
                             .onFocusChanged {
                                 timelineFocused = it.isFocused
@@ -724,8 +801,7 @@ fun VodPlayerScreen(
                         }
                     },
                     onRewind = {
-                        if (growingRec) seekRelative(-10_000) else controller.seekBackward()
-                        interaction++
+                        seekTenSeconds(SeekDirection.BACKWARD)
                     },
                     onTogglePause = {
                         paused = !paused
@@ -733,8 +809,7 @@ fun VodPlayerScreen(
                         interaction++
                     },
                     onForward = {
-                        if (growingRec) seekRelative(10_000) else controller.seekForward()
-                        interaction++
+                        seekTenSeconds(SeekDirection.FORWARD)
                     },
                     onNext = {
                         followingEpisode?.let { target ->
