@@ -58,6 +58,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val gate = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var periodicJob: Job? = null
+    @Volatile private var lastAttemptFailed: Boolean = false
     private val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
     }
@@ -79,11 +80,15 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
     val authorized: Boolean get() = oauth.connected
 
+    /** LAN reads this signal but NEVER triggers an additional cloud scan itself. */
+    val lanFallbackNeeded: Boolean get() = !oauth.connected || lastAttemptFailed
+
     val state: StateFlow<CloudSyncState> = _state
 
     fun disconnect() {
         DriveBackgroundSyncWorker.cancel(appContext)
         oauth.disconnect()
+        lastAttemptFailed = false
         prefs.edit().remove("last_digest").apply()
         _state.value = CloudSyncState(
             connected = false,
@@ -136,6 +141,9 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     fun startForegroundSync() {
         if (periodicJob?.isActive == true) return
         periodicJob = scope.launch {
+            // Let source catalogues and VOD home screens become responsive
+            // before the first full remote-index reconciliation on app launch.
+            delay(20_000L)
             while (isActive) {
                 if (oauth.connected) syncNow()
                 delay(120_000L)
@@ -158,6 +166,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 val result = withContext(Dispatchers.IO) { performSync() }
                 val now = System.currentTimeMillis()
                 prefs.edit().putLong("last_success", now).apply()
+                lastAttemptFailed = false
                 _state.value = _state.value.copy(
                     connected = true, busy = false, pendingCode = null,
                     lastSuccessMillis = now,
@@ -175,6 +184,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 _state.value = _state.value.copy(busy = false)
                 throw c
             } catch (e: Exception) {
+                lastAttemptFailed = true
                 _state.value = _state.value.copy(busy = false, message = safeMessage(e))
                 false
             }
