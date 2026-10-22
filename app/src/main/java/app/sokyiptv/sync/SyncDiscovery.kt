@@ -82,13 +82,21 @@ object SyncDiscovery {
         return socket
     }
 
-    suspend fun scan(): List<Peer> = withContext(Dispatchers.IO) {
+    suspend fun scan(knownAddresses: Collection<String> = emptyList()): List<Peer> = withContext(Dispatchers.IO) {
         val peers = linkedMapOf<String, Peer>()
         DatagramSocket().use { socket ->
             socket.broadcast = true
             socket.soTimeout = 600
             val dests = linkedSetOf<InetAddress>()
             dests += InetAddress.getByName("255.255.255.255")
+            // Unicast probes are a reliable recovery path for previously paired TVs:
+            // some routers suppress UDP broadcast but allow direct LAN traffic.
+            knownAddresses.forEach { address ->
+                val host = address.substringBefore(':')
+                if (PairingHttp.isPrivateAddress(host)) {
+                    runCatching { InetAddress.getByName(host) }.getOrNull()?.let { dests += it }
+                }
+            }
             runCatching {
                 val nics = NetworkInterface.getNetworkInterfaces()
                 while (nics.hasMoreElements()) {
