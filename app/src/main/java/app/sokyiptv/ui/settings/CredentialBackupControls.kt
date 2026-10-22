@@ -17,10 +17,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
+import app.sokyiptv.ui.theme.TvButton as Button
+import app.sokyiptv.ui.theme.TvOutlinedButton as OutlinedButton
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
+import app.sokyiptv.ui.theme.TvTextButton as TextButton
 import android.widget.Toast
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import androidx.compose.material3.Text
