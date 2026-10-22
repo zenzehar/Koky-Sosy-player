@@ -51,7 +51,7 @@ class LanSyncManager private constructor(context: Context) {
                     runCatching { pullPaired() }.onFailure {
                         Log.w("SokyLAN", "Background paired sync unavailable", it)
                     }
-                    delay(60_000L)
+                    delay(120_000L)
                 }
             }
         }
@@ -102,10 +102,13 @@ class LanSyncManager private constructor(context: Context) {
     suspend fun pullPaired(): Int = syncMutex.withLock {
         val ids = client.pairedIds()
         if (ids.isEmpty()) return@withLock 0
-        // Drive is the preferred route. Fall back to paired LAN ONLY after the
-        // cloud exchange actually fails, not merely because a login token exists.
-        val drive = GoogleDriveProgressSync.get(app)
-        if (drive.authorized && drive.syncNow()) return@withLock 0
+        // A paired LAN worker must NEVER initiate an additional Google Drive
+        // reconciliation: Drive has its own foreground/background scheduler and
+        // its full VOD index build is expensive on TV hardware. v0.1.11.24
+        // accidentally initiated those scans on the LAN polling cadence.
+        // When Drive is active it remains the preferred transport; an explicit
+        // LAN receive remains available via the Sync menu.
+        if (GoogleDriveProgressSync.get(app).authorized) return@withLock 0
         val found = runCatching { SyncDiscovery.scan() }.getOrDefault(emptyList())
             .associateBy { it.deviceId }
         var received = 0
