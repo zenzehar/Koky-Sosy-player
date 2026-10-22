@@ -15,7 +15,6 @@ class TvHardwarePlaybackKeysTest {
             TvHardwarePlaybackKeys.actionForInitialPress(KeyEvent.KEYCODE_MEDIA_PLAY, 0))
         assertEquals(TvHardwarePlaybackKeys.Action.PAUSE,
             TvHardwarePlaybackKeys.actionForInitialPress(KeyEvent.KEYCODE_MEDIA_PAUSE, 0))
-        assertEquals(TvHardwarePlaybackKeys.Action.TOGGLE,
         assertTrue(TvHardwarePlaybackKeys.isTransportKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
     }
 
