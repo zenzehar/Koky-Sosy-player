@@ -42,16 +42,16 @@ class LanSyncManager private constructor(context: Context) {
     fun startAtLaunch() {
         if (sharingEnabled()) scope.launch { openListener() }
         schedule()
-        if (!polling) {
-            polling = true
+        val startPolling = synchronized(this) {
+            if (polling) false else { polling = true; true }
+        }
+        if (startPolling) {
             scope.launch {
                 while (isActive) {
-                    if (!GoogleDriveProgressSync.get(app).authorized) {
-                        runCatching { pullPaired() }.onFailure {
-                            Log.w("SokyLAN", "Background paired sync unavailable", it)
-                        }
+                    runCatching { pullPaired() }.onFailure {
+                        Log.w("SokyLAN", "Background paired sync unavailable", it)
                     }
-                    delay(120_000L)
+                    delay(60_000L)
                 }
             }
         }
@@ -61,10 +61,15 @@ class LanSyncManager private constructor(context: Context) {
         if (server.state.value is SyncServer.State.Sharing) return
         val bundle = WatchHistorySync.snapshot(graph)
         val keepCode = server.preferFixedCode
-        server.start(bundle, keepCode) {
-            // Refresh every transfer, including after playback has advanced.
-            runBlocking(Dispatchers.IO) { WatchHistorySync.snapshot(graph) }
-        }
+        server.start(
+            bundleJson = bundle,
+            persistent = keepCode,
+            newestBundle = {
+                // Never send a stale snapshot captured when sharing was switched on.
+                runBlocking(Dispatchers.IO) { WatchHistorySync.snapshot(graph) }
+            },
+            incomingBundle = { incoming -> WatchHistorySync.apply(graph, incoming) },
+        )
     }
 
     fun enableSharing(fixed: Boolean) {
@@ -81,14 +86,18 @@ class LanSyncManager private constructor(context: Context) {
     }
 
     internal suspend fun receive(address: String, code: String, deviceId: String): Result<WatchHistorySync.Transfer> {
-        return client.pull(address, code, deviceId).mapCatching { WatchHistorySync.apply(graph, it) }
+        val outgoing = WatchHistorySync.snapshot(graph)
+        return client.pull(address, code, deviceId, outgoing)
+            .mapCatching { WatchHistorySync.apply(graph, it) }
     }
 
     suspend fun pullPaired(): Int = syncMutex.withLock {
-        // Google Drive is the single preferred transport whenever connected.
-        if (GoogleDriveProgressSync.get(app).authorized) return@withLock 0
         val ids = client.pairedIds()
         if (ids.isEmpty()) return@withLock 0
+        // Drive is the preferred route. Fall back to paired LAN ONLY after the
+        // cloud exchange actually fails, not merely because a login token exists.
+        val drive = GoogleDriveProgressSync.get(app)
+        if (drive.authorized && drive.syncNow()) return@withLock 0
         val found = runCatching { SyncDiscovery.scan() }.getOrDefault(emptyList())
             .associateBy { it.deviceId }
         var received = 0
