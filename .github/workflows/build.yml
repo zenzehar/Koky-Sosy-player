@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.28-v21-player-dpad-time-seeking' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.29-vlc-native-seek-correction' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.28-v21-player-dpad-time-seeking'
+      github.head_ref == 'fix/v0.1.11.29-vlc-native-seek-correction'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.28-soky-time-dpad-seeking \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.28_DPad_Time_Seek_Test.apk" \
+          gh release create v0.1.11.29-soky-verified-vlc-seek-test \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.29_VLC_Seek_Correction_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.28 D-pad timed seeking TV test" \
-            --notes "UNAPPROVED TV TEST based directly on physical-TV validated v0.1.11.27. Two isolated player improvements: Left/Right on Android TV D-pad focuses the seek timeline instead of moving among transport buttons, and relative seeks use explicit 10000-millisecond targets rather than Slider percentage steps or clamping to potentially wrong provider-reported total duration. VLC already uses setTime(milliseconds, false) for precise seek; retain that and avoid bogus length clamping. Media3 TV remote input explicitly requests seekTo(milliseconds), while pointer dragging still uses its visual Slider. Preserve all v21 VOD catalogue, Continue Watching and synchronization runtime code unchanged. Tests compile under CI. Native network/container may still land on keyframes or report wrong clock; verify on real TVs, including rapid taps, holds and backward/forward accuracy. Never clear data. Golden v0.1.11.12 and v0.1.11.27 preserved." --prerelease
+            --title "Soky IPTV Pro v0.1.11.29 bounded VLC seek correction TV test" \
+            --notes "UNAPPROVED TEST BUILD branched from v0.1.11.28. Adds finite native LibVLC elapsed-time seek verification for streams with inconsistent provider duration/index metadata. After a native setTime(ms,false), observe two advancing native clock samples after settling. If the native landing differs markedly from the intended time, attempt at most ONE bounded proportional/offset time-command adjustment. No repeated ping-pong seeks, no setPosition percentages, no reliance on invalid length to clamp requests. Preserve default v28 player navigation, hardware media keys, Continue Watching persistence, playlists, Google Drive/LAN and all catalogue views. Diagnostics QR adds VLC_SEEK_ADJUST / VLC_SEEK_MISS with numeric drift seconds, no URLs or credentials. CI unit tests cover short normal seeks, wrong duration overshoot, buffering, stale native clock and one-retry limit. No algorithm can guarantee exact decoded video time if the stream/server cannot seek accurately; user must validate on physical TV. Do not merge unapproved builds into v27 or golden." --prerelease
