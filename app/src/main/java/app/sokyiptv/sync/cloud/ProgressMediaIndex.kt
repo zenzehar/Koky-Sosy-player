@@ -97,7 +97,15 @@ internal class ProgressMediaIndex private constructor(
                 register("movie", movie.id, movie.streamUrl, names, names, movie.durationSeconds)
             }
             graph.database.episodes().progressRefs().forEach { ep ->
-                val series = seriesMetadata(ep.seriesName, ep.seriesYear, ep.seriesTmdbId)
+                val verifiedSeries = seriesMetadata(ep.seriesName, ep.seriesYear, ep.seriesTmdbId)
+                // If metadata is missing, episodes still belong to the same logical
+                // series on the same Xtream server. Source IDs are local only, so use
+                // host+provider series ID, never title alone or local DB IDs.
+                val providerHost = Regex("""^(https?://[^/]+)/(?:series)/""")
+                    .find(ep.streamUrl)?.groupValues?.getOrNull(1)?.lowercase(Locale.ROOT)
+                val fallbackSeries = if (providerHost != null && ep.seriesId.isNotBlank())
+                    listOf("provider-series:$providerHost:${ep.seriesId}") else emptyList()
+                val series = verifiedSeries.ifEmpty { fallbackSeries }
                 val metadata = series.map { "$it:S${ep.season}:E${ep.episodeNumber}" }
                 register("ep", ep.id, ep.streamUrl, metadata, series, ep.durationSeconds)
             }
