@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.debounce
@@ -784,6 +785,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 // flow: it scans and hashes the entire VOD catalogue. Repeated
                 // scans on every position update starve the UI on large playlists.
                 // Resolve only the 300 most recent positions by indexed local key.
+                val started = android.os.SystemClock.elapsedRealtime()
                 val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
                 for (position in positions) {
                     val resolved = resolveResume(position) ?: continue
@@ -791,12 +793,22 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 // Newest-first DAO order; use the most recent item even if the
                 // last episode was completed (never resurrect an older episode).
-                groups.values.mapNotNull { versions ->
+                val resume = groups.values.mapNotNull { versions ->
                     val latest = versions.first()
                     if (latest.finished) null else latest.copy(resetKeys = versions.map { it.mediaKey })
                 }
+                val elapsed = android.os.SystemClock.elapsedRealtime() - started
+                if (elapsed > 300L) Log.w("SokyVod", "Resume shelf lookup took ${elapsed}ms for ${positions.size} recent items")
+                resume
             }
+            // Room lookups and grouping must never run on Compose's main thread.
             .flowOn(Dispatchers.IO)
+            .catch { problem ->
+                if (problem is kotlinx.coroutines.CancellationException) throw problem
+                // A malformed/stale position must not make both VOD tabs unusable.
+                Log.e("SokyVod", "Could not load watch history; show catalogue without resume cards", problem)
+                emit(emptyList())
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
