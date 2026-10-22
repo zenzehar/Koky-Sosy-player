@@ -41,7 +41,8 @@ data class CloudMovieRef(
     val year: Int?, val tmdbId: String?, val durationSeconds: Int?,
 )
 data class CloudEpisodeRef(
-    val id: Long, val streamUrl: String, val season: Int, val episodeNumber: Int,
+    val id: Long, val streamUrl: String, val seriesId: String,
+    val season: Int, val episodeNumber: Int,
     val seriesName: String?, val seriesYear: Int?, val seriesTmdbId: String?,
     val durationSeconds: Int?,
 )
@@ -675,7 +676,8 @@ interface SeriesDao {
 @Dao
 interface EpisodeDao {
     @Query("""
-        SELECT e.id AS id, e.streamUrl AS streamUrl, e.season AS season,
+        SELECT e.id AS id, e.streamUrl AS streamUrl, e.seriesId AS seriesId,
+               e.season AS season,
                e.episodeNumber AS episodeNumber, s.name AS seriesName,
                s.year AS seriesYear, s.tmdbId AS seriesTmdbId,
                e.durationSeconds AS durationSeconds
