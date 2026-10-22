@@ -140,6 +140,8 @@ fun VlcFallbackScreen(
     val autoplayFocus = remember { FocusRequester() }
     var autoplayFocused by remember { mutableStateOf(false) }
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
+    // D-pad Left/Right should move directly to the timeline, not the buttons.
+    var focusSeekOnReveal by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
@@ -173,7 +175,8 @@ fun VlcFallbackScreen(
     }
     fun seekTo(target: Long) {
         if (!player.isSeekable) return
-        val capped = target.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        // Native absolute milliseconds, never a percentage of an unreliable runtime.
+        val capped = target.coerceAtLeast(0L)
         // LibVLC fast seek may resume at a neighbouring keyframe, causing
         // +10 to land earlier and -10 to land later than requested. Always
         // request precise decoded-time seeking for transport and timeline taps.
@@ -250,8 +253,8 @@ fun VlcFallbackScreen(
                     }
                     previousHealth = health.state
                 }
-                if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
-                    val initialTarget = initialPositionMs.coerceIn(0L, durationMs)
+                if (ready && initialSeekPending && player.isSeekable) {
+                    val initialTarget = initialPositionMs.coerceAtLeast(0L)
                     player.setTime(initialTarget, false)
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
@@ -312,12 +315,11 @@ fun VlcFallbackScreen(
     // Drive long-press preview from monotonic time, regardless of remote repeat rate.
     LaunchedEffect(seekHeldDirection, seekHoldStartedAtMs, durationMs) {
         val direction = seekHeldDirection ?: return@LaunchedEffect
-        if (durationMs <= 0L) return@LaunchedEffect
         while (isActive && seekHeldDirection == direction) {
             val heldMs = (android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs).coerceAtLeast(0L)
             if (heldMs >= TvSeekPolicy.HOLD_THRESHOLD_MS) {
-                val accelerated = TvSeekPolicy.heldPreview(seekOriginMs, heldMs, direction, durationMs)
-                val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                val accelerated = TvSeekPolicy.heldPreview(seekOriginMs, heldMs, direction, null)
+                val firstTap = TvSeekPolicy.tap(seekOriginMs, null, direction)
                 previewMs = if (direction == SeekDirection.FORWARD) max(firstTap, accelerated)
                     else min(firstTap, accelerated)
                 scrubbing = true
@@ -336,13 +338,24 @@ fun VlcFallbackScreen(
         delay(55)
         runCatching {
             if (controlsVisible && ready) {
-                pauseFocus.requestFocus()
-                focusLevel = CinematicFocusLevel.CONTROLS
+                if (focusSeekOnReveal) {
+                    seekFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.SEEK
+                    focusSeekOnReveal = false
+                } else {
+                    pauseFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.CONTROLS
+                }
             } else if (controlsVisible) {
-                pauseFocus.requestFocus()
-                focusLevel = CinematicFocusLevel.CONTROLS
-            }
-            else rootFocus.requestFocus()
+                if (focusSeekOnReveal) {
+                    seekFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.SEEK
+                    focusSeekOnReveal = false
+                } else {
+                    pauseFocus.requestFocus()
+                    focusLevel = CinematicFocusLevel.CONTROLS
+                }
+            } else rootFocus.requestFocus()
         }
     }
 
@@ -370,6 +383,19 @@ fun VlcFallbackScreen(
                     // Never rely on stale Compose focus-change callbacks to choose
                     // the next row. Native seek left/right/hold handlers remain intact.
                     when (event.key) {
+                        Key.DirectionLeft, Key.DirectionRight -> {
+                            if (focusLevel == CinematicFocusLevel.SEEK) false
+                            else {
+                                focusLevel = CinematicFocusLevel.SEEK
+                                seekFocus.requestFocus()
+                                if (player.isSeekable) {
+                                    val direction = if (event.key == Key.DirectionRight)
+                                        SeekDirection.FORWARD else SeekDirection.BACKWARD
+                                    seekTo(TvSeekPolicy.tap(positionMs, null, direction))
+                                } else showControls()
+                                true
+                            }
+                        }
                         Key.DirectionUp, Key.DirectionDown -> {
                             val next = moveCinematicFocus(
                                 focusLevel, showEpisodeControls,
@@ -392,8 +418,17 @@ fun VlcFallbackScreen(
                         }
                     }
                 } else when (event.key) {
-                    Key.DirectionLeft -> { seekTo(positionMs - 10_000L); true }
-                    Key.DirectionRight -> { seekTo(positionMs + 10_000L); true }
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        focusSeekOnReveal = true
+                        focusLevel = CinematicFocusLevel.SEEK
+                        showControls()
+                        if (player.isSeekable) {
+                            val direction = if (event.key == Key.DirectionRight)
+                                SeekDirection.FORWARD else SeekDirection.BACKWARD
+                            seekTo(TvSeekPolicy.tap(positionMs, null, direction))
+                        }
+                        true
+                    }
                     Key.DirectionCenter, Key.Enter -> {
                         if (event.nativeKeyEvent.repeatCount == 0) togglePlayback()
                         true
@@ -519,20 +554,20 @@ fun VlcFallbackScreen(
                                     }
                                     if (direction != null) {
                                         if (event.type == KeyEventType.KeyDown) {
-                                            if (player.isSeekable && durationMs > 0L) {
+                                            if (player.isSeekable) {
                                                 if (seekHeldDirection != direction) {
                                                     seekOriginMs = positionMs
                                                     seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
                                                     seekHeldDirection = direction
-                                                    previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                                                    previewMs = TvSeekPolicy.tap(seekOriginMs, null, direction)
                                                 } else {
                                                     val heldMs = (
                                                         android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs
                                                     ).coerceAtLeast(0L)
                                                     val accelerated = TvSeekPolicy.heldPreview(
-                                                        seekOriginMs, heldMs, direction, durationMs,
+                                                        seekOriginMs, heldMs, direction, null,
                                                     )
-                                                    val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                                                    val firstTap = TvSeekPolicy.tap(seekOriginMs, null, direction)
                                                     previewMs = if (direction == SeekDirection.FORWARD) {
                                                         max(firstTap, accelerated)
                                                     } else {
@@ -627,9 +662,9 @@ fun VlcFallbackScreen(
                     previousEnabled = previousEpisodeAvailable,
                     nextEnabled = nextEpisodeAvailable,
                     onPrevious = onPreviousEpisode,
-                    onRewind = { seekTo(positionMs - 10_000L) },
+                    onRewind = { seekTo(TvSeekPolicy.tap(positionMs, null, SeekDirection.BACKWARD)) },
                     onTogglePause = ::togglePlayback,
-                    onForward = { seekTo(positionMs + 10_000L) },
+                    onForward = { seekTo(TvSeekPolicy.tap(positionMs, null, SeekDirection.FORWARD)) },
                     onNext = onNextEpisodeClick,
                     pauseRequester = pauseFocus,
                     modifier = Modifier.align(Alignment.BottomCenter)
