@@ -275,7 +275,9 @@ fun VlcFallbackScreen(
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
                 }
-                if (ready && positionMs - lastSaved >= 10_000L && durationMs > 0L) {
+                if (ready && positionMs - lastSaved >= 10_000L) {
+                    // Elapsed time is valid even when LibVLC reports an unknown
+                    // duration. Don't suppress periodic Continue Watching writes.
                     lastSaved = positionMs
                     onProgress(positionMs, durationMs)
                 }
