@@ -143,9 +143,11 @@ fun VlcFallbackScreen(
     val autoplayFocus = remember { FocusRequester() }
     var autoplayFocused by remember { mutableStateOf(false) }
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
-    // Only a horizontal press while controls are hidden focuses the seekbar.
-    // Visible controls retain native left/right navigation among their items.
+    // D-pad Left/Right should move directly to the timeline, not the buttons.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
+    // First horizontal press jumps to the timeline. After deliberately moving
+    // Down/Up to the transport row, allow normal Left/Right among its buttons.
+    var horizontalTimelineShortcut by remember { mutableStateOf(true) }
     val seekFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
@@ -409,6 +411,7 @@ fun VlcFallbackScreen(
                     focusLevel = CinematicFocusLevel.CONTROLS
                 }
             } else {
+                horizontalTimelineShortcut = true
                 rootFocus.requestFocus()
             }
         }
@@ -452,12 +455,20 @@ fun VlcFallbackScreen(
                     // Never rely on stale Compose focus-change callbacks to choose
                     // the next row. Native seek left/right/hold handlers remain intact.
                     when (event.key) {
-                        // Let the focused transport button or timeline own
-                        // Left/Right when the controls are already visible.
-                        // A focused seekbar still handles time-based scrubbing.
                         Key.DirectionLeft, Key.DirectionRight -> {
-                            interaction++
-                            false
+                            if (focusLevel == CinematicFocusLevel.SEEK ||
+                                (focusLevel == CinematicFocusLevel.CONTROLS && !horizontalTimelineShortcut)) false
+                            else {
+                                focusLevel = CinematicFocusLevel.SEEK
+                                horizontalTimelineShortcut = false
+                                seekFocus.requestFocus()
+                                if (player.isSeekable) {
+                                    val direction = if (event.key == Key.DirectionRight)
+                                        SeekDirection.FORWARD else SeekDirection.BACKWARD
+                                    seekTo(TvSeekPolicy.tap(positionMs, null, direction))
+                                } else showControls()
+                                true
+                            }
                         }
                         Key.DirectionUp, Key.DirectionDown -> {
                             val next = moveCinematicFocus(
@@ -466,6 +477,7 @@ fun VlcFallbackScreen(
                             )
                             if (next != focusLevel) {
                                 focusLevel = next
+                                if (next == CinematicFocusLevel.CONTROLS) horizontalTimelineShortcut = false
                                 when (next) {
                                     CinematicFocusLevel.AUTOPLAY -> autoplayFocus.requestFocus()
                                     CinematicFocusLevel.CONTROLS -> pauseFocus.requestFocus()
@@ -484,6 +496,7 @@ fun VlcFallbackScreen(
                     Key.DirectionLeft, Key.DirectionRight -> {
                         focusSeekOnReveal = true
                         focusLevel = CinematicFocusLevel.SEEK
+                        horizontalTimelineShortcut = false
                         showControls()
                         if (player.isSeekable) {
                             val direction = if (event.key == Key.DirectionRight)
