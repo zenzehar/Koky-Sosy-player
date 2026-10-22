@@ -40,7 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import app.sokyiptv.ui.theme.TvTextButton as TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,6 +60,7 @@ import app.sokyiptv.data.work.SyncWorker
 import app.sokyiptv.data.work.CatalogueGate
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
+import app.sokyiptv.ui.theme.tvFocusRing
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -374,6 +375,7 @@ private fun RailItem(
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing()
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

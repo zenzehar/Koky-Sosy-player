@@ -22,11 +22,13 @@ jobs:
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+      # Application-owned TV OAuth credential, NOT a user's Google credential.
+      GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'feat/soky-iptv-pro-full-rebrand' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'experiment/soky-iptv-pro-lab-2026-10-19' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -36,6 +38,14 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      # Fail before compiling: rerunning a publish-only job does not rebuild the APK.
+      - name: Validate TV OAuth before compilation
+        run: |
+          if [ -z "$GOOGLE_TV_OAUTH_CLIENT_SECRET" ]; then
+            echo "::error::Missing GOOGLE_TV_OAUTH_CLIENT_SECRET. Add the Actions repository secret and rerun the entire workflow."
+            exit 1
+          fi
 
       - name: Unit tests
         run: ./gradlew test --stacktrace
@@ -66,11 +76,20 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feat/soky-iptv-pro-full-rebrand'
+      github.head_ref == 'experiment/soky-iptv-pro-lab-2026-10-19'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Verify application OAuth setup before publishing
+        env:
+          GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
+        run: |
+          if [ -z "$GOOGLE_TV_OAUTH_CLIENT_SECRET" ]; then
+            echo "::error::Repository Actions secret GOOGLE_TV_OAUTH_CLIENT_SECRET is required for a usable TV Google sign-in APK."
+            exit 1
+          fi
+
       - name: Retrieve assembled APK
         uses: actions/download-artifact@v4
         with:
@@ -84,10 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.12-soky-iptv-pro \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.12_TV_Alpha.apk" \
+          gh release create v0.1.11.23-soky-series-resume-sync \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.23_Series_Resume_Cloud_LAN_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.12 complete rebrand (TV approval pending)" \
-            --notes "UNAPPROVED REBRAND TEST: Soky IPTV Pro user-facing identity, Android package, file/class names, resources, launcher icon, banner and splash. Package identity differs from the previous app: encrypted credential backup/restore is required. Source includes legally required original GPL copyright notices. Real-TV testing and production signing remain pending." \
-            --prerelease
+            --title "Soky IPTV Pro v0.1.11.23 logical series resume and background cloud-LAN sync" \
+            --notes "UNAPPROVED TV TEST: LAN device discovery, reusable six-digit pairing code, no five-minute sharing expiry, 12-second receiver timeout, atomic newer-only progress merge and cloud match diagnostics. Users simply connect their own Google account by QR/code; app OAuth configuration is injected through GitHub Actions and is NOT requested from users. Streaming URLs, IPTV passwords and logins are never uploaded. Native phone OAuth and synchronised deletion are pending; real TV validation required. See docs/GOOGLE_DRIVE_SYNC_TV_TESTING.md." --prerelease

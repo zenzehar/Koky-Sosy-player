@@ -41,7 +41,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import app.sokyiptv.ui.theme.TvTextButton as TextButton
 import androidx.work.WorkManager
 import androidx.work.WorkInfo
 import app.sokyiptv.core.AppSettings
@@ -57,7 +57,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
-import androidx.compose.material3.Button
+import app.sokyiptv.ui.theme.TvButton as Button
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment

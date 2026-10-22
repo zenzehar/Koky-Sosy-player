@@ -1,45 +1,108 @@
-/*
- * This file is part of SokyIPTV.
- * Copyright (C) 2026 The OpenTV Contributors
- * Licensed under the GNU General Public License v3.0 or later.
- */
 package app.sokyiptv.sync
 
+import android.content.Context
+import app.sokyiptv.pairing.PairingHttp
+import app.sokyiptv.sync.cloud.CloudCredentialVault
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONObject
 
-/**
- * Pulls a watch-history bundle from another SokyIPTV that is currently sharing on the LAN.
- *
- * Given the address the other device shows ("192.168.0.14:41234") and its six-digit code, this
- * does one plain HTTP GET over the local network and parses the JSON. No retries, no discovery —
- * the sharing device is up for a few minutes and the user typed exactly where it is.
- */
-class SyncClient(private val httpClient: OkHttpClient) {
-
+/** Code needed once per peer; subsequent connections use an encrypted random token. */
+class SyncClient(httpClient: OkHttpClient, context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
+    private val vault = CloudCredentialVault(context.applicationContext)
+    private val prefs = context.applicationContext.getSharedPreferences("soky_lan_peers", Context.MODE_PRIVATE)
+    fun pairedIds(): Set<String> = prefs.getStringSet("paired_ids", emptySet()).orEmpty().toSet()
+    fun lastAddress(deviceId: String): String? = prefs.getString("address_$deviceId", null)
 
-    suspend fun pull(address: String, code: String): Result<SyncBundle> = withContext(Dispatchers.IO) {
-        runCatching {
-            val cleanAddress = address.trim().removePrefix("http://").removePrefix("https://").trimEnd('/')
-            val cleanCode = code.trim().filter { it.isDigit() }
-            val url = "http://$cleanAddress/export?c=$cleanCode"
-            val request = Request.Builder().url(url).get().build()
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    error(
-                        when (response.code) {
-                            401 -> "That code doesn't match the one on the other device."
-                            else -> "The other device didn't accept the connection (HTTP ${response.code})."
-                        },
-                    )
-                }
-                val body = response.body?.string().orEmpty()
-                json.decodeFromString(SyncBundle.serializer(), body)
-            }
+    private val http = httpClient.newBuilder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build()
+
+    fun isPaired(deviceId: String): Boolean =
+        deviceId.matches(Regex("[a-fA-F0-9-]{36}")) && !vault.read("lan_peer_$deviceId").isNullOrBlank()
+    fun forgetPairing(deviceId: String) {
+        if (deviceId.matches(Regex("[a-fA-F0-9-]{36}"))) {
+            vault.write("lan_peer_$deviceId", null)
+            prefs.edit().putStringSet("paired_ids", pairedIds() - deviceId)
+                .remove("address_$deviceId").apply()
         }
     }
+
+    suspend fun pull(address: String, code: String, expectedDeviceId: String = ""): Result<SyncBundle> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val host = address.trim().removePrefix("http://").trimEnd('/')
+                require(host.matches(Regex("[0-9.]+:[0-9]{1,5}")) &&
+                    PairingHttp.isPrivateAddress(host.substringBefore(':'))) {
+                    "Select a discovered TV or enter a private IP:port."
+                }
+                val shortCode = code.trim()
+                val savedToken = if (expectedDeviceId.isNotBlank()) vault.read("lan_peer_$expectedDeviceId") else null
+                val paired = shortCode.isBlank() && !savedToken.isNullOrBlank()
+                require(paired || shortCode.matches(Regex("[0-9]{6}"))) {
+                    "Enter the six-digit code once to pair these TVs."
+                }
+
+                val (token, deviceId) = if (paired) {
+                    savedToken!! to expectedDeviceId
+                } else {
+                    val pinRequest = Request.Builder()
+                        .url("http://$host/pair?c=$shortCode").get().build()
+                    val reply = http.newCall(pinRequest).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            error(if (response.code == 401) "Incorrect pairing code." else
+                                "TV pairing failed (HTTP ${response.code}).")
+                        }
+                        JSONObject(response.body?.string().orEmpty())
+                    }
+                    val remoteId = reply.optString("deviceId")
+                    val newToken = reply.optString("token")
+                    require(remoteId.matches(Regex("[a-fA-F0-9-]{36}")) && newToken.length >= 32) {
+                        "The other TV did not provide a valid pairing token."
+                    }
+                    if (expectedDeviceId.isNotBlank() && expectedDeviceId != remoteId) {
+                        error("TV identity changed. Refusing to transfer history to an unexpected device.")
+                    }
+                    newToken to remoteId
+                }
+
+                val request = Request.Builder()
+                    .url("http://$host/export")
+                    .header("X-Soky-Pair-Token", token)
+                    .get().build()
+                val bundle = http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        if (response.code == 401 && paired) forgetPairing(expectedDeviceId)
+                        error(if (response.code == 401)
+                            "Pairing expired or was revoked. Enter the new pairing code once."
+                        else "The sharing TV rejected the transfer (HTTP ${response.code}).")
+                    }
+                    json.decodeFromString(SyncBundle.serializer(), response.body?.string().orEmpty())
+                }
+                if (!paired) vault.write("lan_peer_$deviceId", token)
+                if (isPaired(deviceId)) {
+                    prefs.edit().putStringSet("paired_ids", pairedIds() + deviceId)
+                        .putString("address_$deviceId", host).apply()
+                }
+                bundle
+            }.recoverCatching { e ->
+                when (e) {
+                    is SocketTimeoutException -> error("TV did not respond within 12 seconds. Check that Share is open.")
+                    is ConnectException -> error("Connection refused. Reopen Share and search for devices.")
+                    is NoRouteToHostException -> error("Peer unreachable. Check Wi-Fi client isolation.")
+                    else -> throw e
+                }
+            }
+        }
 }

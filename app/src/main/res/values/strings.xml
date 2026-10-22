@@ -158,7 +158,7 @@
     <string name="settings_parental_title">Parental controls</string>
     <string name="settings_parental_subtitle">PIN lock and hide adult categories</string>
     <string name="settings_sync_title">Sync watch history</string>
-    <string name="settings_sync_subtitle">Copy continue-watching to another device over wifi</string>
+    <string name="settings_sync_subtitle">Sync watch history via Wi-Fi, NAS or your own Google Drive</string>
     <string name="settings_about_title">About</string>
     <string name="settings_about_subtitle">Version, updates, licence and links</string>
 

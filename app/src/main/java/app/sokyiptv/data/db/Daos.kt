@@ -33,6 +33,20 @@ import kotlinx.coroutines.flow.Flow
 /** Rows per upsert statement. Keeps a 40,000-channel playlist from building one huge query. */
 private const val UPSERT_CHUNK = 500
 
+/** Minimal reference projection: never include provider credentials in cloud payloads. */
+data class CloudMediaRef(val id: Long, val streamUrl: String)
+
+data class CloudMovieRef(
+    val id: Long, val streamUrl: String, val name: String,
+    val year: Int?, val tmdbId: String?, val durationSeconds: Int?,
+)
+data class CloudEpisodeRef(
+    val id: Long, val streamUrl: String, val seriesId: String,
+    val season: Int, val episodeNumber: Int,
+    val seriesName: String?, val seriesYear: Int?, val seriesTmdbId: String?,
+    val durationSeconds: Int?,
+)
+
 @Dao
 interface SourceDao {
     @Query("SELECT * FROM sources ORDER BY id")
@@ -429,6 +443,12 @@ data class VodCategoryCount(val categoryId: String?, val count: Int)
 
 @Dao
 interface MovieDao {
+    @Query("SELECT id, streamUrl, name, year, tmdbId, durationSeconds FROM movies")
+    suspend fun progressRefs(): List<CloudMovieRef>
+
+    @Query("SELECT id, streamUrl FROM movies")
+    suspend fun cloudRefs(): List<CloudMediaRef>
+
     @Query("""SELECT * FROM movies
         WHERE (:sourceId IS NULL OR sourceId = :sourceId)
         AND (:categoryId IS NULL OR categoryId = :categoryId)
@@ -655,6 +675,20 @@ interface SeriesDao {
 
 @Dao
 interface EpisodeDao {
+    @Query("""
+        SELECT e.id AS id, e.streamUrl AS streamUrl, e.seriesId AS seriesId,
+               e.season AS season,
+               e.episodeNumber AS episodeNumber, s.name AS seriesName,
+               s.year AS seriesYear, s.tmdbId AS seriesTmdbId,
+               e.durationSeconds AS durationSeconds
+          FROM episodes e LEFT JOIN series s
+            ON s.sourceId = e.sourceId AND s.seriesId = e.seriesId
+    """)
+    suspend fun progressRefs(): List<CloudEpisodeRef>
+
+    @Query("SELECT id, streamUrl FROM episodes")
+    suspend fun cloudRefs(): List<CloudMediaRef>
+
     @Query("SELECT COUNT(*) FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId")
     suspend fun countForSeries(sourceId: Long, seriesId: String): Int
 
@@ -705,6 +739,21 @@ interface PlaybackPositionDao {
 
     @Upsert
     suspend fun upsert(position: PlaybackPosition)
+
+    /**
+     * Serialized Room transaction: check and update under one database write
+     * transaction. Protects local player writes from read/upsert sync races.
+     * Equal timestamps keep the existing local value.
+     */
+    @Transaction
+    suspend fun mergeIfNewer(
+        profileId: Long, mediaKey: String, positionMs: Long, durationMs: Long, updatedMs: Long,
+    ): Int {
+        val current = get(profileId, mediaKey)
+        if (current != null && current.updatedAtMillis >= updatedMs) return 0
+        upsert(PlaybackPosition(profileId, mediaKey, positionMs, durationMs, updatedMs))
+        return 1
+    }
 
     @Query("DELETE FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun delete(profileId: Long, key: String)

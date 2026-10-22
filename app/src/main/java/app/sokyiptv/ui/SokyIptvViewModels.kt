@@ -37,7 +37,12 @@ import app.sokyiptv.sync.NasSync
 import app.sokyiptv.sync.SyncBundle
 import app.sokyiptv.sync.SyncClient
 import app.sokyiptv.sync.SyncPosition
+import app.sokyiptv.sync.SyncIdentityResolver
+import app.sokyiptv.sync.cloud.CloudMediaKeys
+import app.sokyiptv.sync.LanSyncManager
+import app.sokyiptv.sync.cloud.ProgressMediaIndex
 import app.sokyiptv.sync.SyncServer
+import app.sokyiptv.sync.SyncDiscovery
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -779,9 +784,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 // The DAO sorts newest first. Group BEFORE discarding completed entries;
                 // otherwise an old incomplete episode resurfaces after a newer completion.
                 val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
+                val globalIndex = ProgressMediaIndex.build(graph)
                 for (position in positions) {
                     val resolved = resolveResume(position) ?: continue
-                    groups.getOrPut(resolved.logicalKey) { mutableListOf() }.add(resolved)
+                    val logical = globalIndex.byLocal[position.mediaKey]?.logicalHash ?: resolved.logicalKey
+                    groups.getOrPut(logical) { mutableListOf() }.add(resolved.copy(logicalKey = logical))
                 }
                 groups.values.mapNotNull { versions ->
                     val latest = versions.first()
@@ -1258,15 +1265,48 @@ class ProfilesViewModel(app: Application) : AndroidViewModel(app) {
  */
 class SyncViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
-    private val server = SyncServer(viewModelScope)
-    private val client = SyncClient(graph.httpClient)
+    private val lan = LanSyncManager.get(app)
+    private val server = lan.server
+    private val client = lan.client
 
     val serverState: StateFlow<SyncServer.State> = server.state
+    val preferFixedCode: Boolean get() = server.preferFixedCode
+    fun setPreferFixedCode(enabled: Boolean) = server.setPreferFixedCode(enabled)
+    val fixedCode: String get() = server.fixedCode
+    fun setFixedCode(code: String) = server.setFixedCode(code)
+    fun pairedDevices(): List<SyncDiscovery.Peer> = client.pairedIds().mapNotNull { id ->
+        client.lastAddress(id)?.let { SyncDiscovery.Peer("Previously paired TV", it, id) }
+    }
+    fun isPaired(deviceId: String) = client.isPaired(deviceId)
+    fun forgetPairing(deviceId: String) = client.forgetPairing(deviceId)
+    fun rotateFixedCode(): String = server.renewFixedCode()
+
+    sealed interface DiscoverState {
+        data object Idle : DiscoverState
+        data object Searching : DiscoverState
+        data class Results(val peers: List<SyncDiscovery.Peer>) : DiscoverState
+        data class Failed(val detail: String) : DiscoverState
+    }
+
+    private val _discoverState = MutableStateFlow<DiscoverState>(DiscoverState.Idle)
+    val discoverState: StateFlow<DiscoverState> = _discoverState.asStateFlow()
+
+    fun discoverDevices() {
+        if (_discoverState.value == DiscoverState.Searching) return
+        viewModelScope.launch {
+            _discoverState.value = DiscoverState.Searching
+            _discoverState.value = try {
+                DiscoverState.Results(SyncDiscovery.scan())
+            } catch (_: Exception) {
+                DiscoverState.Failed("Discovery unavailable. Enter the sharing TV's address manually.")
+            }
+        }
+    }
 
     sealed interface ReceiveState {
         data object Idle : ReceiveState
         data object Connecting : ReceiveState
-        data class Done(val merged: Int) : ReceiveState
+        data class Done(val merged: Int, val matched: Int, val received: Int) : ReceiveState
         data class Failed(val message: String) : ReceiveState
     }
 
@@ -1310,85 +1350,29 @@ class SyncViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun startSharing() {
-        viewModelScope.launch { server.start(buildBundleJson()) }
+    fun startSharing(useFixedCode: Boolean = false) {
+        lan.enableSharing(useFixedCode)
     }
 
-    fun stopSharing() = server.stop()
+    fun stopSharing() = lan.disableSharing()
 
-    fun receive(address: String, code: String) {
+    fun receive(address: String, code: String, deviceId: String = "") {
         viewModelScope.launch {
             _receiveState.value = ReceiveState.Connecting
-            client.pull(address, code)
-                .onSuccess { _receiveState.value = ReceiveState.Done(merge(it)) }
+            lan.receive(address, code, deviceId)
+                .onSuccess { stats ->
+                    lan.pairedDeviceAdded()
+                    _receiveState.value = ReceiveState.Done(stats.updated, stats.matched, stats.received)
+                }
                 .onFailure { _receiveState.value = ReceiveState.Failed(it.message ?: "Sync failed.") }
         }
     }
 
     fun resetReceive() { _receiveState.value = ReceiveState.Idle }
 
-    private suspend fun buildBundleJson(): String {
-        val names = graph.profiles.all().associate { it.id to it.name }
-        val items = graph.playbackPositions.all().mapNotNull { pos ->
-            val profileName = names[pos.profileId] ?: return@mapNotNull null
-            val parts = pos.mediaKey.split(":", limit = 2)
-            if (parts.size != 2) return@mapNotNull null
-            val id = parts[1].toLongOrNull() ?: return@mapNotNull null
-            val streamUrl = when (parts[0]) {
-                "movie" -> graph.catalogRepository.movie(id)?.streamUrl
-                "ep" -> graph.catalogRepository.episode(id)?.streamUrl
-                else -> null
-            } ?: return@mapNotNull null
-            SyncPosition(profileName, streamUrl, parts[0], pos.positionMillis, pos.durationMillis, pos.updatedAtMillis)
-        }
-        return Json.encodeToString(SyncBundle.serializer(), SyncBundle(positions = items))
-    }
-
-    private suspend fun merge(bundle: SyncBundle): Int {
-        var merged = 0
-        for (item in bundle.positions) {
-            val profileId = profileIdFor(item.profile) ?: continue
-            val localId = when (item.kind) {
-                "movie" -> graph.catalogRepository.movieByStreamUrl(item.streamUrl)?.id
-                "ep" -> graph.catalogRepository.episodeByStreamUrl(item.streamUrl)?.id
-                else -> null
-            } ?: continue
-            val mediaKey = "${item.kind}:$localId"
-            val existing = graph.playbackPositions.get(profileId, mediaKey)
-            if (existing == null || item.updatedAtMillis > existing.updatedAtMillis) {
-                graph.playbackPositions.upsert(
-                    PlaybackPosition(
-                        profileId = profileId,
-                        mediaKey = mediaKey,
-                        positionMillis = item.positionMillis,
-                        durationMillis = item.durationMillis,
-                        updatedAtMillis = item.updatedAtMillis,
-                    ),
-                )
-                merged++
-            }
-        }
-        return merged
-    }
-
-    private suspend fun profileIdFor(name: String): Long? {
-        graph.profiles.byName(name)?.let { return it.id }
-        return runCatching { graph.profiles.insert(Profile(name = name, createdAtMillis = 0)) }.getOrNull()
-    }
-
-    override fun onCleared() {
-        server.stop()
-    }
 }
 
-/**
- * Owns the "manage channels from your phone or laptop" web server for the manage screen.
- *
- * Same ownership shape as [SyncViewModel]: the server is bound to [viewModelScope] (so its idle
- * watchdog is torn down with the screen) and stopped in [onCleared]. The screen also starts it on
- * open and stops it on leave, mirroring the phone-pairing lifecycle — so no socket is ever left
- * listening on the user's network once they navigate away.
- */
+
 class WebManagerViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
     private val server = ManagerServer(viewModelScope, graph.catalogRepository, graph.settings, graph.sourceRepository)

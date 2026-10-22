@@ -38,7 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
+import app.sokyiptv.ui.theme.TvTextButton as TextButton
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.ui.platform.LocalContext
 import android.app.ActivityManager

@@ -8,6 +8,8 @@ package app.sokyiptv.ui.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,13 +22,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
+import app.sokyiptv.ui.theme.TvButton as Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import app.sokyiptv.ui.theme.TvOutlinedButton as OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +47,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sokyiptv.R
 import app.sokyiptv.sync.SyncServer
 import app.sokyiptv.ui.SyncViewModel
+import app.sokyiptv.ui.theme.tvFocusRing
 
 /**
  * Local watch-history sync between two SokyIPTV devices on the same wifi. No servers of ours: one
@@ -53,11 +58,17 @@ fun SyncScreen(
     onBack: () -> Unit,
     viewModel: SyncViewModel = viewModel(),
 ) {
-    var mode by remember { mutableStateOf(Mode.SHARE) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val cloudWasConnected = remember(appContext) {
+        app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(appContext).authorized
+    }
+    var mode by remember { mutableStateOf(if (cloudWasConnected) Mode.CLOUD else Mode.SHARE) }
+    // Sharing persists outside this menu. Stop only on explicit user action.
 
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp, vertical = 24.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -67,7 +78,11 @@ fun SyncScreen(
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            stringResource(R.string.sync_desc),
+            when (mode) {
+                Mode.CLOUD -> "Sync watch progress across your TVs with your own Google account. IPTV credentials are never uploaded."
+                Mode.NAS -> stringResource(R.string.sync_nas_desc)
+                else -> stringResource(R.string.sync_desc)
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.widthIn(max = 720.dp),
@@ -77,6 +92,7 @@ fun SyncScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ModeChip(stringResource(R.string.sync_share_from_here), mode == Mode.SHARE) { mode = Mode.SHARE }
             ModeChip(stringResource(R.string.sync_receive), mode == Mode.RECEIVE) { mode = Mode.RECEIVE }
+            ModeChip("Google Drive", mode == Mode.CLOUD) { mode = Mode.CLOUD }
             ModeChip(stringResource(R.string.sync_nas), mode == Mode.NAS) { mode = Mode.NAS }
         }
         Spacer(Modifier.height(20.dp))
@@ -85,44 +101,84 @@ fun SyncScreen(
             Mode.SHARE -> SharePane(viewModel)
             Mode.RECEIVE -> ReceivePane(viewModel)
             Mode.NAS -> NasPane(viewModel)
+            Mode.CLOUD -> GoogleDriveSyncPane()
         }
     }
 }
 
-private enum class Mode { SHARE, RECEIVE, NAS }
+private enum class Mode { SHARE, RECEIVE, NAS, CLOUD }
 
 @Composable
 private fun SharePane(viewModel: SyncViewModel) {
     val state by viewModel.serverState.collectAsState()
+    var useFixed by remember { mutableStateOf(viewModel.preferFixedCode) }
+    var confirmedPin by remember { mutableStateOf("") }
+    var editingPin by remember { mutableStateOf(false) }
+    var customPin by remember { mutableStateOf("") }
+    var pinMessage by remember { mutableStateOf("") }
     Card {
-        Column(Modifier.padding(20.dp).widthIn(max = 640.dp)) {
-            when (val s = state) {
-                is SyncServer.State.Sharing -> {
-                    Text(stringResource(R.string.sync_ready_to_share), style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
-                    Text(stringResource(R.string.sync_on_other_device))
-                    Spacer(Modifier.height(12.dp))
-                    Field(stringResource(R.string.sync_address), s.session.address)
-                    Spacer(Modifier.height(8.dp))
-                    Field(stringResource(R.string.sync_code), s.session.code)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        stringResource(R.string.sync_type_in_one_go, s.session.address, s.session.code),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(Modifier.padding(18.dp).widthIn(max = 670.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Share watch history over local Wi-Fi", style = MaterialTheme.typography.titleMedium)
+            Text("Both devices must be on the same network. Sharing remains active after you exit this menu while Android keeps the app running.")
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Reuse the same six-digit code")
+                Switch(
+                    checked = useFixed,
+                    onCheckedChange = { enabled -> if (state !is SyncServer.State.Sharing) { useFixed = enabled; viewModel.setPreferFixedCode(enabled) } },
+                    enabled = state !is SyncServer.State.Sharing,
+                )
+            }
+            if (useFixed) {
+                Text("Reusable code: ${viewModel.fixedCode}", style = MaterialTheme.typography.titleMedium)
+                OutlinedButton(
+                    enabled = state !is SyncServer.State.Sharing,
+                    onClick = { confirmedPin = viewModel.rotateFixedCode() },
+                ) { Text("Generate new reusable code") }
+                OutlinedButton(
+                    enabled = state !is SyncServer.State.Sharing,
+                    onClick = { editingPin = !editingPin; customPin = "" },
+                ) { Text("Set my own six-digit code") }
+                if (editingPin) {
+                    Text("New pairing code: ${customPin.padEnd(6, '•')}")
+                    NumPad(
+                        onKey = { if (it.length == 1 && it[0].isDigit() && customPin.length < 6) customPin += it },
+                        onBackspace = { customPin = customPin.dropLast(1) },
                     )
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedButton(onClick = { viewModel.stopSharing() }) { Text(stringResource(R.string.sync_stop_sharing)) }
+                    Button(enabled = customPin.length == 6, onClick = {
+                        viewModel.setFixedCode(customPin)
+                        pinMessage = "Code updated. Previously paired TVs must pair again."
+                        editingPin = false
+                    }) { Text("Save code") }
+                }
+                if (confirmedPin.isNotEmpty()) Text("Reusable code changed. Re-pair other TVs if needed.")
+                if (pinMessage.isNotBlank()) Text(pinMessage)
+            }
+            when (val current = state) {
+                is SyncServer.State.Sharing -> {
+                    Text("Sharing continues after leaving this screen; Stop sharing disables background LAN.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Field("Device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL)
+                    Field("Address", current.session.address)
+                    Field("Pairing code", current.session.code)
+                    Text("Watch positions available: ${current.session.positionsAvailable}")
+                    Text(
+                        if (current.session.discoveryActive) "Device discovery: Listening (UDP 38692)"
+                        else "Device discovery unavailable on this TV. Use the address shown above.",
+                        color = if (current.session.discoveryActive)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.error,
+                    )
+                    Text(if (current.session.persistent) "Reusable code is enabled" else "Temporary pairing code")
+                    OutlinedButton(onClick = { viewModel.stopSharing() }) { Text("Stop sharing and disable LAN background sync") }
                 }
                 is SyncServer.State.Failed -> {
-                    Text(s.reason, color = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.height(12.dp))
-                    Button(onClick = { viewModel.startSharing() }) { Text(stringResource(R.string.common_try_again)) }
+                    Text(current.reason, color = MaterialTheme.colorScheme.error)
+                    Button(onClick = { viewModel.startSharing(useFixed) }) { Text("Try again") }
                 }
                 else -> {
-                    Text(stringResource(R.string.sync_will_share))
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = { viewModel.startSharing() }) { Text(stringResource(R.string.sync_start_sharing)) }
+                    Button(onClick = { viewModel.startSharing(useFixed) }) { Text("Start sharing") }
                 }
             }
         }
@@ -132,48 +188,106 @@ private fun SharePane(viewModel: SyncViewModel) {
 @Composable
 private fun ReceivePane(viewModel: SyncViewModel) {
     val state by viewModel.receiveState.collectAsState()
+    val discovery by viewModel.discoverState.collectAsState()
+    var selectedAddress by remember { mutableStateOf("") }
+    var selectedDeviceId by remember { mutableStateOf("") }
+    var rePairRequested by remember { mutableStateOf(false) }
     var entry by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) { viewModel.discoverDevices() }
 
-    Row {
-        Card {
-            Column(Modifier.padding(20.dp).widthIn(max = 520.dp)) {
-                Text(stringResource(R.string.sync_type_what_shows), style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    entry.ifEmpty { "address:port#code" },
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = if (entry.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(16.dp))
-                NumPad(
-                    onKey = { if (entry.length < 40) entry += it },
-                    onBackspace = { entry = entry.dropLast(1) },
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(
-                        enabled = entry.contains('#') && state !is SyncViewModel.ReceiveState.Connecting,
-                        onClick = {
-                            val address = entry.substringBefore('#')
-                            val code = entry.substringAfter('#')
-                            viewModel.receive(address, code)
-                        },
-                    ) { Text(stringResource(R.string.sync_connect)) }
-
-                    when (val s = state) {
-                        is SyncViewModel.ReceiveState.Connecting -> Text(stringResource(R.string.sync_connecting))
-                        is SyncViewModel.ReceiveState.Done -> Text(
-                            stringResource(R.string.sync_synced_items, s.merged),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        is SyncViewModel.ReceiveState.Failed -> Text(
-                            s.message,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        else -> Unit
+    Card {
+        Column(Modifier.padding(18.dp).widthIn(max = 660.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Receive watch history", style = MaterialTheme.typography.titleMedium)
+            val googlePriority = app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(
+                androidx.compose.ui.platform.LocalContext.current).authorized
+            if (googlePriority) Text(
+                "Google Drive is connected, so automatic background sync uses Drive. " +
+                    "Manual LAN receiving remains available.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                enabled = discovery !is SyncViewModel.DiscoverState.Searching,
+                onClick = { viewModel.discoverDevices() },
+            ) { Text(if (discovery is SyncViewModel.DiscoverState.Searching) "Searching…" else "Discover devices") }
+            when (val found = discovery) {
+                is SyncViewModel.DiscoverState.Results -> {
+                    val peers = (found.peers + viewModel.pairedDevices())
+                        .distinctBy { it.deviceId.ifBlank { it.address } }
+                    if (peers.isEmpty()) {
+                        Text("No sharing TVs found. Start sharing on the other TV or enter its IP:port manually.")
+                    } else if (found.peers.isEmpty()) {
+                        Text("Using previously paired devices and their last known addresses.")
+                    }
+                    peers.forEach { peer ->
+                        OutlinedButton(onClick = {
+                            selectedAddress = peer.address
+                            selectedDeviceId = peer.deviceId
+                            rePairRequested = false
+                            entry = ""
+                            viewModel.resetReceive()
+                        }) {
+                            Text("${peer.name}  ·  ${peer.address}" +
+                                (if (viewModel.isPaired(peer.deviceId)) "  · Paired" else "") +
+                                (if (selectedAddress == peer.address) "  (selected)" else ""))
+                        }
                     }
                 }
+                is SyncViewModel.DiscoverState.Failed -> Text(found.detail)
+                else -> Unit
+            }
+            if (selectedAddress.isNotBlank()) {
+                Text("Selected device: $selectedAddress")
+                OutlinedButton(onClick = { selectedAddress = ""; selectedDeviceId = ""; entry = "" }) { Text("Enter address manually") }
+            }
+            val alreadyPaired = selectedAddress.isNotBlank() && viewModel.isPaired(selectedDeviceId) && !rePairRequested
+            if (alreadyPaired) {
+                OutlinedButton(onClick = {
+                    viewModel.forgetPairing(selectedDeviceId)
+                    rePairRequested = true
+                    entry = ""
+                }) { Text("Re-pair with a different code") }
+            }
+            Text(
+                if (alreadyPaired) "Paired TV selected. No code needed."
+                else if (selectedAddress.isNotBlank())
+                    "Enter code once: ${entry.ifBlank { "______" }}"
+                else "Enter IP:port#code: ${entry.ifBlank { "192.168.0.10:12345#123456" }}",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (!alreadyPaired) NumPad(
+                onKey = { key ->
+                    if (selectedAddress.isNotBlank()) {
+                        if (key.all(Char::isDigit) && entry.length < 6) entry += key
+                    } else if (entry.length < 48) entry += key
+                },
+                onBackspace = { entry = entry.dropLast(1) },
+            )
+            Button(
+                enabled = state !is SyncViewModel.ReceiveState.Connecting &&
+                    (if (alreadyPaired) true
+                     else if (selectedAddress.isNotBlank()) entry.matches(Regex("[0-9]{6}"))
+                     else entry.contains('#') && entry.substringAfter('#').matches(Regex("[0-9]{6}"))),
+                onClick = {
+                    val address = selectedAddress.ifBlank { entry.substringBefore('#') }
+                    val code = if (alreadyPaired) "" else if (selectedAddress.isNotBlank()) entry else entry.substringAfter('#')
+                    viewModel.receive(address, code, selectedDeviceId)
+                },
+            ) { Text(if (alreadyPaired) "Connect paired TV" else "Pair and receive") }
+            when (val result = state) {
+                is SyncViewModel.ReceiveState.Connecting -> Text("Connecting (maximum 12 seconds)…")
+                is SyncViewModel.ReceiveState.Done -> Text(
+                    "Received: ${result.received}  ·  Matched: ${result.matched}  ·  Updated: ${result.merged}. " +
+                        if (result.received == 0) "No saved watch positions on the sharing TV." else
+                            if (result.matched == 0) "No matching provider media on this TV." else
+                                if (result.merged == 0) "Matching history is already as recent as received." else
+                                    "Open Movies/Series Continue Watching.",
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                is SyncViewModel.ReceiveState.Failed -> Text(
+                    result.message, color = MaterialTheme.colorScheme.error,
+                )
+                else -> Unit
             }
         }
     }
@@ -266,6 +380,7 @@ private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
+            .tvFocusRing()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     )
@@ -296,6 +411,7 @@ private fun NumKey(label: String, onClick: () -> Unit) {
         Modifier
             .size(54.dp)
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing()
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .then(

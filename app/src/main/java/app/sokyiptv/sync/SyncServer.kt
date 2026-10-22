@@ -5,20 +5,24 @@
  */
 package app.sokyiptv.sync
 
+import android.content.Context
+import android.os.Build
 import android.util.Log
 import app.sokyiptv.pairing.PairingHttp
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
-import java.util.concurrent.TimeUnit
+import java.security.MessageDigest
+import java.util.UUID
+import org.json.JSONObject
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,9 +35,40 @@ import kotlinx.coroutines.launch
  * server on the LAN, gated by a six-digit code shown on screen, private-network only, and torn
  * down on a timeout. The bundle is a snapshot taken when sharing starts, served as-is.
  */
-class SyncServer(private val scope: CoroutineScope) {
+class SyncServer(context: Context, private val scope: CoroutineScope) {
+    private val preferences = context.applicationContext.getSharedPreferences("soky_lan_pairing", Context.MODE_PRIVATE)
+    val deviceId: String = preferences.getString("device_id", null)
+        ?: UUID.randomUUID().toString().also { preferences.edit().putString("device_id", it).apply() }
+    val preferFixedCode: Boolean get() = preferences.getBoolean("prefer_fixed", false)
+    fun setPreferFixedCode(enabled: Boolean) {
+        preferences.edit().putBoolean("prefer_fixed", enabled).apply()
+    }
+    val fixedCode: String get() = preferences.getString("fixed_code", null)
+        ?.takeIf { it.matches(Regex("[0-9]{6}")) } ?: newCode().also {
+            preferences.edit().putString("fixed_code", it).apply()
+        }
+    fun renewFixedCode(): String = newCode().also { setFixedCode(it) }
+    fun setFixedCode(value: String) {
+        require(value.matches(Regex("[0-9]{6}"))) { "Pairing code must contain exactly 6 digits." }
+        // A PIN rotation revokes existing paired-device tokens deliberately.
+        preferences.edit().putString("fixed_code", value).remove("paired_tokens").apply()
+    }
+    private fun hashToken(value: String): String =
+        MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    private fun tokenValid(value: String): Boolean =
+        value.length >= 32 && preferences.getStringSet("paired_tokens", emptySet())
+            .orEmpty().contains(hashToken(value))
+    private fun authorizePairing(): String {
+        val token = UUID.randomUUID().toString() + UUID.randomUUID().toString()
+        val saved = preferences.getStringSet("paired_tokens", emptySet()).orEmpty()
+        preferences.edit().putStringSet("paired_tokens", (saved + hashToken(token)).toList().takeLast(30).toSet()).apply()
+        return token
+    }
+    private fun newCode(): String = "%06d".format(SecureRandom().nextInt(1_000_000))
 
-    data class Session(val host: String, val port: Int, val code: String) {
+
+    data class Session(val host: String, val port: Int, val code: String, val persistent: Boolean, val positionsAvailable: Int, val discoveryActive: Boolean) {
         val address: String get() = "$host:$port"
     }
 
@@ -47,24 +82,26 @@ class SyncServer(private val scope: CoroutineScope) {
     val state: StateFlow<State> = _state.asStateFlow()
 
     private var serverSocket: ServerSocket? = null
+    private var discoverySocket: DatagramSocket? = null
     private var code: String = ""
     private var bundle: String = ""
+    @Volatile private var bundleProvider: (() -> String)? = null
     private var wrongAttempts = 0
     @Volatile private var running = false
 
-    fun start(bundleJson: String) {
+    fun start(bundleJson: String, persistent: Boolean = false, newestBundle: (() -> String)? = null) {
         if (running) return
         val host = lanAddress() ?: run {
             _state.value = State.Failed("This device isn't on a network, so it can't share.")
             return
         }
-        val random = SecureRandom()
-        code = "%06d".format(random.nextInt(1_000_000))
+        code = if (persistent) fixedCode else newCode()
         bundle = bundleJson
+        bundleProvider = newestBundle
         wrongAttempts = 0
 
         val socket = try {
-            ServerSocket(0)
+            ServerSocket(38693)
         } catch (e: Exception) {
             Log.w(TAG, "Could not open a socket", e)
             _state.value = State.Failed("Could not start sharing on this device.")
@@ -72,7 +109,14 @@ class SyncServer(private val scope: CoroutineScope) {
         }
         serverSocket = socket
         running = true
-        _state.value = State.Sharing(Session(host, socket.localPort, code))
+        discoverySocket = SyncDiscovery.listen({ running }, { "$host:${socket.localPort}" }, deviceId)
+        _state.value = State.Sharing(Session(
+            host, socket.localPort, code, persistent,
+            runCatching {
+                kotlinx.serialization.json.Json.decodeFromString(SyncBundle.serializer(), bundleJson).positions.size
+            }.getOrDefault(0),
+            discoverySocket != null,
+        ))
 
         thread(name = "sokyiptv-sync", isDaemon = true) {
             while (running) {
@@ -86,21 +130,20 @@ class SyncServer(private val scope: CoroutineScope) {
             }
         }
 
-        scope.launch(Dispatchers.Default) {
-            delay(TimeUnit.MINUTES.toMillis(TIMEOUT_MINUTES))
-            if (running) {
-                stop()
-                _state.value = State.Failed("Sharing timed out. Start again when you're ready.")
-            }
-        }
+        // No arbitrary five-minute countdown: sharing is deliberately active only while
+        // the user is on the sharing screen. It is stopped on Back / Done / screen close.
+
     }
 
     fun stop() {
         running = false
         runCatching { serverSocket?.close() }
+        runCatching { discoverySocket?.close() }
+        discoverySocket = null
         serverSocket = null
         code = ""
         bundle = ""
+        bundleProvider = null
         if (_state.value is State.Sharing) _state.value = State.Idle
     }
 
@@ -115,31 +158,55 @@ class SyncServer(private val scope: CoroutineScope) {
         val reader = BufferedReader(InputStreamReader(client.getInputStream(), Charsets.UTF_8))
         val requestLine = reader.readLine() ?: return
         val (method, path, query) = PairingHttp.parseRequestLine(requestLine) ?: return
-        // Drain headers.
+        val headers = mutableMapOf<String, String>()
         while (true) {
             val line = reader.readLine() ?: break
             if (line.isEmpty()) break
+            PairingHttp.parseHeader(line)?.let { headers[it.first] = it.second }
         }
-
         val output = client.getOutputStream()
-        val supplied = query["c"].orEmpty().filter { it.isDigit() }
-
-        if (method != "GET" || !path.startsWith("/export")) {
+        if (method != "GET") {
+            output.write(PairingHttp.httpResponse("405 Method Not Allowed", "text/plain", "GET only."))
+            return
+        }
+        if (path == "/pair") {
+            val supplied = query["c"].orEmpty()
+            if (!PairingHttp.secretsMatch(supplied, code) || code.isEmpty()) {
+                wrongAttempts++
+                output.write(PairingHttp.httpResponse("401 Unauthorized", "text/plain", "Incorrect pairing code."))
+                if (wrongAttempts >= MAX_ATTEMPTS) {
+                    stop()
+                    _state.value = State.Failed("Too many wrong pairing attempts.")
+                }
+                return
+            }
+            val body = JSONObject().put("deviceId", deviceId)
+                .put("token", authorizePairing()).toString()
+            output.write(PairingHttp.httpResponse("200 OK", "application/json", body))
+            return
+        }
+        if (path != "/export") {
             output.write(PairingHttp.httpResponse("404 Not Found", "text/plain", "Not found."))
             return
         }
-        if (code.isEmpty() || !PairingHttp.secretsMatch(supplied, code)) {
-            wrongAttempts++
-            if (wrongAttempts >= MAX_ATTEMPTS) {
-                output.write(PairingHttp.httpResponse("403 Forbidden", "text/plain", "Too many attempts."))
-                stop()
-                _state.value = State.Failed("Too many incorrect codes. Sharing cancelled.")
-                return
-            }
-            output.write(PairingHttp.httpResponse("401 Unauthorized", "text/plain", "Wrong code."))
+        // Paired clients supply a long-lived random token. For older clients the
+        // one-time six-digit PIN is also accepted during migration.
+        val token = headers["x-soky-pair-token"].orEmpty()
+        val legacyPin = query["c"].orEmpty()
+        if (!tokenValid(token) && !(legacyPin.isNotEmpty() && PairingHttp.secretsMatch(legacyPin, code))) {
+            output.write(PairingHttp.httpResponse("401 Unauthorized", "text/plain", "Device not paired."))
             return
         }
-        output.write(PairingHttp.httpResponse("200 OK", "application/json", bundle))
+        val latest = runCatching { bundleProvider?.invoke() ?: bundle }.getOrElse {
+            output.write(PairingHttp.httpResponse("503 Service Unavailable", "text/plain", "History unavailable."))
+            return
+        }
+        val available = runCatching {
+            kotlinx.serialization.json.Json.decodeFromString(SyncBundle.serializer(), latest).positions.size
+        }.getOrDefault(0)
+        val state = _state.value as? State.Sharing
+        if (state != null) _state.value = State.Sharing(state.session.copy(positionsAvailable = available))
+        output.write(PairingHttp.httpResponse("200 OK", "application/json", latest))
     }
 
     private fun lanAddress(): String? {
@@ -162,7 +229,6 @@ class SyncServer(private val scope: CoroutineScope) {
 
     private companion object {
         const val TAG = "SokyIPTV"
-        const val TIMEOUT_MINUTES = 5L
         const val SOCKET_TIMEOUT_MILLIS = 10_000
         const val MAX_ATTEMPTS = 5
     }

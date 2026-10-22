@@ -14,14 +14,22 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 33
-        versionName = "0.1.11.12-soky-rebrand"
+        versionCode = 44
+        versionName = "0.1.11.23-logical-series-fallback"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
         val tmdbReadToken = providers.environmentVariable("TMDB_READ_TOKEN").orNull.orEmpty()
         buildConfigField("String", "TMDB_DEFAULT_KEY", "\""+ tmdbKey + "\"")
         buildConfigField("String", "TMDB_DEFAULT_READ_TOKEN", "\"" + tmdbReadToken + "\"")
+
+        // A distributed TV OAuth client cannot truly keep a client secret.
+        // The client ID is public; the TV client secret is injected by CI and MUST NOT be in git.
+        // Google's TV device-code token exchange requires this app-level value, never user input.
+        val googleTvSecret = providers.environmentVariable("GOOGLE_TV_OAUTH_CLIENT_SECRET").orNull.orEmpty()
+        val escapedTvSecret = googleTvSecret.replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "GOOGLE_TV_CLIENT_ID", "\"432118217322-6qqfb4c5c0s6ecqg45i82l4q5h7rjvtf.apps.googleusercontent.com\"")
+        buildConfigField("String", "GOOGLE_TV_CLIENT_SECRET", "\"" + escapedTvSecret + "\"")
     }
 
     signingConfigs {

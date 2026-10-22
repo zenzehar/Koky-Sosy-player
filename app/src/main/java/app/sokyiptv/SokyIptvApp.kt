@@ -60,6 +60,8 @@ class SokyIptvApp : Application(), ImageLoaderFactory {
         super.onCreate()
         val graph = ServiceLocator.get(this)
         SyncWorker.schedule(this)
+        // Paired LAN transport is owned by the application, never the Sync screen.
+        app.sokyiptv.sync.LanSyncManager.get(this).startAtLaunch()
 
         // When the normaliser has moved on since the catalogue was last processed, re-clean
         // the stored channels and re-run the guide matcher — locally, no re-download. This
@@ -92,7 +94,8 @@ class SokyIptvApp : Application(), ImageLoaderFactory {
         // this device's bundle to the shared folder and merges in every other device's — favourites,
         // watch history and NAS recordings. Fire-and-forget and fully guarded: a blank or unreachable
         // NAS returns a result rather than throwing, so a bad launch never costs the user anything.
-        if (graph.settings.nasAutoSync.value) {
+        if (graph.settings.nasAutoSync.value &&
+            !app.sokyiptv.sync.cloud.GoogleDriveProgressSync.get(this).authorized) {
             appScope.launch { runCatching { app.sokyiptv.sync.NasSync(graph).sync() } }
         }
 
