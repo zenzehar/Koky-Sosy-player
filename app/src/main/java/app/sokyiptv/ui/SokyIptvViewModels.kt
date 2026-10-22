@@ -783,9 +783,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                 // The DAO sorts newest first. Group BEFORE discarding completed entries;
                 // otherwise an old incomplete episode resurfaces after a newer completion.
                 val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
+                val globalIndex = app.sokyiptv.sync.cloud.ProgressMediaIndex.build(graph)
                 for (position in positions) {
                     val resolved = resolveResume(position) ?: continue
-                    groups.getOrPut(resolved.logicalKey) { mutableListOf() }.add(resolved)
+                    val logical = globalIndex.byLocal[position.mediaKey]?.logicalHash ?: resolved.logicalKey
+                    groups.getOrPut(logical) { mutableListOf() }.add(resolved.copy(logicalKey = logical))
                 }
                 groups.values.mapNotNull { versions ->
                     val latest = versions.first()
