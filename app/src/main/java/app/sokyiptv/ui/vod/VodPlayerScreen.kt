@@ -107,6 +107,7 @@ import app.sokyiptv.core.findActivity
 import app.sokyiptv.player.PlayerController
 import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
+import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -282,6 +283,17 @@ fun VodPlayerScreen(
     val media3SeekClock = remember(controller) { VlcSeekClock() }
 
     fun reveal() { controlsVisible = true; interaction++ }
+
+    fun setHardwarePlayback(action: TvHardwarePlaybackKeys.Action) {
+        val play = when (action) {
+            TvHardwarePlaybackKeys.Action.TOGGLE -> !controller.player.playWhenReady
+            TvHardwarePlaybackKeys.Action.PLAY -> true
+            TvHardwarePlaybackKeys.Action.PAUSE -> false
+        }
+        controller.player.playWhenReady = play
+        paused = !play
+        reveal()
+    }
 
     fun seekTenSeconds(direction: SeekDirection) {
         if (!growingRec && !controller.player.isCurrentMediaItemSeekable) return
@@ -579,7 +591,17 @@ fun VodPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
+                val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 when {
+                    TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode) -> {
+                        if (event.type == KeyEventType.KeyDown) {
+                            TvHardwarePlaybackKeys.actionForInitialPress(
+                                hardwareKeyCode, event.nativeKeyEvent.repeatCount,
+                            )?.let(::setHardwarePlayback)
+                        }
+                        // KeyUp/repeat are handled but do not trigger a second action.
+                        true
+                    }
                     event.key == Key.Back || event.key == Key.Escape -> false
                     event.type == KeyEventType.KeyDown && !controlsVisible &&
                         (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
