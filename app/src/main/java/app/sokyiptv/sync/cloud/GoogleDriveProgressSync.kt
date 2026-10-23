@@ -6,6 +6,9 @@
 package app.sokyiptv.sync.cloud
 
 import android.content.Context
+import android.util.AtomicFile
+import java.io.File
+import java.util.concurrent.TimeUnit
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.data.model.PlaybackPosition
 import app.sokyiptv.data.model.Profile
@@ -52,16 +55,25 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val graph = ServiceLocator.get(appContext)
     private val vault = CloudCredentialVault(appContext)
     private val oauth = GoogleTvOAuth(graph.httpClient, vault)
-    private val http: OkHttpClient = graph.httpClient
+    // Cloud requests should never inherit the five-minute catalogue timeout.
+    private val http: OkHttpClient = graph.httpClient.newBuilder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(22, TimeUnit.SECONDS)
+        .build()
     private val prefs = appContext.getSharedPreferences("soky_cloud_progress_v1", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val gate = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var periodicJob: Job? = null
+    private var pushJob: Job? = null
+    private var lastSyncAttemptMillis: Long = 0L
+    private var cachedIndex: Pair<Map<String, String>, Map<String, String>>? = null
+    private var indexCachedAtMillis = 0L
     private val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
     }
-    private val ownName = "soky-progress-v1-$deviceId.json"
+    private val sharedName = "soky-progress-shared-v2.json"
     private val prefix = "soky-progress-v1-"
 
     private val _state = MutableStateFlow(
@@ -84,7 +96,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     fun disconnect() {
         DriveBackgroundSyncWorker.cancel(appContext)
         oauth.disconnect()
-        prefs.edit().remove("last_digest").apply()
+        prefs.edit().remove("last_digest").remove("shared_file_id").apply()
+        pushJob?.cancel()
         _state.value = CloudSyncState(
             connected = false,
             configured = oauth.configured,
@@ -138,7 +151,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         periodicJob = scope.launch {
             while (isActive) {
                 if (oauth.connected) syncNow()
-                delay(120_000L)
+                delay(30_000L)
             }
         }
     }
@@ -149,11 +162,24 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         if (oauth.connected) scope.launch { syncNow() }
     }
 
+    /** Debounced near-real-time upload after a saved local watch-position change. */
+    fun requestSoon() {
+        if (!oauth.connected) return
+        pushJob?.cancel()
+        pushJob = scope.launch {
+            delay(2_500L)
+            val wait = 12_000L - (android.os.SystemClock.elapsedRealtime() - lastSyncAttemptMillis)
+            if (wait > 0L) delay(wait)
+            syncNow()
+        }
+    }
+
     /** Returns true only if a complete cloud read/merge/write succeeds. */
     suspend fun syncNow(): Boolean {
         if (!oauth.connected) return false
         return gate.withLock {
-            _state.value = _state.value.copy(busy = true, message = "Synchronising watch history…")
+            lastSyncAttemptMillis = android.os.SystemClock.elapsedRealtime()
+            _state.value = _state.value.copy(busy = true, message = "Synchronising shared watch history…")
             try {
                 val result = withContext(Dispatchers.IO) { performSync() }
                 val now = System.currentTimeMillis()
@@ -165,10 +191,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                     matchedCount = result.matched,
                     remoteCount = result.remote,
                     unmatchedCount = result.unmatched,
-                    message = "Drive sync: ${result.imported} new positions imported; " +
-                        "${result.matched}/${result.remote} remote records matched this TV." +
-                        if (result.unmatched > 0) " ${result.unmatched} skipped (missing or different catalogue URLs)." else
-                            if (result.uploaded) " Progress uploaded." else " Already up to date.",
+                    message = "Account-wide sync: ${result.remote} entries in one shared file; " +
+                        "${result.imported} applied to this TV." +
+                        if (result.unmatched > 0) " ${result.unmatched} titles retained in cloud until catalogued locally."
+                        else if (result.uploaded) " Cloud file updated." else " Up to date.",
                 )
                 true
             } catch (c: CancellationException) {
@@ -245,7 +271,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 .putLong("upload_cutoff", System.currentTimeMillis())
                 .remove("last_digest")
                 .remove("last_success")
+                .remove("shared_file_id")
+                .remove("shared_parent_id")
                 .apply()
+            cachedIndex = null
         }
         prefs.edit().putString("owner_id", owner).putString("owner_email", email).apply()
         _state.value = _state.value.copy(accountLabel = email)
@@ -304,7 +333,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 val item = files.optJSONObject(i) ?: continue
                 val name = item.optString("name")
                 val id = item.optString("id")
-                if (name.startsWith(prefix) && name.endsWith(".json") && id.isNotBlank()) {
+                if ((name == sharedName || name.startsWith(prefix) && name.endsWith(".json")) &&
+                    id.isNotBlank()) {
                     found += CloudFile(id, name)
                 }
             }
@@ -326,7 +356,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             if (payload.size > 3_000_000) throw IllegalStateException("Cloud watch-history file is unexpectedly large.")
             val parsed = runCatching { json.decodeFromString(CloudWatchSnapshot.serializer(), String(payload, Charsets.UTF_8)) }
                 .getOrElse { throw IllegalStateException("Drive contains an unreadable sync file. No cloud data changed.") }
-            require(parsed.version == 1 && parsed.positions.size <= 12_000) {
+            require(parsed.version in 1..2 && parsed.positions.size <= 12_000) {
                 "Unsupported or excessively large Drive history detected. No cloud data changed."
             }
             return parsed
@@ -341,7 +371,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             Request.Builder().url(url).patch(payload.toRequestBody(mediaType)).build()
         } else {
             val boundary = "soky-" + UUID.randomUUID().toString()
-            val meta = JSONObject().put("name", ownName).put("mimeType", "application/json")
+            val meta = JSONObject().put("name", sharedName).put("mimeType", "application/json")
                 .put("parents", org.json.JSONArray().put(parentId)).toString()
             val multipart =
                 "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + meta +
@@ -357,6 +387,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     /** Only SHA256s of local stream URLs are used for the cross-install lookup. */
     private suspend fun indexLocalMedia(): Pair<Map<String, String>, Map<String, String>> {
+        val now = android.os.SystemClock.elapsedRealtime()
+        cachedIndex?.takeIf { now - indexCachedAtMillis < 120_000L }?.let { return it }
         val byLocalKey = HashMap<String, String>()
         val byCloudKey = HashMap<String, String>()
         val ambiguous = HashSet<String>()
@@ -381,20 +413,23 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         // If the same provider URL is used for multiple local rows, we cannot know
         // which row is the correct playback history target. Skip it; never guess.
         ambiguous.forEach { byCloudKey.remove(it) }
-        return byLocalKey to byCloudKey
+        return (byLocalKey to byCloudKey).also {
+            cachedIndex = it
+            indexCachedAtMillis = now
+        }
     }
 
     private suspend fun localSnapshot(index: Map<String, String>): CloudWatchSnapshot {
-        val names = graph.profiles.all().associate { it.id to it.name }
-        // A different Google account must not inherit historical watch positions from the
-        // preceding account on this device. Remote points still merge into local Room safely.
+        // The same Google account is the global watch-history namespace.
+        // Only the currently active local profile participates, regardless of its name or id.
+        val activeProfile = graph.settings.activeProfileId.value
         val cutoff = prefs.getLong("upload_cutoff", 0L)
         val positions = graph.playbackPositions.all().mapNotNull { position ->
-            if (position.updatedAtMillis < cutoff) return@mapNotNull null
-            val name = names[position.profileId]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (position.updatedAtMillis < cutoff || position.profileId != activeProfile)
+                return@mapNotNull null
             val key = index[position.mediaKey] ?: return@mapNotNull null
             CloudWatchPoint(
-                profile = name,
+                profile = "",
                 mediaHash = key,
                 kind = position.mediaKey.substringBefore(':'),
                 positionMillis = position.positionMillis.coerceAtLeast(0L),
