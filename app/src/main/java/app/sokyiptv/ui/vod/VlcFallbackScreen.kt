@@ -85,6 +85,7 @@ import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlin.math.max
+import kotlin.math.abs
 import kotlin.math.min
 
 /** Native VLC is the first VOD choice. Media3 remains an explicitly bounded alternative. */
@@ -134,6 +135,8 @@ fun VlcFallbackScreen(
     val seekClock = remember(player) { VlcSeekClock() }
     val postSeekGate = remember(player) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
+    var lastRequestedSeekMs by remember(player) { mutableLongStateOf(-1L) }
+    var seekCouldNotLand by remember(player) { mutableStateOf(false) }
     // Seek Solution 3 does not issue automatic retry/calibration seeks.
     // Native player commands are driven by explicit user actions only.
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -227,6 +230,8 @@ fun VlcFallbackScreen(
         // magnify bad provider timestamps into random jumps.
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
+        lastRequestedSeekMs = capped
+        seekCouldNotLand = false
         player.setTime(capped, false)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
         positionMs = seekClock.requested(capped, now)
@@ -297,6 +302,19 @@ fun VlcFallbackScreen(
                 )) {
                     awaitingSeekPlayback = false
                     positionMs = seekClock.confirmNative(nativeTime)
+                    if (lastRequestedSeekMs >= 0L) {
+                        val missMs = abs(nativeTime - lastRequestedSeekMs)
+                        if (missMs > 20_000L) {
+                            seekCouldNotLand = true
+                            PlaybackDiagnostics.event(
+                                context, "VLC_SEEK_MISS",
+                                ((nativeTime - lastRequestedSeekMs) / 1_000L)
+                                    .coerceIn(-999_999L, 999_999L).toInt(),
+                                persistNow = true,
+                            )
+                        }
+                        lastRequestedSeekMs = -1L
+                    }
                     // Start a fresh five-second visibility interval only now.
                     interaction++
                 }
@@ -629,6 +647,29 @@ fun VlcFallbackScreen(
                     ),
             ) {
                 CinematicScrim()
+                if (seekCouldNotLand) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center)
+                            .background(Color.Black.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            "This stream could not reach the requested time.",
+                            color = Color.White,
+                        )
+                        Text(
+                            "Displayed position is the actual player position. End unverified.",
+                            color = Color.LightGray,
+                        )
+                        TvVlcButton("Try Media3 player") {
+                            onProgress(positionMs, preferredDurationMs)
+                            onTryMedia3()
+                        }
+                        TvVlcButton("Continue in VLC") { seekCouldNotLand = false }
+                    }
+                }
                 CinematicTitle(
                     rawTitle = title,
                     isEpisode = showEpisodeControls,
