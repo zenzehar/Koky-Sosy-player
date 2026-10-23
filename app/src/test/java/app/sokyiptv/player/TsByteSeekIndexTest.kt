@@ -61,6 +61,6 @@ class TsByteSeekIndexTest {
 
     @Test fun skipsIncompleteScanOrShortUnreliableStreams() {
         assertNull(TsByteSeekIndex.fromProbes(probes().take(4)))
-        assertFalse(TsByteIndexProbe.eligibleUrlForTesting("http://x.example/video.m3u8"))
+        assertFalse(LowImpactTsDurationProbe.eligibleUrl("http://x.example/video.m3u8"))
     }
 }
