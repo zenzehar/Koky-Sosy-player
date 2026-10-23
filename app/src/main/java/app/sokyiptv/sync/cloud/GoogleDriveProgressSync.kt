@@ -6,6 +6,9 @@
 package app.sokyiptv.sync.cloud
 
 import android.content.Context
+import android.util.AtomicFile
+import java.io.File
+import java.util.concurrent.TimeUnit
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.data.model.PlaybackPosition
 import app.sokyiptv.data.model.Profile
@@ -52,16 +55,25 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val graph = ServiceLocator.get(appContext)
     private val vault = CloudCredentialVault(appContext)
     private val oauth = GoogleTvOAuth(graph.httpClient, vault)
-    private val http: OkHttpClient = graph.httpClient
+    // Cloud requests should never inherit the five-minute catalogue timeout.
+    private val http: OkHttpClient = graph.httpClient.newBuilder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(22, TimeUnit.SECONDS)
+        .build()
     private val prefs = appContext.getSharedPreferences("soky_cloud_progress_v1", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val gate = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var periodicJob: Job? = null
+    private var pushJob: Job? = null
+    private var lastSyncAttemptMillis: Long = 0L
+    private var cachedIndex: Pair<Map<String, String>, Map<String, String>>? = null
+    private var indexCachedAtMillis = 0L
     private val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
     }
-    private val ownName = "soky-progress-v1-$deviceId.json"
+    private val sharedName = "soky-progress-shared-v2.json"
     private val prefix = "soky-progress-v1-"
 
     private val _state = MutableStateFlow(
@@ -84,7 +96,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     fun disconnect() {
         DriveBackgroundSyncWorker.cancel(appContext)
         oauth.disconnect()
-        prefs.edit().remove("last_digest").apply()
+        prefs.edit().remove("last_digest").remove("shared_file_id").apply()
+        pushJob?.cancel()
         _state.value = CloudSyncState(
             connected = false,
             configured = oauth.configured,
@@ -138,7 +151,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         periodicJob = scope.launch {
             while (isActive) {
                 if (oauth.connected) syncNow()
-                delay(120_000L)
+                delay(30_000L)
             }
         }
     }
@@ -149,11 +162,24 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         if (oauth.connected) scope.launch { syncNow() }
     }
 
+    /** Debounced near-real-time upload after a saved local watch-position change. */
+    fun requestSoon() {
+        if (!oauth.connected) return
+        if (pushJob?.isActive == true) return
+        pushJob = scope.launch {
+            delay(2_500L)
+            val wait = 12_000L - (android.os.SystemClock.elapsedRealtime() - lastSyncAttemptMillis)
+            if (wait > 0L) delay(wait)
+            syncNow()
+        }
+    }
+
     /** Returns true only if a complete cloud read/merge/write succeeds. */
     suspend fun syncNow(): Boolean {
         if (!oauth.connected) return false
         return gate.withLock {
-            _state.value = _state.value.copy(busy = true, message = "Synchronising watch history…")
+            lastSyncAttemptMillis = android.os.SystemClock.elapsedRealtime()
+            _state.value = _state.value.copy(busy = true, message = "Synchronising shared watch history…")
             try {
                 val result = withContext(Dispatchers.IO) { performSync() }
                 val now = System.currentTimeMillis()
@@ -165,10 +191,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                     matchedCount = result.matched,
                     remoteCount = result.remote,
                     unmatchedCount = result.unmatched,
-                    message = "Drive sync: ${result.imported} new positions imported; " +
-                        "${result.matched}/${result.remote} remote records matched this TV." +
-                        if (result.unmatched > 0) " ${result.unmatched} skipped (missing or different catalogue URLs)." else
-                            if (result.uploaded) " Progress uploaded." else " Already up to date.",
+                    message = "Account-wide sync: ${result.remote} entries in one shared file; " +
+                        "${result.imported} applied to this TV." +
+                        if (result.unmatched > 0) " ${result.unmatched} titles retained in cloud until catalogued locally."
+                        else if (result.uploaded) " Cloud file updated." else " Up to date.",
                 )
                 true
             } catch (c: CancellationException) {
@@ -245,7 +271,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 .putLong("upload_cutoff", System.currentTimeMillis())
                 .remove("last_digest")
                 .remove("last_success")
+                .remove("shared_file_id")
+                .remove("shared_parent_id")
                 .apply()
+            cachedIndex = null
         }
         prefs.edit().putString("owner_id", owner).putString("owner_email", email).apply()
         _state.value = _state.value.copy(accountLabel = email)
@@ -304,7 +333,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 val item = files.optJSONObject(i) ?: continue
                 val name = item.optString("name")
                 val id = item.optString("id")
-                if (name.startsWith(prefix) && name.endsWith(".json") && id.isNotBlank()) {
+                if ((name == sharedName || name.startsWith(prefix) && name.endsWith(".json")) &&
+                    id.isNotBlank()) {
                     found += CloudFile(id, name)
                 }
             }
@@ -326,7 +356,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             if (payload.size > 3_000_000) throw IllegalStateException("Cloud watch-history file is unexpectedly large.")
             val parsed = runCatching { json.decodeFromString(CloudWatchSnapshot.serializer(), String(payload, Charsets.UTF_8)) }
                 .getOrElse { throw IllegalStateException("Drive contains an unreadable sync file. No cloud data changed.") }
-            require(parsed.version == 1 && parsed.positions.size <= 12_000) {
+            require(parsed.version in 1..2 && parsed.positions.size <= 12_000) {
                 "Unsupported or excessively large Drive history detected. No cloud data changed."
             }
             return parsed
@@ -341,7 +371,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             Request.Builder().url(url).patch(payload.toRequestBody(mediaType)).build()
         } else {
             val boundary = "soky-" + UUID.randomUUID().toString()
-            val meta = JSONObject().put("name", ownName).put("mimeType", "application/json")
+            val meta = JSONObject().put("name", sharedName).put("mimeType", "application/json")
                 .put("parents", org.json.JSONArray().put(parentId)).toString()
             val multipart =
                 "--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + meta +
@@ -357,6 +387,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     /** Only SHA256s of local stream URLs are used for the cross-install lookup. */
     private suspend fun indexLocalMedia(): Pair<Map<String, String>, Map<String, String>> {
+        val now = android.os.SystemClock.elapsedRealtime()
+        cachedIndex?.takeIf { now - indexCachedAtMillis < 120_000L }?.let { return it }
         val byLocalKey = HashMap<String, String>()
         val byCloudKey = HashMap<String, String>()
         val ambiguous = HashSet<String>()
@@ -381,20 +413,23 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         // If the same provider URL is used for multiple local rows, we cannot know
         // which row is the correct playback history target. Skip it; never guess.
         ambiguous.forEach { byCloudKey.remove(it) }
-        return byLocalKey to byCloudKey
+        return (byLocalKey to byCloudKey).also {
+            cachedIndex = it
+            indexCachedAtMillis = now
+        }
     }
 
     private suspend fun localSnapshot(index: Map<String, String>): CloudWatchSnapshot {
-        val names = graph.profiles.all().associate { it.id to it.name }
-        // A different Google account must not inherit historical watch positions from the
-        // preceding account on this device. Remote points still merge into local Room safely.
+        // The same Google account is the global watch-history namespace.
+        // Only the currently active local profile participates, regardless of its name or id.
+        val activeProfile = graph.settings.activeProfileId.value
         val cutoff = prefs.getLong("upload_cutoff", 0L)
         val positions = graph.playbackPositions.all().mapNotNull { position ->
-            if (position.updatedAtMillis < cutoff) return@mapNotNull null
-            val name = names[position.profileId]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (position.updatedAtMillis < cutoff || position.profileId != activeProfile)
+                return@mapNotNull null
             val key = index[position.mediaKey] ?: return@mapNotNull null
             CloudWatchPoint(
-                profile = name,
+                profile = "",
                 mediaHash = key,
                 kind = position.mediaKey.substringBefore(':'),
                 positionMillis = position.positionMillis.coerceAtLeast(0L),
@@ -410,90 +445,181 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         val unmatched: Int, val uploaded: Boolean,
     )
 
+    /** Owner-separated on-device recovery copy, never another Drive file. */
+    private fun recoveryFile(): AtomicFile {
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val safe = MessageDigest.getInstance("SHA-256")
+            .digest(owner.toByteArray(Charsets.UTF_8)).take(12)
+            .joinToString("") { "%02x".format(it) }
+        return AtomicFile(File(appContext.filesDir, "soky-cloud-recovery-$safe.json"))
+    }
+
+    private fun readRecovery(): List<CloudWatchPoint> = runCatching {
+        val bytes = recoveryFile().openRead().use { it.readBytes() }
+        if (bytes.size > 3_000_000) return@runCatching emptyList()
+        json.decodeFromString(CloudWatchSnapshot.serializer(), bytes.toString(Charsets.UTF_8))
+            .positions
+    }.getOrDefault(emptyList())
+
+    private fun saveRecovery(snapshot: CloudWatchSnapshot) {
+        val file = recoveryFile()
+        val bytes = json.encodeToString(CloudWatchSnapshot.serializer(), snapshot)
+            .toByteArray(Charsets.UTF_8)
+        val stream = file.startWrite()
+        try {
+            stream.write(bytes)
+            file.finishWrite(stream)
+        } catch (e: Exception) {
+            file.failWrite(stream)
+            throw e
+        }
+    }
+
+    private fun mergedPoints(vararg groups: List<CloudWatchPoint>, now: Long): List<CloudWatchPoint> =
+        CloudAccountLedger.merge(now, *groups)
+
+    private fun isCovered(actual: List<CloudWatchPoint>, expected: List<CloudWatchPoint>) =
+        CloudAccountLedger.covers(actual, expected)
+
+    private fun archiveLegacy(token: String, legacy: List<CloudFile>) {
+        // Older clients still running can recreate these. Upgrade all TVs to v40.
+        for (file in legacy) {
+            runCatching {
+                driveRequest(
+                    token, Request.Builder()
+                        .url("https://www.googleapis.com/drive/v3/files/" +
+                            URLEncoder.encode(file.id, "UTF-8") + "?fields=id%2Ctrashed")
+                        .patch(JSONObject().put("trashed", true).toString()
+                            .toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build(),
+                )
+            }
+        }
+    }
+
+    /**
+     * One Drive object per Google account, not one object per TV. On first migration
+     * gather the old per-device files once. Thereafter the cached file ID permits
+     * a single GET to poll the shared ledger, and a PATCH only for new progress.
+     *
+     * Drive v3 does not promise server-enforced conditional writes. Keep durable
+     * local recovery copies, re-read immediately before/after writes, and retry
+     * conflicts. Concurrent TVs converge on subsequent sync; an atomic guarantee
+     * requires a transactional backend rather than one Drive JSON file.
+     */
     private suspend fun performSync(): SyncOutcome {
         val token = oauth.accessToken()
-        registerAuthorizedAccount(token)
-        val listing = listSnapshots(token)
-        val files = listing.files
-        val remote = linkedMapOf<String, CloudWatchPoint>()
+        if (prefs.getString("owner_id", null).isNullOrBlank()) registerAuthorizedAccount(token)
         val now = System.currentTimeMillis()
-        var rejected = 0
-        val conflicting = mutableSetOf<String>()
-        // Download and validate ALL snapshots before modifying local or uploading data.
-        for (file in files) {
-            val snapshot = downloadSnapshot(token, file) ?: continue
-            for (point in snapshot.positions) {
-                if (!CloudMergeRules.valid(point, now)) {
-                    rejected++
-                    continue
-                }
-                val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
-                val previous = remote[key]
-                if (previous != null &&
-                    previous.updatedAtMillis == point.updatedAtMillis &&
-                    (previous.positionMillis != point.positionMillis ||
-                     previous.durationMillis != point.durationMillis)) {
-                    conflicting += key
-                }
-                if (previous == null || point.updatedAtMillis > previous.updatedAtMillis) {
-                    remote[key] = point
-                }
+        val cachedId = prefs.getString("shared_file_id", null)
+        var shared: CloudFile? = cachedId?.let { CloudFile(it, sharedName) }
+        var listing: CloudListing? = null
+        var remoteSnapshot: CloudWatchSnapshot? = null
+        var legacy = emptyList<CloudFile>()
+        var migration = false
+
+        if (shared != null) {
+            // A user can trash the shared file manually. Re-discover once if missing.
+            try {
+                remoteSnapshot = downloadSnapshot(token, shared)
+            } catch (e: IllegalStateException) {
+                if (!e.message.orEmpty().contains("HTTP 404")) throw e
+                prefs.edit().remove("shared_file_id").apply()
+                shared = null
             }
         }
-        require(conflicting.isEmpty()) {
-            "Conflicting cloud versions detected. Sync cancelled to protect viewing history."
+        if (shared == null) {
+            listing = listSnapshots(token)
+            val candidates = listing.files.filter { it.name == sharedName }.sortedBy { it.id }
+            shared = candidates.firstOrNull()
+            legacy = listing.files.filter { it.name.startsWith(prefix) }
+            migration = true
+            if (shared != null) remoteSnapshot = downloadSnapshot(token, shared)
         }
 
-        val (byLocal, byCloud) = indexLocalMedia()
-        val existingProfiles = graph.profiles.all().associate { it.name to it.id }.toMutableMap()
+        val legacyPoints = if (migration) legacy.flatMap { file ->
+            downloadSnapshot(token, file)?.positions.orEmpty()
+        } else emptyList()
+        val index = indexLocalMedia()
+        val local = localSnapshot(index.first)
+        val recovered = readRecovery()
+        var combined = mergedPoints(
+            remoteSnapshot?.positions.orEmpty(), legacyPoints, recovered, local.positions,
+            now = now,
+        )
+        // A cloud item always belongs to this Google account. Apply it to the
+        // ACTIVE local profile, never match/create cloud profile names.
+        val profileId = graph.settings.activeProfileId.value
         var imported = 0
-        var matched = 0
-        for (point in remote.values) {
-            // No speculative matching by title. Different stream URLs are intentionally
-            // skipped rather than potentially merging different content.
-            val localKey = byCloud["${point.kind}:${point.mediaHash}"] ?: continue
-            matched++
-            val profileId = existingProfiles[point.profile] ?: run {
-                graph.profiles.insert(Profile(name = point.profile, createdAtMillis = now)).also {
-                    existingProfiles[point.profile] = it
-                }
-            }
+        var resolvable = 0
+        for (point in combined) {
+            val localKey = index.second["${point.kind}:${point.mediaHash}"] ?: continue
+            resolvable++
             imported += graph.playbackPositions.mergeIfNewer(
                 profileId, localKey, point.positionMillis, point.durationMillis, point.updatedAtMillis,
             )
         }
-
-        // Preserve this Google account's existing Drive progress when the same TV switches
-        // away to another account and later returns. Uploading only positions newer than
-        // the account-switch cutoff would otherwise overwrite its previous cloud file with
-        // an empty/partial snapshot and erase watched positions.
-        val local = localSnapshot(byLocal)
-        val merged = LinkedHashMap<String, CloudWatchPoint>()
-        for (point in remote.values + local.positions.filter { CloudMergeRules.valid(it, now) }) {
-            val key = point.profile + "\u0000" + point.kind + "\u0000" + point.mediaHash
-            val existing = merged[key]
-            if (existing == null || point.updatedAtMillis > existing.updatedAtMillis) {
-                merged[key] = point
+        val originalCloud = mergedPoints(remoteSnapshot?.positions.orEmpty(), now = now)
+        var uploaded = false
+        var verified = false
+        // A local safety copy is persisted before any potentially competing Drive write.
+        saveRecovery(local.copy(version = 2, positions = combined))
+        for (attempt in 0..2) {
+            // Refresh before replacing a shared file, reducing overwrite races.
+            if (shared != null && (attempt > 0 || combined != originalCloud)) {
+                val latest = downloadSnapshot(token, shared)
+                combined = mergedPoints(combined, latest?.positions.orEmpty(), now = now)
             }
+            if (shared != null && combined == mergedPoints(
+                    remoteSnapshot?.positions.orEmpty(), now = now,
+                ) && !migration) {
+                verified = true
+                break
+            }
+            // Migration or locally changed progress: create/replace the SAME shared file.
+            val payload = json.encodeToString(CloudWatchSnapshot.serializer(),
+                local.copy(version = 2, positions = combined))
+            uploadSnapshot(token, shared, payload, listing?.parentId ?:
+                prefs.getString("shared_parent_id", null) ?: "appDataFolder")
+            uploaded = true
+            if (shared == null) {
+                // A first upload returns a new id but the existing upload helper
+                // has a Unit signature. Discover this once; cached for future syncs.
+                listing = listSnapshots(token)
+                shared = listing.files.filter { it.name == sharedName }.minByOrNull { it.id }
+                    ?: throw IllegalStateException("Drive created no shared watch-history file.")
+            }
+            val echoed = downloadSnapshot(token, shared)
+            val confirmed = mergedPoints(echoed?.positions.orEmpty(), now = now)
+            if (isCovered(confirmed, combined)) {
+                verified = true
+                combined = mergedPoints(confirmed, combined, now = now)
+                break
+            }
+            combined = mergedPoints(combined, confirmed, now = now)
+            delay(200L * (attempt + 1))
         }
-        val snapshot = local.copy(
-            positions = merged.values.sortedByDescending { it.updatedAtMillis }.take(10_000),
-        )
-        val payload = json.encodeToString(CloudWatchSnapshot.serializer(), snapshot)
-        val digest = MessageDigest.getInstance("SHA-256").digest(
-            json.encodeToString(snapshot.positions).toByteArray(Charsets.UTF_8),
-        ).joinToString("") { "%02x".format(it) }
-        val currentOwnFile = files.firstOrNull { it.name == ownName }
-        val alreadyUploaded = currentOwnFile != null && prefs.getString("last_digest", null) == digest
-        if (!alreadyUploaded) {
-            uploadSnapshot(token, currentOwnFile, payload, listing.parentId)
-            prefs.edit().putString("last_digest", digest).apply()
+        if (!verified) throw IllegalStateException("Concurrent Drive updates detected; recovery retained, please retry.")
+        // Preserve the verified content in a recovery copy for the next race repair.
+        saveRecovery(local.copy(version = 2, positions = combined))
+        shared?.let {
+            prefs.edit().putString("shared_file_id", it.id)
+                .putString("shared_parent_id", listing?.parentId ?:
+                    prefs.getString("shared_parent_id", "")).apply()
         }
-        return SyncOutcome(imported, matched, remote.size, remote.size - matched + rejected, !alreadyUploaded)
+        if (migration && shared != null && legacy.isNotEmpty()) {
+            // Reversible trash, only after the shared ledger has been verified.
+            archiveLegacy(token, legacy)
+        }
+        return SyncOutcome(imported, resolvable, combined.size, combined.size - resolvable, uploaded)
     }
 
     companion object {
         @Volatile private var instance: GoogleDriveProgressSync? = null
+
+        fun signalLocalProgressChanged() {
+            instance?.requestSoon()
+        }
         fun get(context: Context): GoogleDriveProgressSync =
             instance ?: synchronized(this) {
                 instance ?: GoogleDriveProgressSync(context.applicationContext).also { instance = it }

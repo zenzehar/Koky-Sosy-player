@@ -17,9 +17,10 @@ class CloudMergeRulesTest {
         assertFalse(CloudMergeRules.valid(point(timestamp = now + 5 * 60000L + 1), now))
         assertFalse(CloudMergeRules.valid(point(position = -1L), now))
         assertFalse(CloudMergeRules.valid(point(duration = -1L), now))
-        assertFalse(CloudMergeRules.valid(point(position = 400000L), now))
+        // Provider-declared durations can be shorter than actual media.
+        assertTrue(CloudMergeRules.valid(point(position = 400000L), now))
         assertFalse(CloudMergeRules.valid(point(kind = "live"), now))
-        assertFalse(CloudMergeRules.valid(point(profile = ""), now))
+        assertTrue(CloudMergeRules.valid(point(profile = ""), now))
         assertFalse(CloudMergeRules.valid(point(profile = "X".repeat(200)), now))
         assertFalse(CloudMergeRules.valid(point().copy(mediaHash = "not-a-hash"), now))
     }

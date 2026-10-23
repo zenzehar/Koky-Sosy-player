@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.39-selected-target-correction' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'feature/v0.1.11.40-single-drive-ledger' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.39-selected-target-correction'
+      github.head_ref == 'feature/v0.1.11.40-single-drive-ledger'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.39-selected-target-correction \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.39_Target_Only_Guard.apk" \
+          gh release create v0.1.11.40-single-account-cloud-ledger \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.40_Cloud_Ledger.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.39 Target-Based Seek Correction" \
-            --notes "v0.1.11.39 TV alpha from v0.1.11.38. Corrective VLC seek eligibility depends only on the original user-selected target versus the declared duration at request time. If selected time exceeds the declared duration, no corrective retry will run regardless of native landing time. If the user selected a time at or within the declaration, keep the bounded one-retry feedback correction even if the VLC landing position or resulting calculated correction command exceeds the declaration. Preserves v38 fixed seekbar duration and all unrelated behavior. Android versionCode 60. Physical Android TV validation still required. Debug signing may differ across builds, so back up credentials before uninstalling." --prerelease
+            --title "Soky IPTV Pro v0.1.11.40 Account Cloud Ledger" \
+            --notes "v0.1.11.40 unapproved TV test build from the accepted v0.1.11.39 seeking baseline. Google account-wide watch history now uses ONE shared Drive JSON file, not per-device snapshot files. No matching/creation of profile names; cloud data imports to the currently active local profile whenever the corresponding local media is present. Newest timestamp per canonical media identity wins; unresolved cloud records are retained, never assigned to unrelated videos. Old per-device cloud records are migrated then moved to Drive Trash only after shared-file readback verification. Faster 30s foreground pulls and debounced 2.5s pushes after durable progress saves; 15m Android minimum background work remains. An on-device recovery copy, pre-write read, post-write validation and bounded retries mitigate Drive concurrent-write races but cannot provide Netflix-level atomic multi-writer guarantees without a transactional backend. No IPTV credentials/URLs are written to Drive; cloud model includes only SHA256 media keys, watch positions and timestamps. VersionCode 61. All TVs must upgrade to prevent legacy sync files reappearing. User must test cloud import across two TVs and preserve backups before uninstall; signing cert may differ." --prerelease

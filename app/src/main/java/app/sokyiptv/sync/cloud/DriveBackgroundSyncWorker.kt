@@ -12,7 +12,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Android only guarantees background periodic work at a minimum of 15 minutes.
- * Foreground sync remains every two minutes, plus startup/on-background flush.
+ * Foreground pulls run every 30 seconds, and saved playback updates trigger
+ * debounced pushes, plus startup/on-background flush.
  * Workers never initiate Google sign-in: access is scoped to an authorised account.
  */
 class DriveBackgroundSyncWorker(
