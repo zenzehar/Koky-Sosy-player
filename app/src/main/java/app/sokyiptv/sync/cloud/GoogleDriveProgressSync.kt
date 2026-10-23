@@ -49,6 +49,8 @@ data class CloudSyncState(
     val matchedCount: Int = 0,
     val remoteCount: Int = 0,
     val unmatchedCount: Int = 0,
+    val localMovies: Int = 0,
+    val localEpisodes: Int = 0,
 )
 
 class GoogleDriveProgressSync private constructor(context: Context) {
@@ -228,6 +230,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                     matchedCount = result.matched,
                     remoteCount = result.remote,
                     unmatchedCount = result.unmatched,
+                    localMovies = result.movies,
+                    localEpisodes = result.episodes,
                     message = "Account-wide sync: ${result.remote} entries in one shared file; " +
                         "${result.imported} applied to this TV." +
                         if (result.unmatched > 0) " ${result.unmatched} titles retained in cloud until catalogued locally."
@@ -494,7 +498,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 if (existing != null && existing != candidate.key) ambiguous += cloudKey
             }
         }
-        ambiguous.forEach(byCloud::remove)
+        ambiguous.forEach { byCloud.remove(it) }
         return LocalIdentityIndex(byLocal, byCloud, movieRefs.size, episodeRefs.size).also {
             cachedIndex = it
             indexCachedAtMillis = now
@@ -525,6 +529,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private data class SyncOutcome(
         val imported: Int, val matched: Int, val remote: Int,
         val unmatched: Int, val uploaded: Boolean,
+        val movies: Int, val episodes: Int,
     )
 
     /** Owner-separated on-device recovery copy, never another Drive file. */
@@ -702,7 +707,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             // Reversible trash, only after the shared ledger has been verified.
             archiveLegacy(token, legacy)
         }
-        return SyncOutcome(imported, resolvable, combined.size, combined.size - resolvable, uploaded)
+        return SyncOutcome(imported, resolvable, combined.size, combined.size - resolvable,
+            uploaded, index.movies, index.episodes)
     }
 
     companion object {
