@@ -154,12 +154,19 @@ fun VlcFallbackScreen(
     var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var timelineFocused by remember { mutableStateOf(false) }
-    val timelineScale = if (discoveredDurationMs > durationMs &&
-        positionMs < discoveredDurationMs * 85L / 100L && !scrubbing) {
-        AdaptiveVodTimeline.Scale(discoveredDurationMs, approximate = true)
-    } else AdaptiveVodTimeline.scale(
-        preferredDurationMs, positionMs, if (scrubbing) previewMs else positionMs,
-    )
+    val stableIndexedHorizon = tsByteIndex?.estimatedDurationMs?.takeIf {
+        !indexDisabled && positionMs <= it && (!scrubbing || previewMs <= it)
+    }
+    val timelineScale = when {
+        stableIndexedHorizon != null ->
+            AdaptiveVodTimeline.Scale(stableIndexedHorizon, approximate = true)
+        discoveredDurationMs > durationMs &&
+            positionMs < discoveredDurationMs * 85L / 100L && !scrubbing ->
+            AdaptiveVodTimeline.Scale(discoveredDurationMs, approximate = true)
+        else -> AdaptiveVodTimeline.scale(
+            preferredDurationMs, positionMs, if (scrubbing) previewMs else positionMs,
+        )
+    }
     var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
