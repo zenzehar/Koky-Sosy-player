@@ -46,7 +46,7 @@ internal object VodEndMetadata {
     }
 
     fun mp4MovieDurationMillis(bytes: ByteArray): Long? {
-        if (bytes.size < 48) return null
+        if (bytes.size < 36) return null
         // A tail range may begin in the middle of mdat. Search for a complete
         // moov box; never infer movie length from file bytes/bitrate.
         for (i in 4 until bytes.size - 16) {
