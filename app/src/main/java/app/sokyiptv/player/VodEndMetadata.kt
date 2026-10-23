@@ -64,7 +64,7 @@ internal object VodEndMetadata {
                 boxSize = initialSize
                 headerSize = 8
             }
-            if (boxSize < headerSize + 36L || boxSize > bytes.size - start) continue
+            if (boxSize < headerSize + 28L || boxSize > bytes.size - start) continue
             val end = start + boxSize.toInt()
             var p = start + headerSize
             while (p + 8 <= end) {
