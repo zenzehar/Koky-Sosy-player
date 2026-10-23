@@ -33,7 +33,8 @@ internal class VlcNativeSeekCorrection {
 
     /** Any fresh user request cancels correction of an older request. */
     fun requested(intendedMs: Long, originNativeMs: Long, nowMs: Long, declaredDurationMs: Long) {
-        // Seeking past an understated duration is permitted, but never corrected.
+        // Eligibility is based solely on the user-selected time versus the
+        // duration declared at that request, never on VLC's later landing.
         if (declaredDurationMs <= 0L || intendedMs > declaredDurationMs) {
             clear()
             return
@@ -43,15 +44,10 @@ internal class VlcNativeSeekCorrection {
 
     fun observe(
         nativeMs: Long, nowMs: Long, playing: Boolean, buffering: Boolean,
-        declaredDurationMs: Long,
     ): Decision? {
         val p = pending ?: return null
-        // A native clock beyond declared EOF cannot safely calibrate retries.
-        if (declaredDurationMs <= 0L || p.intendedMs > declaredDurationMs ||
-            nativeMs > declaredDurationMs) {
-            clear()
-            return null
-        }
+        // The original requested() check is final for this seek.
+        // A wrong landing beyond declared EOF must not disable correction.
         if (!playing || buffering || nativeMs < 0L || nowMs < p.lastCommandAtMs) return null
         val elapsed = nowMs - p.lastCommandAtMs
         // A demuxer may report stale pre-seek timestamps for several polls.
@@ -84,11 +80,9 @@ internal class VlcNativeSeekCorrection {
             return Decision.Unreliable(p.intendedMs, nativeMs)
         }
         val compensated = correctionTarget(p.intendedMs, nativeMs, elapsedSinceCommand)
-        if (compensated == null || compensated > declaredDurationMs) {
-            pending = null
-            return null // Never command a corrective seek beyond the declared endpoint.
-        }
-        if (abs(compensated - p.intendedMs) < 2_000L) {
+        // Eligibility cannot be changed by a compensated command crossing
+        // the declared endpoint. Existing one-retry and error bounds remain.
+        if (compensated == null || abs(compensated - p.intendedMs) < 2_000L) {
             pending = null
             return Decision.Unreliable(p.intendedMs, nativeMs)
         }
