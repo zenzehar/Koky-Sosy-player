@@ -36,6 +36,14 @@ private const val UPSERT_CHUNK = 500
 /** Minimal reference projection: never include provider credentials in cloud payloads. */
 data class CloudMediaRef(val id: Long, val streamUrl: String)
 
+/** Local only: provider's catalogue ID and display label, never uploaded directly. */
+data class CloudPortableMediaRef(
+    val id: Long,
+    val streamUrl: String,
+    val providerId: String,
+    val label: String,
+)
+
 @Dao
 interface SourceDao {
     @Query("SELECT * FROM sources ORDER BY id")
@@ -435,6 +443,9 @@ interface MovieDao {
     @Query("SELECT id, streamUrl FROM movies")
     suspend fun cloudRefs(): List<CloudMediaRef>
 
+    @Query("SELECT id, streamUrl, streamId AS providerId, name AS label FROM movies")
+    suspend fun cloudPortableRefs(): List<CloudPortableMediaRef>
+
     @Query("""SELECT * FROM movies
         WHERE (:sourceId IS NULL OR sourceId = :sourceId)
         AND (:categoryId IS NULL OR categoryId = :categoryId)
@@ -663,6 +674,9 @@ interface SeriesDao {
 interface EpisodeDao {
     @Query("SELECT id, streamUrl FROM episodes")
     suspend fun cloudRefs(): List<CloudMediaRef>
+
+    @Query("SELECT id, streamUrl, episodeId AS providerId, title AS label FROM episodes")
+    suspend fun cloudPortableRefs(): List<CloudPortableMediaRef>
 
     @Query("SELECT COUNT(*) FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId")
     suspend fun countForSeries(sourceId: Long, seriesId: String): Int
