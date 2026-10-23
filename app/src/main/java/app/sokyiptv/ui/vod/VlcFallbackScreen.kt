@@ -174,6 +174,7 @@ fun VlcFallbackScreen(
     // When visible, native Compose focus navigation uses the visible button order.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
+    val alternativeFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
     fun togglePlayback() {
@@ -463,10 +464,12 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
-    LaunchedEffect(controlsVisible, ready) {
+    LaunchedEffect(controlsVisible, ready, seekCouldNotLand) {
         delay(55)
         runCatching {
-            if (controlsVisible && ready) {
+            if (controlsVisible && seekCouldNotLand) {
+                alternativeFocus.requestFocus()
+            } else if (controlsVisible && ready) {
                 if (focusSeekOnReveal) {
                     seekFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.SEEK
@@ -663,7 +666,10 @@ fun VlcFallbackScreen(
                             "Displayed position is the actual player position. End unverified.",
                             color = Color.LightGray,
                         )
-                        TvVlcButton("Try Media3 player") {
+                        TvVlcButton(
+                            "Try Media3 player",
+                            modifier = Modifier.focusRequester(alternativeFocus),
+                        ) {
                             onProgress(positionMs, preferredDurationMs)
                             onTryMedia3()
                         }
