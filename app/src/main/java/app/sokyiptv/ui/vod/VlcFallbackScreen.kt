@@ -345,7 +345,8 @@ fun VlcFallbackScreen(
                     positionMs = seekClock.requested(initialTarget, tick)
                     initialSeekPending = false
                 }
-                if (ready && positionMs > 5_000L && tick - lastSavedAtMs >= 10_000L) {
+                if (ready && !awaitingSeekPlayback && positionMs > 5_000L &&
+                    tick - lastSavedAtMs >= 10_000L) {
                     // Wall-clock cadence, not playback-position delta. Rewinding from
                     // 60m to 20m must not disable saves until the viewer reaches 60m!
                     // An unknown total duration must also never disable persistence.
