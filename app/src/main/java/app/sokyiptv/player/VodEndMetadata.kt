@@ -45,6 +45,18 @@ internal object VodEndMetadata {
         return (total * 1_000.0).toLong().takeIf { it in 60_000L..MAX_DURATION_MS }
     }
 
+    /** Master HLS playlists need one selected same-origin media playlist, not segment downloads. */
+    fun firstMasterMediaUri(payload: ByteArray): String? {
+        if (payload.size !in 20..131_072) return null
+        val lines = payload.toString(StandardCharsets.UTF_8).lineSequence()
+            .map { it.trim() }.toList()
+        if (lines.firstOrNull() != "#EXTM3U") return null
+        val index = lines.indexOfFirst { it.startsWith("#EXT-X-STREAM-INF:") }
+        if (index < 0) return null
+        return lines.drop(index + 1).firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
+            ?.takeIf { it.length <= 2_048 && !it.contains('\\u0000') }
+    }
+
     fun mp4MovieDurationMillis(bytes: ByteArray): Long? {
         if (bytes.size < 36) return null
         // A tail range may begin in the middle of mdat. Search for a complete
