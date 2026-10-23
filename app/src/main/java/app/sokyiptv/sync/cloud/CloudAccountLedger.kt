@@ -6,7 +6,15 @@ internal object CloudAccountLedger {
         val latest = linkedMapOf<String, CloudWatchPoint>()
         for (group in groups) for (original in group) {
             if (!CloudMergeRules.valid(original, now)) continue
-            val point = original.copy(profile = "")
+            // An IPTV provider can under-report running time. A duration
+            // smaller than position would incorrectly mark Continue Watching
+            // finished in Room; keep progress but mark duration unknown.
+            val point = original.copy(
+                profile = "",
+                durationMillis = original.durationMillis.takeIf {
+                    it == 0L || it >= original.positionMillis
+                } ?: 0L,
+            )
             val key = point.kind + ":" + point.mediaHash
             val prior = latest[key]
             if (prior == null || point.updatedAtMillis > prior.updatedAtMillis ||
