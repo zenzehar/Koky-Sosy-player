@@ -1,8 +1,6 @@
 /* GPL-3.0-or-later. Seek Solution 4: indexed byte positioning without VLC's defective PCR timeline. */
 package app.sokyiptv.player
 
-import kotlin.math.abs
-
 /**
  * Sparse, verified video-PTS -> HTTP byte-offset landmarks.
  * No decoder, no full-file scan. Use only with VLC TS byte-position seek option.
