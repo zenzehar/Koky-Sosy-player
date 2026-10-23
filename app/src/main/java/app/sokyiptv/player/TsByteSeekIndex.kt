@@ -47,9 +47,9 @@ internal class TsByteSeekIndex private constructor(
         declaredMs <= 0L || estimatedDurationMs >
             maxOf(declaredMs + 90_000L, declaredMs * 112L / 100L)
 
+    data class Probe(val offset: Long, val totalBytes: Long, val clock: TransportStreamDuration.VideoClock)
     companion object {
         private const val WRAP90K = 1L shl 33
-        data class Probe(val offset: Long, val totalBytes: Long, val clock: TransportStreamDuration.VideoClock)
         fun fromProbes(probes: List<Probe>): TsByteSeekIndex? {
             if (probes.size < 6) return null
             val items = probes.sortedBy { it.offset }
