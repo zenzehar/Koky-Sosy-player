@@ -360,7 +360,12 @@ fun VlcFallbackScreen(
     // A compact, validated TS byte index can bypass incorrect PCR time seeks.
     // It never touches the decoder, downloads full video or alters buffering.
     LaunchedEffect(player, streamUrl) {
-        if (!TsByteIndexProbe.eligible(context, streamUrl)) return@LaunchedEffect
+        if (!TsByteIndexProbe.eligible(context, streamUrl)) {
+            // 1 = not a direct TS URL; 2 = unsuitable connection.
+            val reason = if (LowImpactTsDurationProbe.eligibleUrl(streamUrl)) 2 else 1
+            PlaybackDiagnostics.event(context, "VLC_INDEX_SKIP", reason)
+            return@LaunchedEffect
+        }
         var seconds = 0
         var prior = positionMs
         while (isActive && seconds < 20) {
@@ -381,6 +386,9 @@ fun VlcFallbackScreen(
             tsByteIndex = mapped
             PlaybackDiagnostics.event(context, "VLC_BYTE_INDEX",
                 (mapped.estimatedDurationMs / 1000L).toInt(), persistNow = true)
+        } else {
+            // 3 = provider denied/corrupted byte-range index, or unsafe clocks.
+            PlaybackDiagnostics.event(context, "VLC_INDEX_SKIP", 3, persistNow = true)
         }
     }
 
