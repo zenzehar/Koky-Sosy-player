@@ -29,8 +29,26 @@ internal object VodContainerDurationProbe {
     ): Long? = withContext(Dispatchers.IO) {
         if (!healthy()) return@withContext null
         when (typeOf(uri)) {
-            Type.HLS_VOD -> read(uri, agent, null, 128 * 1024, false, healthy)?.let {
-                VodEndMetadata.hlsVodDurationMillis(it)
+            Type.HLS_VOD -> {
+                val first = read(uri, agent, null, 128 * 1024, false, healthy)
+                    ?: return@withContext null
+                VodEndMetadata.hlsVodDurationMillis(first)
+                    ?: run {
+                        val child = VodEndMetadata.firstMasterMediaUri(first)
+                            ?: return@run null
+                        val base = URL(uri)
+                        val resolved = runCatching { URL(base, child) }.getOrNull()
+                            ?: return@run null
+                        // Restrict one-hop metadata lookup to exactly the same origin.
+                        if (resolved.protocol != base.protocol ||
+                            resolved.host != base.host || resolved.port != base.port ||
+                            resolved.userInfo != null || resolved.ref != null ||
+                            typeOf(resolved.toExternalForm()) != Type.HLS_VOD) return@run null
+                        val media = read(
+                            resolved.toExternalForm(), agent, null, 128 * 1024, false, healthy,
+                        ) ?: return@run null
+                        VodEndMetadata.hlsVodDurationMillis(media)
+                    }
             }
             Type.MP4 -> {
                 val header = read(uri, agent, "bytes=0-65535", 65_536, true, healthy)
