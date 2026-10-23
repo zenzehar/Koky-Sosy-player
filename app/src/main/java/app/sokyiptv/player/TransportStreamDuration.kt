@@ -36,27 +36,26 @@ internal object TransportStreamDuration {
         if (data.size < PACKET * 4) return emptyList()
         val aligned = (0 until PACKET).firstOrNull { offset ->
             offset + PACKET * 3 < data.size &&
-                (0..3).all { data[offset + it * PACKET].toInt() and 0xff == 0x47 }
+                (0..3).all { (data[offset + it * PACKET].toInt() and 0xff) == 0x47 }
         } ?: return emptyList()
         val out = ArrayList<Stamp>()
         var i = aligned
         while (i + PACKET <= data.size) {
-            if (data[i].toInt() and 0xff != 0x47) break
+            if ((data[i].toInt() and 0xff) != 0x47) break
             val b1 = data[i + 1].toInt() and 0xff
             val b2 = data[i + 2].toInt() and 0xff
             val b3 = data[i + 3].toInt() and 0xff
             val pid = ((b1 and 0x1f) shl 8) or b2
-            val payloadStart = b1 and 0x40 != 0
+            val payloadStart = (b1 and 0x40) != 0
             val afc = (b3 ushr 4) and 3
-            if (pid != 0x1fff && payloadStart && afc == 1 || 
-                pid != 0x1fff && payloadStart && afc == 3) {
+            if (pid != 0x1fff && payloadStart && (afc == 1 || afc == 3)) {
                 var p = i + 4
                 if (afc == 3) p += 1 + (data[p].toInt() and 0xff)
                 // PES starts at payload boundary. Flags and marker bits prevent
                 // false timestamps in encrypted, malformed or unrelated data.
                 if (p + 14 <= i + PACKET && p + 14 <= data.size &&
                     data[p].toInt() == 0 && data[p + 1].toInt() == 0 &&
-                    data[p + 2].toInt() and 0xff == 1) {
+                    (data[p + 2].toInt() and 0xff) == 1) {
                     val streamId = data[p + 3].toInt() and 0xff
                     val ptsFlag = (data[p + 7].toInt() and 0xff) and 0xc0
                     val ptsHead = data[p + 9].toInt() and 0xff
