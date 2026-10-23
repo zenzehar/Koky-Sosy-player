@@ -55,7 +55,6 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val graph = ServiceLocator.get(appContext)
     private val vault = CloudCredentialVault(appContext)
-    private val oauth = GoogleTvOAuth(graph.httpClient, vault)
     // Cloud requests should never inherit the five-minute catalogue timeout.
     private val http: OkHttpClient = graph.httpClient.newBuilder()
         // Isolate cloud cancellations from the catalogue and stream clients.
@@ -64,6 +63,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(22, TimeUnit.SECONDS)
         .build()
+    // OAuth traffic also stays within the cancellable cloud-only dispatcher.
+    private val oauth = GoogleTvOAuth(http, vault)
     private val prefs = appContext.getSharedPreferences("soky_cloud_progress_v1", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val gate = Mutex()
