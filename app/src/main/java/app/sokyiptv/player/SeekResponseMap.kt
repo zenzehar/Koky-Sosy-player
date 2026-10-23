@@ -24,6 +24,12 @@ internal class SeekResponseMap {
     fun commandFor(targetMs: Long): Long {
         if (targetMs <= 0L || anchors.size < 2) return targetMs.coerceAtLeast(0L)
         val sorted = anchors.sortedBy { it.landedMs }
+        // An exact previously observed landing has a known native command;
+        // it must not fall through the interpolation case to a bad identity seek.
+        val exact = sorted.minByOrNull { abs(it.landedMs - targetMs) }
+        if (exact != null && abs(exact.landedMs - targetMs) <= 1_000L) {
+            return exact.commandMs
+        }
         val before = sorted.lastOrNull { it.landedMs <= targetMs }
         val after = sorted.firstOrNull { it.landedMs >= targetMs }
         val a: Anchor
