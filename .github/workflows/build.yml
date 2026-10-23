@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'experiment/v0.1.11.35-ts-byte-index-seeking' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.36-guarded-fallback-seek' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'experiment/v0.1.11.35-ts-byte-index-seeking'
+      github.head_ref == 'fix/v0.1.11.36-guarded-fallback-seek'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.35-soky-ts-byte-index-seek \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.35_TS_Byte_Index_Test.apk" \
+          gh release create v0.1.11.36-soky-guarded-seek-fallback \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.36_Guarded_Fallback_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.35 indexed TS byte seek TV experiment" \
-            --notes "UNAPPROVED TV TEST: Seek Solution 4 (independent TS byte index). User reports speculative time correction v29-v34 caused random jumps and Media3 cannot decode provider streams. Based on v32 known functional VLC playback and never uses Media3 for seeking. For HTTP byte-range seekable .ts VOD only, after >=20s healthy playback over sufficiently fast unmetered Wi-Fi/Ethernet, perform one strictly sequential bounded nine-sample TS video-PES PTS HTTP 206 index (~576KiB total). Require identical stable file size and video PID and monotonic credible timestamps; refuse discontinuities, live, HLS/MKV/MP4, range-less or slow links. Use VLC MPEG-TS native ts-seek-percent option and player.setPosition() with an evidence-based time-to-BYTE fraction, bypassing unreliable provider PCR time-index. Do NOT use video length to convert to a percentage. No automatic trial-error native seeks, no hidden retry loops or other decoder. If indexed byte seek actually lands >25s away it disables itself for the session and returns to ordinary absolute time seeking. Timeline may show ~indexed last video timestamp as evidence, not verified EOF. Other formats keep earlier adaptive time seeking without learned commands/automatic correction. All operations strictly off playback/UI thread, index capped <=576KiB and no full movie downloads. Preserve v30 D-pad visible/hidden focus, hardware Play/Pause and v31 seek-buffering controls; catalogue, sync/Drive/LAN, Live unchanged and untested. Previous stable v27 and Seek Solutions 1-3 remain available. Real-TV verification mandatory; do not promote without proof." --prerelease
+            --title "Soky IPTV Pro v0.1.11.36 guarded VLC seek fallback TV test" \
+            --notes "UNAPPROVED TV TEST based directly on v0.1.11.35 TS byte seeking. Seek Solution 4 byte-index remains the top-priority method whenever validated for progressive direct TS VOD. If the byte index is absent/disabled or selected target is outside indexed range, VLC's normal absolute setTime(targetMilliseconds,false) remains available. This build introduces GuardedSeekFallback, an intentionally very conservative ONE-SHOT correction: only targets at least 60s in and at least 25s from current position, only when the player reports a credible known duration >=5min, only while target is strictly earlier than declared end minus max(90 seconds, 12.5% runtime). Both original intended target AND corrective command must remain under this limit. At least two stable advancing native clock readings are required after buffering; correct a moderate error by half and at most 12 seconds; very large jump >35s, repeated wrong correction, changed metadata, stale clock, unknown EOF or provider-reported end entirely suppress corrective seeking. One failed retry or huge failure disables fallback correction for current video, but never blocks user manual seeks beyond false end. Rapid +/-10 seconds NEVER trigger delayed corrective jumps. Controls remain visible through post-seek buffering and countdown starts only after native playback advances. No Media3 fallback or automatic engine change. Watch progress only saved after seek playback confirmation, no sync/Google Drive/LAN/Live/catalogue changes; they are not tested. Diagnoses guarded skipping/retries/failures with numeric codes, never provider URLs/credentials. Tests cover unknown/bad durations, near and beyond declared end, rapid D-pad taps, buffering, native clock continuity, cap, previous request invalidation and session lockout. Release is UNAPPROVED until physical TV tested; v35 and stable v27 remain untouched." --prerelease
