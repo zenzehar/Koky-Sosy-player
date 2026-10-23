@@ -1,35 +1,20 @@
-/* GPL-3.0-or-later: adaptive display horizon; does not assert actual media duration. */
+/* GPL-3.0-or-later: declared-duration VOD timeline; adaptive growth is disabled. */
 package app.sokyiptv.player
 
-/** Declared duration can be a defective container/index estimate on IPTV VOD. */
+/** Fixed visual duration. Actual time seeks can still exceed an understated declaration. */
 internal object AdaptiveVodTimeline {
-    private const val MIN_HORIZON_MS = 60_000L
-    private const val MIN_HEADROOM_MS = 10 * 60_000L
-    private const val MAX_HORIZON_MS = 48 * 60 * 60_000L
+    private const val UNKNOWN_HORIZON_MS = 60_000L
 
-    data class Scale(val maximumMs: Long, val approximate: Boolean)
+    data class Scale(val maximumMs: Long, val approximate: Boolean = false)
 
-    fun scale(reportedMs: Long, observedMs: Long, previewMs: Long = observedMs): Scale {
-        val declared = reportedMs.coerceIn(0L, MAX_HORIZON_MS)
-        val observed = observedMs.coerceIn(0L, MAX_HORIZON_MS)
-        val preview = previewMs.coerceIn(0L, MAX_HORIZON_MS)
-        val current = maxOf(observed, preview)
-        val nearDeclaredEnd = declared <= 0L || current >= (declared * 85L / 100L)
-        if (!nearDeclaredEnd) return Scale(declared.coerceAtLeast(MIN_HORIZON_MS), false)
-        val headroom = maxOf(MIN_HEADROOM_MS, declared / 5L)
-        val horizon = maxOf(
-            declared,
-            (declared + headroom).coerceAtMost(MAX_HORIZON_MS),
-            (current + headroom).coerceAtMost(MAX_HORIZON_MS),
-            MIN_HORIZON_MS,
-        )
-        // The displayed scale is an editing/seek horizon, not a discovered end.
-        return Scale(horizon, true)
-    }
+    // Observed and preview times intentionally do not change the displayed endpoint.
+    fun scale(reportedMs: Long, observedMs: Long, previewMs: Long = observedMs): Scale =
+        Scale(reportedMs.takeIf { it > 0L } ?: UNKNOWN_HORIZON_MS)
 
+    // Once playback passes declared EOF the bar remains full rather than stretching.
     fun fraction(timeMs: Long, scale: Scale): Float =
-        (timeMs.coerceIn(0L, scale.maximumMs).toDouble() /
-            scale.maximumMs.coerceAtLeast(1L).toDouble()).toFloat()
+        (timeMs.coerceAtLeast(0L).toDouble() / scale.maximumMs.toDouble())
+            .coerceIn(0.0, 1.0).toFloat()
 }
 
 /** The transport bar must remain visible following a seek until native time advances. */

@@ -142,12 +142,8 @@ fun VlcFallbackScreen(
     var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var timelineFocused by remember { mutableStateOf(false) }
-    val timelineScale = if (discoveredDurationMs > durationMs &&
-        positionMs < discoveredDurationMs * 85L / 100L && !scrubbing) {
-        AdaptiveVodTimeline.Scale(discoveredDurationMs, approximate = true)
-    } else AdaptiveVodTimeline.scale(
-        preferredDurationMs, positionMs, if (scrubbing) previewMs else positionMs,
-    )
+    // Fixed stream-declared seekbar duration: tail probes never expand its endpoint.
+    val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
     var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
@@ -211,7 +207,7 @@ fun VlcFallbackScreen(
         // request precise decoded-time seeking for transport and timeline taps.
         // Retain the bounded logical-clock guard for repeated fast presses.
         val now = android.os.SystemClock.elapsedRealtime()
-        nativeSeekCorrection.requested(capped, player.time, now)
+        nativeSeekCorrection.requested(capped, player.time, now, durationMs)
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
         player.setTime(capped, false)
@@ -280,7 +276,7 @@ fun VlcFallbackScreen(
                 if (!scrubbing) {
                     when (val correction = nativeSeekCorrection.observe(
                         nativeTime, tick, ready && player.isPlaying && !paused,
-                        diagHealth.networkBuffering,
+                        diagHealth.networkBuffering, durationMs,
                     )) {
                         is VlcNativeSeekCorrection.Decision.RetryAt -> {
                             // One bounded native-time correction. Do not setPosition(%).
@@ -331,7 +327,7 @@ fun VlcFallbackScreen(
                 }
                 if (ready && initialSeekPending && player.isSeekable) {
                     val initialTarget = initialPositionMs.coerceAtLeast(0L)
-                    nativeSeekCorrection.requested(initialTarget, player.time, tick)
+                    nativeSeekCorrection.requested(initialTarget, player.time, tick, durationMs)
                     postSeekGate.requested(tick)
                     awaitingSeekPlayback = true
                     controlsVisible = true
@@ -642,7 +638,7 @@ fun VlcFallbackScreen(
                     isEpisode = showEpisodeControls,
                     elapsedText = clock(if (scrubbing) previewMs else positionMs),
                     durationText = if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
-                        else clock(preferredDurationMs),
+                        else if (durationMs > 0L) clock(durationMs) else "--:--",
                     modifier = Modifier.align(Alignment.TopStart)
                         .padding(start = 46.dp, top = 44.dp),
                 )
@@ -762,8 +758,7 @@ fun VlcFallbackScreen(
                                     end = androidx.compose.ui.geometry.Offset(endX, centerY),
                                     strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round,
                                 )
-                                // Timeline horizon grows instead of running out near
-                                // an understated provider duration. Not a verified EOF.
+                                // The bar stays filled after the declared duration; no growth.
                                 val fraction = AdaptiveVodTimeline.fraction(
                                     if (scrubbing) previewMs else positionMs, timelineScale,
                                 )
@@ -783,7 +778,7 @@ fun VlcFallbackScreen(
                         }
                         Text(
                             if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
-                            else clock(preferredDurationMs),
+                            else if (durationMs > 0L) clock(durationMs) else "--:--",
                             color = Color.White,
                         )
                     }

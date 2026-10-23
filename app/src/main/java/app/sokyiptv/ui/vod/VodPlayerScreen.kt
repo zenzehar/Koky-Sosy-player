@@ -271,9 +271,8 @@ fun VodPlayerScreen(
     var durationMs by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
-    val timelineScale = AdaptiveVodTimeline.scale(
-        durationMs, positionMs, if (scrubbing) scrubValue.toLong() else positionMs,
-    )
+    // Visual bar follows only the reported duration; never an extrapolated end.
+    val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
 
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
