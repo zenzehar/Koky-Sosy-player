@@ -165,7 +165,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     /** Debounced near-real-time upload after a saved local watch-position change. */
     fun requestSoon() {
         if (!oauth.connected) return
-        pushJob?.cancel()
+        if (pushJob?.isActive == true) return
         pushJob = scope.launch {
             delay(2_500L)
             val wait = 12_000L - (android.os.SystemClock.elapsedRealtime() - lastSyncAttemptMillis)
@@ -642,6 +642,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     companion object {
         @Volatile private var instance: GoogleDriveProgressSync? = null
+
+        fun signalLocalProgressChanged() {
+            instance?.requestSoon()
+        }
         fun get(context: Context): GoogleDriveProgressSync =
             instance ?: synchronized(this) {
                 instance ?: GoogleDriveProgressSync(context.applicationContext).also { instance = it }
