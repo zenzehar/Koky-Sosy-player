@@ -126,9 +126,9 @@ fun GoogleDriveSyncPane() {
                 ) {
                     Text("How Google Drive Sync works", style = MaterialTheme.typography.titleLarge)
                     Text("Every user connects their own Google account using the TV verification code.")
-                    Text("Continue Watching positions are uploaded at startup, every two minutes, and when the app goes into the background. Offline viewing still works.")
+                    Text("Soky uses one shared progress file for all TVs signed into this Google account. It syncs on startup, during playback and while the app is running; offline viewing still works.")
                     Text("Soky uses a private Google app-data folder when available, or its own Soky IPTV Pro folder in My Drive. IPTV credentials and stream URLs are never uploaded.")
-                    Text("Watch-history deletion does not currently synchronise across devices.")
+                    Text("All devices use one account-wide watch history, regardless of local profile names. Each title still needs to exist in the TV's own catalogue to be playable. Deletions are not yet synchronised.")
                     TextButton(onClick = { showHelp = false }) { Text("Close") }
                 }
             }
@@ -186,19 +186,12 @@ fun GoogleDriveSyncPane() {
                         .format(Date(state.lastSuccessMillis))
                 Text("Last successful sync: $last")
                 if (state.remoteCount > 0) {
-                    Text("Cloud entries: ${state.remoteCount}  ·  Matched: ${state.matchedCount}  ·  " +
-                        "Unmatched: ${state.unmatchedCount}  ·  Imported: ${state.importedCount}")
-                    Text(
-                        "Viewing history is linked to a profile. Select the same profile on both TVs " +
-                            "when checking Continue Watching.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (state.matchedCount == 0) {
+                    Text("Shared cloud entries: ${state.remoteCount} · Applied here: ${state.importedCount}")
+                    if (state.unmatchedCount > 0) {
                         Text(
-                            "Google Drive is connected, but no cloud media matched this TV. " +
-                                "Use the same provider catalogue on both devices and check the active " +
-                                "viewing profile. Soky will not guess by title or overwrite different media.",
-                            color = MaterialTheme.colorScheme.error,
+                            "${state.unmatchedCount} cloud titles are saved safely but not present in this TV's " +
+                                "local catalogue yet. No profile selection or matching is required.",
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
                 }
