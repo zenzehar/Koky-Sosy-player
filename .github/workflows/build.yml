@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.38-declared-duration-seekbar' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.39-selected-target-correction' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.38-declared-duration-seekbar'
+      github.head_ref == 'fix/v0.1.11.39-selected-target-correction'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.38-fixed-bar-guard-corrections \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.38_Fixed_Bar.apk" \
+          gh release create v0.1.11.39-selected-target-correction \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.39_Target_Only_Guard.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.38 Fixed Duration Seekbar" \
-            --notes "Test release from v0.1.11.37. Removes adaptive seekbar growth; displayed duration remains the stream-declared duration and fills at 100 percent when playback passes it. Absolute VLC seeks beyond declared time remain available, but corrective retries are suppressed when target, observed clock, or proposed command exceeds declared EOF. Retains light MPEG-TS probe for progress metadata only. Android versionCode 59; physical TV and sync regressions remain to be validated. Debug-signature compatibility may prevent upgrading without reinstall; back up provider settings first." --prerelease
+            --title "Soky IPTV Pro v0.1.11.39 Target-Based Seek Correction" \
+            --notes "v0.1.11.39 TV alpha from v0.1.11.38. Corrective VLC seek eligibility depends only on the original user-selected target versus the declared duration at request time. If selected time exceeds the declared duration, no corrective retry will run regardless of native landing time. If the user selected a time at or within the declaration, keep the bounded one-retry feedback correction even if the VLC landing position or resulting calculated correction command exceeds the declaration. Preserves v38 fixed seekbar duration and all unrelated behavior. Android versionCode 60. Physical Android TV validation still required. Debug signing may differ across builds, so back up credentials before uninstalling." --prerelease
