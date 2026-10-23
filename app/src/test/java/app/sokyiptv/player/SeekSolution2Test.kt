@@ -72,6 +72,14 @@ class SeekResponseMapTest {
         map.record(1_200_000L, 1_800_000L)
         assertEquals(900_000L, map.commandFor(1_350_000L))
     }
+    @Test fun exactKnownLandingReusesMeasuredNativeCommand() {
+        val map = SeekResponseMap()
+        map.record(600_000L, 900_000L)
+        map.record(1_200_000L, 1_800_000L)
+        assertEquals(600_000L, map.commandFor(900_000L))
+        assertEquals(1_200_000L, map.commandFor(1_800_000L))
+    }
+
     @Test fun rejectsSparseExtrapolationFarBeyondKnownAnchors() {
         val map = SeekResponseMap()
         map.record(600_000L, 900_000L)
