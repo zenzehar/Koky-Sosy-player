@@ -21,7 +21,7 @@ class TransportStreamDurationTest {
         b[10] = 0x80.toByte()
         b[11] = 0x80.toByte()
         b[12] = 5
-        b[13] = (0x20 or ((pts ushr 30).toInt() and 7 shl 1) or 1).toByte()
+        b[13] = (0x20 or (((pts ushr 30).toInt() and 7) shl 1) or 1).toByte()
         b[14] = (pts ushr 22).toByte()
         b[15] = (((pts ushr 15).toInt() and 0x7f) shl 1 or 1).toByte()
         b[16] = (pts ushr 7).toByte()
