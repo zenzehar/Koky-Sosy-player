@@ -37,10 +37,14 @@ internal object VodProgressStore {
         withContext(Dispatchers.IO) {
             // Transactional newest-only merge prevents delayed writes and obsolete
             // tick snapshots from overwriting a newer seek or exit position.
-            graph.playbackPositions.mergeIfNewer(
+            val changed = graph.playbackPositions.mergeIfNewer(
                 progress.profileId, progress.mediaKey,
                 progress.positionMillis, progress.durationMillis, progress.updatedAtMillis,
             )
+            // Event-driven Drive sync is independent of the player's lifecycle.
+            if (changed > 0) {
+                app.sokyiptv.sync.cloud.GoogleDriveProgressSync.signalLocalProgressChanged()
+            }
         }
     }
 
