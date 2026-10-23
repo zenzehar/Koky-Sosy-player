@@ -32,6 +32,12 @@ internal object TransportStreamDuration {
         return millis.takeIf { it in 60_000L..MAX_DURATION_MS }
     }
 
+    /** One PES video timestamp from a small non-decoded MPEG-TS byte sample. */
+    internal data class VideoClock(val pid: Int, val pts90k: Long)
+    internal fun firstVideoClock(data: ByteArray): VideoClock? =
+        timestamps(data).firstOrNull { it.isVideo }
+            ?.let { VideoClock(it.pid, it.ticks) }
+
     private fun timestamps(data: ByteArray): List<Stamp> {
         if (data.size < PACKET * 4) return emptyList()
         val aligned = (0 until PACKET).firstOrNull { offset ->
