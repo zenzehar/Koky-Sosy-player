@@ -19,7 +19,7 @@ data class CloudWatchPoint(
 
 @Serializable
 data class CloudWatchSnapshot(
-    val version: Int = 1,
+    val version: Int = 2,
     val deviceId: String,
     val generatedAtMillis: Long,
     val positions: List<CloudWatchPoint>,
