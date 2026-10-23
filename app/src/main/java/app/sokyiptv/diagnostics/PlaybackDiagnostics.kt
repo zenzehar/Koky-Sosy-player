@@ -39,6 +39,7 @@ object PlaybackDiagnostics {
     private val allowedEventNames = setOf(
         "OPEN", "VLC_START", "VLC_READY", "VLC_BUFFER", "VLC_STALL",
         "VLC_ERROR", "VLC_SEEK", "VLC_BYTE_INDEX", "VLC_BYTE_SEEK", "VLC_INDEX_SKIP",
+        "VLC_GUARD_SKIP", "VLC_GUARD_RETRY", "VLC_GUARD_FAIL",
         "VLC_SEEK_ADJUST", "VLC_SEEK_MISS", "VLC_DURATION_PROBED",
         "VLC_END", "VLC_EXIT", "VLC_RETRY",
         "VLC_TO_MEDIA3", "VLC_EXTERNAL", "MEDIA3_START", "MEDIA3_ERROR",
