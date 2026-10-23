@@ -13,10 +13,10 @@ class TsByteSeekIndexTest {
     private fun probes(
         movieMs: Long = 7_200_000L,
         pid: Int = 0x101,
-    ): List<TsByteSeekIndex.Companion.Probe> =
+    ): List<TsByteSeekIndex.Probe> =
         percentages.map {
             val elapsed = movieMs * it / 100L
-            TsByteSeekIndex.Companion.Probe(
+            TsByteSeekIndex.Probe(
                 offset = total * it / 100L,
                 totalBytes = total,
                 clock = TransportStreamDuration.VideoClock(pid, elapsed * 90L),
@@ -36,7 +36,7 @@ class TsByteSeekIndexTest {
         val landmarks = percentages.mapIndexed { i, offset ->
             val elapsedMs = listOf(0L, 480_000L, 1_400_000L, 2_300_000L,
                 3_100_000L, 4_000_000L, 5_100_000L, 6_100_000L, 6_200_000L)[i]
-            TsByteSeekIndex.Companion.Probe(
+            TsByteSeekIndex.Probe(
                 total * offset / 100L, total,
                 TransportStreamDuration.VideoClock(0x101, elapsedMs * 90L),
             )
