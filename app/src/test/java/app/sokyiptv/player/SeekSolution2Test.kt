@@ -37,6 +37,17 @@ video.m3u8
         assertNull(VodEndMetadata.hlsVodDurationMillis(master))
     }
 
+    @Test fun HlsMasterIdentifiesVariantButNeverTreatsMasterAsDuration() {
+        val master = """#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1200000
+vod/720p.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=2400000
+vod/1080p.m3u8
+""".toByteArray()
+        assertNull(VodEndMetadata.hlsVodDurationMillis(master))
+        assertEquals("vod/720p.m3u8", VodEndMetadata.firstMasterMediaUri(master))
+    }
+
     private fun mp4Header(seconds: Int): ByteArray {
         val mvhd = ByteBuffer.allocate(28).order(ByteOrder.BIG_ENDIAN)
         mvhd.putInt(28).put("mvhd".toByteArray()).putInt(0)
