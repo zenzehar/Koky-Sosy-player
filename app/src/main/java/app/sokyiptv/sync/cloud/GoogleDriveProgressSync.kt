@@ -30,6 +30,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -57,6 +58,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val oauth = GoogleTvOAuth(graph.httpClient, vault)
     // Cloud requests should never inherit the five-minute catalogue timeout.
     private val http: OkHttpClient = graph.httpClient.newBuilder()
+        // Isolate cloud cancellations from the catalogue and stream clients.
+        .dispatcher(Dispatcher())
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(22, TimeUnit.SECONDS)
@@ -146,6 +149,27 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         }
     }
 
+    /** Playback begins: immediately cancel optional cloud HTTP I/O only.
+     * Video/streaming clients use separate dispatchers and are never cancelled.
+     */
+    private fun pauseForPlayback() {
+        pushJob?.cancel()
+        http.dispatcher.cancelAll()
+        _state.value = _state.value.copy(
+            busy = false, message = "Cloud sync paused to prioritise video playback.",
+        )
+    }
+
+    /** Allow the final persisted watch position to land before refreshing Drive. */
+    private fun resumeAfterPlayback() {
+        if (!oauth.connected) return
+        pushJob?.cancel()
+        pushJob = scope.launch {
+            delay(1_500L)
+            if (!PlaybackSyncPriority.active) syncNow()
+        }
+    }
+
     fun startForegroundSync() {
         if (periodicJob?.isActive == true) return
         periodicJob = scope.launch {
@@ -164,7 +188,9 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     /** Debounced near-real-time upload after a saved local watch-position change. */
     fun requestSoon() {
-        if (!oauth.connected) return
+        // Progress remains durable in Room and recovery is rebuilt at next sync.
+        // No cloud activity may take bandwidth/CPU while video is visible.
+        if (!oauth.connected || PlaybackSyncPriority.active) return
         if (pushJob?.isActive == true) return
         pushJob = scope.launch {
             delay(2_500L)
@@ -177,7 +203,10 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     /** Returns true only if a complete cloud read/merge/write succeeds. */
     suspend fun syncNow(): Boolean {
         if (!oauth.connected) return false
+        // Defer WorkManager/foreground/manual operations until playback has ended.
+        if (PlaybackSyncPriority.active) return true
         return gate.withLock {
+            if (PlaybackSyncPriority.active) return@withLock true
             lastSyncAttemptMillis = android.os.SystemClock.elapsedRealtime()
             _state.value = _state.value.copy(busy = true, message = "Synchronising shared watch history…")
             try {
@@ -200,11 +229,30 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             } catch (c: CancellationException) {
                 _state.value = _state.value.copy(busy = false)
                 throw c
+            } catch (e: PlaybackDeferredException) {
+                _state.value = _state.value.copy(
+                    busy = false, message = "Cloud sync paused to prioritise video playback.",
+                )
+                true
             } catch (e: Exception) {
-                _state.value = _state.value.copy(busy = false, message = safeMessage(e))
-                false
+                if (PlaybackSyncPriority.active) {
+                    // An in-flight cloud call was cancelled when playback began.
+                    _state.value = _state.value.copy(
+                        busy = false, message = "Cloud sync paused to prioritise video playback.",
+                    )
+                    true
+                } else {
+                    _state.value = _state.value.copy(busy = false, message = safeMessage(e))
+                    false
+                }
             }
         }
+    }
+
+    private class PlaybackDeferredException : RuntimeException()
+
+    private fun requirePlaybackIdle() {
+        if (PlaybackSyncPriority.active) throw PlaybackDeferredException()
     }
 
     private fun safeMessage(e: Exception): String {
@@ -231,9 +279,11 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private val visibleFolderName = "Soky IPTV Pro"
 
     private fun driveRequest(token: String, request: Request): JSONObject {
+        requirePlaybackIdle()
         val authenticated = request.newBuilder().header("Authorization", "Bearer $token").build()
         val repeatable = authenticated.method == "GET" || authenticated.method == "PATCH"
         for (attempt in 0..2) {
+            requirePlaybackIdle()
             http.newCall(authenticated).execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 if (response.isSuccessful) {
@@ -345,6 +395,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     private fun downloadSnapshot(token: String, file: CloudFile): CloudWatchSnapshot? {
+        requirePlaybackIdle()
         val url = "https://www.googleapis.com/drive/v3/files/" +
             URLEncoder.encode(file.id, "UTF-8") + "?alt=media"
         val request = Request.Builder().url(url).header("Authorization", "Bearer $token").get().build()
@@ -364,6 +415,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     private fun uploadSnapshot(token: String, existing: CloudFile?, payload: String, parentId: String) {
+        requirePlaybackIdle()
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val request = if (existing != null) {
             val url = "https://www.googleapis.com/upload/drive/v3/files/" +
@@ -387,6 +439,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     /** Only SHA256s of local stream URLs are used for the cross-install lookup. */
     private suspend fun indexLocalMedia(): Pair<Map<String, String>, Map<String, String>> {
+        requirePlaybackIdle()
         val now = android.os.SystemClock.elapsedRealtime()
         cachedIndex?.takeIf { now - indexCachedAtMillis < 120_000L }?.let { return it }
         val byLocalKey = HashMap<String, String>()
@@ -420,6 +473,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     private suspend fun localSnapshot(index: Map<String, String>): CloudWatchSnapshot {
+        requirePlaybackIdle()
         // The same Google account is the global watch-history namespace.
         // Only the currently active local profile participates, regardless of its name or id.
         val activeProfile = graph.settings.activeProfileId.value
@@ -508,6 +562,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
      * requires a transactional backend rather than one Drive JSON file.
      */
     private suspend fun performSync(): SyncOutcome {
+        requirePlaybackIdle()
         val token = oauth.accessToken()
         if (prefs.getString("owner_id", null).isNullOrBlank()) registerAuthorizedAccount(token)
         val now = System.currentTimeMillis()
@@ -540,6 +595,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         val legacyPoints = if (migration) legacy.flatMap { file ->
             downloadSnapshot(token, file)?.positions.orEmpty()
         } else emptyList()
+        requirePlaybackIdle()
         val index = indexLocalMedia()
         val local = localSnapshot(index.first)
         val recovered = readRecovery()
@@ -553,6 +609,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         var imported = 0
         var resolvable = 0
         for (point in combined) {
+            requirePlaybackIdle()
             val localKey = index.second["${point.kind}:${point.mediaHash}"] ?: continue
             resolvable++
             imported += graph.playbackPositions.mergeIfNewer(
@@ -565,6 +622,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         // A local safety copy is persisted before any potentially competing Drive write.
         saveRecovery(local.copy(version = 2, positions = combined))
         for (attempt in 0..2) {
+            requirePlaybackIdle()
             // Refresh before replacing a shared file, reducing overwrite races.
             if (shared != null && (attempt > 0 || combined != originalCloud)) {
                 val latest = downloadSnapshot(token, shared)
@@ -619,6 +677,14 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
         fun signalLocalProgressChanged() {
             instance?.requestSoon()
+        }
+
+        fun playbackScreenEntered() {
+            if (PlaybackSyncPriority.begin()) instance?.pauseForPlayback()
+        }
+
+        fun playbackScreenExited() {
+            if (PlaybackSyncPriority.end()) instance?.resumeAfterPlayback()
         }
         fun get(context: Context): GoogleDriveProgressSync =
             instance ?: synchronized(this) {
