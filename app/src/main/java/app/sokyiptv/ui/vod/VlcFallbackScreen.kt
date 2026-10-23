@@ -76,6 +76,7 @@ import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.player.AdaptiveVodTimeline
+import app.sokyiptv.player.LowImpactTsDurationProbe
 import app.sokyiptv.player.PostSeekPlaybackGate
 import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.VlcPlaybackHealth
@@ -133,14 +134,19 @@ fun VlcFallbackScreen(
     var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
     val nativeSeekCorrection = remember(player) { VlcNativeSeekCorrection() }
     var durationMs by remember { mutableLongStateOf(0L) }
+    var discoveredDurationMs by remember(streamUrl) { mutableLongStateOf(0L) }
+    val preferredDurationMs = maxOf(durationMs, discoveredDurationMs)
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
     var seekOriginMs by remember { mutableLongStateOf(0L) }
     var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var timelineFocused by remember { mutableStateOf(false) }
-    val timelineScale = AdaptiveVodTimeline.scale(
-        durationMs, positionMs, if (scrubbing) previewMs else positionMs,
+    val timelineScale = if (discoveredDurationMs > durationMs &&
+        positionMs < discoveredDurationMs * 85L / 100L && !scrubbing) {
+        AdaptiveVodTimeline.Scale(discoveredDurationMs, approximate = true)
+    } else AdaptiveVodTimeline.scale(
+        preferredDurationMs, positionMs, if (scrubbing) previewMs else positionMs,
     )
     var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -187,7 +193,7 @@ fun VlcFallbackScreen(
         }
         // A provider may limit simultaneous connections; stop our decoder before handoff.
         runCatching {
-            onProgress(positionMs, durationMs)
+            onProgress(positionMs, preferredDurationMs)
             player.stop()
             context.startActivity(intent)
             onBack()
@@ -250,7 +256,7 @@ fun VlcFallbackScreen(
         onDispose {
             nativeSeekCorrection.clear()
             PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
-            onProgress(positionMs, durationMs)
+            onProgress(positionMs, preferredDurationMs)
             player.setEventListener(null)
             runCatching { player.stop() }
             // This is the ONLY detach; factory runs only once per AndroidView instance.
@@ -338,10 +344,45 @@ fun VlcFallbackScreen(
                     // 60m to 20m must not disable saves until the viewer reaches 60m!
                     // An unknown total duration must also never disable persistence.
                     lastSavedAtMs = tick
-                    onProgress(positionMs, durationMs)
+                    onProgress(positionMs, preferredDurationMs)
                 }
             }
             delay(500)
+        }
+    }
+
+    // One short tail probe only after 45 seconds of uninterrupted playback.
+    // LibVLC does not expose reliable buffered-ahead seconds across all
+    // providers. Smooth playback and unmetered fast local connection serve as
+    // conservative proxies, not a guarantee of spare buffering.
+    // Only MPEG-TS VOD with HTTP 206 support can be probed (<160 KiB total).
+    LaunchedEffect(player, streamUrl) {
+        if (!LowImpactTsDurationProbe.eligibleUrl(streamUrl) ||
+            !LowImpactTsDurationProbe.connectionLooksSuitable(context)) return@LaunchedEffect
+        var stableSeconds = 0
+        var previous = positionMs
+        while (isActive && stableSeconds < 45) {
+            delay(1_000L)
+            val healthy = ready && !paused && !failed && !ended &&
+                !scrubbing && !awaitingSeekPlayback &&
+                !diagHealth.networkBuffering &&
+                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING
+            val advancing = positionMs > previous + 250L && positionMs < previous + 4_000L
+            stableSeconds = if (healthy && advancing) stableSeconds + 1 else 0
+            previous = positionMs
+        }
+        if (!isActive) return@LaunchedEffect
+        val candidate = LowImpactTsDurationProbe.investigate(streamUrl, userAgent) {
+            ready && !paused && !failed && !ended &&
+                !scrubbing && !awaitingSeekPlayback && !diagHealth.networkBuffering
+        }
+        if (candidate != null && candidate > maxOf(durationMs + 120_000L,
+                durationMs * 115L / 100L) &&
+            candidate > discoveredDurationMs) {
+            discoveredDurationMs = candidate
+            // Estimate from sampled head/tail timestamps, not a verified EOF.
+            PlaybackDiagnostics.event(context, "VLC_DURATION_PROBED",
+                (candidate / 1_000L).coerceAtMost(999_999L).toInt(), persistNow = true)
         }
     }
 
@@ -601,7 +642,7 @@ fun VlcFallbackScreen(
                     isEpisode = showEpisodeControls,
                     elapsedText = clock(if (scrubbing) previewMs else positionMs),
                     durationText = if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
-                        else clock(durationMs),
+                        else clock(preferredDurationMs),
                     modifier = Modifier.align(Alignment.TopStart)
                         .padding(start = 46.dp, top = 44.dp),
                 )
@@ -742,7 +783,7 @@ fun VlcFallbackScreen(
                         }
                         Text(
                             if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
-                            else clock(durationMs),
+                            else clock(preferredDurationMs),
                             color = Color.White,
                         )
                     }
