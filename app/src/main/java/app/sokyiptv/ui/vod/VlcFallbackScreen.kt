@@ -136,6 +136,7 @@ fun VlcFallbackScreen(
     val postSeekGate = remember(player) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
     var lastRequestedSeekMs by remember(player) { mutableLongStateOf(-1L) }
+    var lastSeekCommandAtMs by remember(player) { mutableLongStateOf(0L) }
     var seekCouldNotLand by remember(player) { mutableStateOf(false) }
     // Seek Solution 3 does not issue automatic retry/calibration seeks.
     // Native player commands are driven by explicit user actions only.
@@ -232,6 +233,7 @@ fun VlcFallbackScreen(
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
         lastRequestedSeekMs = capped
+        lastSeekCommandAtMs = now
         seekCouldNotLand = false
         player.setTime(capped, false)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
@@ -262,7 +264,18 @@ fun VlcFallbackScreen(
                     failed = true; ready = false; showControls()
                 }
                 MediaPlayer.Event.EndReached -> scope.launch {
-                    if (!ended) {
+                    // An EOF immediately after an attempted out-of-index seek is
+                    // not proof the user watched the real movie ending. In these
+                    // cases present an alternative player rather than completing
+                    // the episode or incorrectly wiping Continue Watching.
+                    val afterUnsupportedSeek = lastSeekCommandAtMs > 0L &&
+                        android.os.SystemClock.elapsedRealtime() -
+                        lastSeekCommandAtMs < 10_000L &&
+                        durationMs > 0L && lastRequestedSeekMs > durationMs + 30_000L
+                    if (afterUnsupportedSeek) {
+                        seekCouldNotLand = true
+                        PlaybackDiagnostics.event(context, "VLC_SEEK_MISS", persistNow = true)
+                    } else if (!ended) {
                         PlaybackDiagnostics.event(context, "VLC_END", persistNow = true)
                         ended = true
                         onProgress(durationMs, durationMs)
@@ -457,9 +470,10 @@ fun VlcFallbackScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed, ended, awaitingSeekPlayback) {
+    LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed,
+        ended, awaitingSeekPlayback, seekCouldNotLand) {
         if (controlsVisible && ready && !paused && !scrubbing && !failed && !ended &&
-            !awaitingSeekPlayback) {
+            !awaitingSeekPlayback && !seekCouldNotLand) {
             delay(5_000)
             controlsVisible = false
         }
