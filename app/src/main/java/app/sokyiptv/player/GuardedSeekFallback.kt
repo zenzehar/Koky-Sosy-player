@@ -40,7 +40,10 @@ internal class GuardedSeekFallback {
         indexedSeekAvailable: Boolean,
     ): Boolean {
         pending = null
+        // Short +/-10s D-pad taps are never allowed to trigger delayed
+        // automatic seeks. Preserve the user's selected step precisely.
         if (indexedSeekAvailable || disabledForSession ||
+            abs(targetMs - originMs) < 25_000L ||
             !wellInside(targetMs, declaredMs)) return false
         pending = Pending(targetMs, declaredMs, originMs.coerceAtLeast(0), nowMs)
         return true
