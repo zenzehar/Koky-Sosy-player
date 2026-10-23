@@ -475,37 +475,11 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         }
     }
 
-    private fun mergedPoints(vararg groups: List<CloudWatchPoint>, now: Long): List<CloudWatchPoint> {
-        val latest = linkedMapOf<String, CloudWatchPoint>()
-        groups.forEach { group ->
-            group.forEach { original ->
-                if (!CloudMergeRules.valid(original, now)) return@forEach
-                // Profile is not part of identity, and is never written in v2.
-                val point = original.copy(profile = "")
-                val key = point.kind + ":" + point.mediaHash
-                val old = latest[key]
-                if (old == null || point.updatedAtMillis > old.updatedAtMillis ||
-                    (point.updatedAtMillis == old.updatedAtMillis &&
-                        point.positionMillis > old.positionMillis)) {
-                    latest[key] = point
-                }
-            }
-        }
-        return latest.values.sortedWith(
-            compareByDescending<CloudWatchPoint> { it.updatedAtMillis }
-                .thenBy { it.kind }.thenBy { it.mediaHash },
-        ).take(10_000)
-    }
+    private fun mergedPoints(vararg groups: List<CloudWatchPoint>, now: Long): List<CloudWatchPoint> =
+        CloudAccountLedger.merge(now, *groups)
 
-    private fun isCovered(actual: List<CloudWatchPoint>, expected: List<CloudWatchPoint>): Boolean {
-        val map = actual.associateBy { it.kind + ":" + it.mediaHash }
-        return expected.all { wanted ->
-            val found = map[wanted.kind + ":" + wanted.mediaHash]
-            found != null && (found.updatedAtMillis > wanted.updatedAtMillis ||
-                found.updatedAtMillis == wanted.updatedAtMillis &&
-                found.positionMillis >= wanted.positionMillis)
-        }
-    }
+    private fun isCovered(actual: List<CloudWatchPoint>, expected: List<CloudWatchPoint>) =
+        CloudAccountLedger.covers(actual, expected)
 
     private fun archiveLegacy(token: String, legacy: List<CloudFile>) {
         // Older clients still running can recreate these. Upgrade all TVs to v40.
