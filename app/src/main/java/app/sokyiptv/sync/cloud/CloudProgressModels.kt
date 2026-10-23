@@ -41,7 +41,7 @@ object CloudMediaKeys {
         val normalizedTitle = title.lowercase(Locale.ROOT)
             .replace(Regex("""[^\p{L}\p{N}]+"""), " ").trim()
         if (normalizedTitle.length < 2) return null
-        return digest(kind, "catalogue-id-title-v1:\$id:\$normalizedTitle")
+        return digest(kind, "catalogue-id-title-v1:$id:$normalizedTitle")
     }
 
     /** SHA-256 of media identity, never a plaintext URL or login credential. */
