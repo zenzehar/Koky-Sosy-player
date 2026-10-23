@@ -126,7 +126,7 @@ fun GoogleDriveSyncPane() {
                 ) {
                     Text("How Google Drive Sync works", style = MaterialTheme.typography.titleLarge)
                     Text("Every user connects their own Google account using the TV verification code.")
-                    Text("Soky uses one shared progress file for all TVs signed into this Google account. It syncs on startup, during playback and while the app is running; offline viewing still works.")
+                    Text("Soky uses one shared progress file for all TVs signed into this Google account. Watch updates trigger a fast upload; foreground TVs also check about every 30 seconds. Offline viewing still works.")
                     Text("Soky uses a private Google app-data folder when available, or its own Soky IPTV Pro folder in My Drive. IPTV credentials and stream URLs are never uploaded.")
                     Text("All devices use one account-wide watch history, regardless of local profile names. Each title still needs to exist in the TV's own catalogue to be playable. Deletions are not yet synchronised.")
                     TextButton(onClick = { showHelp = false }) { Text("Close") }
