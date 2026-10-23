@@ -105,6 +105,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import app.sokyiptv.R
 import app.sokyiptv.core.ServiceLocator
+import app.sokyiptv.sync.cloud.GoogleDriveProgressSync
 import app.sokyiptv.core.SleepTimer
 import app.sokyiptv.core.findActivity
 import app.sokyiptv.core.requestIgnoreBatteryOptimizations
@@ -143,6 +144,14 @@ fun PlayerScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    // Full-screen video has priority over optional Drive networking and JSON
+    // merging. Progress continues saving to Room during playback and flushes
+    // to the account-wide cloud ledger after this player screen is disposed.
+    DisposableEffect(Unit) {
+        GoogleDriveProgressSync.playbackScreenEntered()
+        onDispose { GoogleDriveProgressSync.playbackScreenExited() }
+    }
+
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
