@@ -377,41 +377,8 @@ fun VlcFallbackScreen(
         }
     }
 
-    // One short tail probe only after 45 seconds of uninterrupted playback.
-    // LibVLC does not expose reliable buffered-ahead seconds across all
-    // providers. Smooth playback and unmetered fast local connection serve as
-    // conservative proxies, not a guarantee of spare buffering.
-    // Only MPEG-TS VOD with HTTP 206 support can be probed (<160 KiB total).
-    LaunchedEffect(player, streamUrl) {
-        if (tsByteIndex != null) return@LaunchedEffect
-        if (!LowImpactTsDurationProbe.eligibleUrl(streamUrl) ||
-            !LowImpactTsDurationProbe.connectionLooksSuitable(context)) return@LaunchedEffect
-        var stableSeconds = 0
-        var previous = positionMs
-        while (isActive && stableSeconds < 45) {
-            delay(1_000L)
-            val healthy = ready && !paused && !failed && !ended &&
-                !scrubbing && !awaitingSeekPlayback &&
-                !diagHealth.networkBuffering &&
-                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING
-            val advancing = positionMs > previous + 250L && positionMs < previous + 4_000L
-            stableSeconds = if (healthy && advancing) stableSeconds + 1 else 0
-            previous = positionMs
-        }
-        if (!isActive) return@LaunchedEffect
-        val candidate = LowImpactTsDurationProbe.investigate(streamUrl, userAgent) {
-            ready && !paused && !failed && !ended &&
-                !scrubbing && !awaitingSeekPlayback && !diagHealth.networkBuffering
-        }
-        if (candidate != null && candidate > maxOf(durationMs + 120_000L,
-                durationMs * 115L / 100L) &&
-            candidate > discoveredDurationMs) {
-            discoveredDurationMs = candidate
-            // Estimate from sampled head/tail timestamps, not a verified EOF.
-            PlaybackDiagnostics.event(context, "VLC_DURATION_PROBED",
-                (candidate / 1_000L).coerceAtMost(999_999L).toInt(), persistNow = true)
-        }
-    }
+    // The validated sparse index replaces the older two-sample TS probe.
+    // Running both would create unnecessary parallel HTTP connections.
 
     // Some television firmwares ignore KEEP_SCREEN_ON on a SurfaceView while video is
     // decoding. Use a TV-only screen wake lock as a secondary safeguard, releasing it
@@ -629,7 +596,6 @@ fun VlcFallbackScreen(
             ) {
                 Text("VLC could not decode or open this stream.", color = Color.White, textAlign = TextAlign.Center)
                 TvVlcButton("Retry VLC") { failed = false; ended = false; player.play() }
-                TvVlcButton("Try Media3 instead", onClick = onTryMedia3)
                 TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
                 TvVlcButton("Diagnostics QR", onClick = ::showReport)
                 TvVlcButton("Back to title", onClick = onBack)
