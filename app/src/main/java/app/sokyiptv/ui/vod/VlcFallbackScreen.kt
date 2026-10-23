@@ -77,6 +77,7 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.LowImpactTsDurationProbe
+import app.sokyiptv.player.VodContainerDurationProbe
 import app.sokyiptv.player.PostSeekPlaybackGate
 import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.VlcPlaybackHealth
@@ -142,8 +143,12 @@ fun VlcFallbackScreen(
     var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var timelineFocused by remember { mutableStateOf(false) }
+    // Container-supported duration evidence can hold the seek scale steady
+    // throughout the declared end, instead of expanding at a fake 85%.
+    // When a real clock or preview exceeds the hint, expand again.
     val timelineScale = if (discoveredDurationMs > durationMs &&
-        positionMs < discoveredDurationMs * 85L / 100L && !scrubbing) {
+        positionMs <= discoveredDurationMs &&
+        (!scrubbing || previewMs <= discoveredDurationMs)) {
         AdaptiveVodTimeline.Scale(discoveredDurationMs, approximate = true)
     } else AdaptiveVodTimeline.scale(
         preferredDurationMs, positionMs, if (scrubbing) previewMs else positionMs,
@@ -211,10 +216,11 @@ fun VlcFallbackScreen(
         // request precise decoded-time seeking for transport and timeline taps.
         // Retain the bounded logical-clock guard for repeated fast presses.
         val now = android.os.SystemClock.elapsedRealtime()
-        nativeSeekCorrection.requested(capped, player.time, now)
+        val nativeCommand = nativeSeekCorrection.commandFor(capped)
+        nativeSeekCorrection.requested(capped, player.time, now, nativeCommand)
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
-        player.setTime(capped, false)
+        player.setTime(nativeCommand, false)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
         positionMs = seekClock.requested(capped, now)
         showControls()
@@ -351,17 +357,23 @@ fun VlcFallbackScreen(
         }
     }
 
-    // One short tail probe only after 45 seconds of uninterrupted playback.
-    // LibVLC does not expose reliable buffered-ahead seconds across all
-    // providers. Smooth playback and unmetered fast local connection serve as
-    // conservative proxies, not a guarantee of spare buffering.
-    // Only MPEG-TS VOD with HTTP 206 support can be probed (<160 KiB total).
+    // Seek Solution 2: choose a cheap, format-specific endpoint source.
+    // HLS: finalized playlist segment durations. MP4: complete moov metadata.
+    // TS: keep Solution 1's guarded prefix/suffix PTS sampling.
+    // Never download all video or create a second native decoder.
     LaunchedEffect(player, streamUrl) {
-        if (!LowImpactTsDurationProbe.eligibleUrl(streamUrl) ||
+        val type = VodContainerDurationProbe.typeOf(streamUrl)
+        val isTs = LowImpactTsDurationProbe.eligibleUrl(streamUrl)
+        if ((type == null && !isTs) ||
             !LowImpactTsDurationProbe.connectionLooksSuitable(context)) return@LaunchedEffect
+        val requiredHealthySeconds = when (type) {
+            VodContainerDurationProbe.Type.HLS_VOD -> 20
+            VodContainerDurationProbe.Type.MP4 -> 30
+            null -> 45
+        }
         var stableSeconds = 0
         var previous = positionMs
-        while (isActive && stableSeconds < 45) {
+        while (isActive && stableSeconds < requiredHealthySeconds) {
             delay(1_000L)
             val healthy = ready && !paused && !failed && !ended &&
                 !scrubbing && !awaitingSeekPlayback &&
@@ -372,15 +384,20 @@ fun VlcFallbackScreen(
             previous = positionMs
         }
         if (!isActive) return@LaunchedEffect
-        val candidate = LowImpactTsDurationProbe.investigate(streamUrl, userAgent) {
+        val healthyNow = {
             ready && !paused && !failed && !ended &&
                 !scrubbing && !awaitingSeekPlayback && !diagHealth.networkBuffering
         }
-        if (candidate != null && candidate > maxOf(durationMs + 120_000L,
-                durationMs * 115L / 100L) &&
+        val candidate = if (type != null) {
+            VodContainerDurationProbe.investigate(streamUrl, userAgent, healthyNow)
+        } else {
+            LowImpactTsDurationProbe.investigate(streamUrl, userAgent, healthyNow)
+        }
+        if (candidate != null &&
+            candidate > maxOf(durationMs + 120_000L, durationMs * 115L / 100L) &&
             candidate > discoveredDurationMs) {
             discoveredDurationMs = candidate
-            // Estimate from sampled head/tail timestamps, not a verified EOF.
+            // External metadata is a plausible EOF, never proof of decoded end.
             PlaybackDiagnostics.event(context, "VLC_DURATION_PROBED",
                 (candidate / 1_000L).coerceAtMost(999_999L).toInt(), persistNow = true)
         }
