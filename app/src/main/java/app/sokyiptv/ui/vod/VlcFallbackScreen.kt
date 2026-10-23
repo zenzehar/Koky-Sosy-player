@@ -79,6 +79,7 @@ import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.LowImpactTsDurationProbe
 import app.sokyiptv.player.TsByteSeekIndex
 import app.sokyiptv.player.TsByteIndexProbe
+import app.sokyiptv.player.GuardedSeekFallback
 import app.sokyiptv.player.PostSeekPlaybackGate
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
@@ -138,6 +139,7 @@ fun VlcFallbackScreen(
     // the native clock catches up or a short bounded timeout expires.
     val seekClock = remember(player) { VlcSeekClock() }
     val postSeekGate = remember(player) { PostSeekPlaybackGate() }
+    val guardedTimeFallback = remember(player) { GuardedSeekFallback() }
     var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
     var tsByteIndex by remember(streamUrl) { mutableStateOf<TsByteSeekIndex?>(null) }
     var indexDisabled by remember(streamUrl) { mutableStateOf(false) }
@@ -236,12 +238,24 @@ fun VlcFallbackScreen(
         val index = tsByteIndex?.takeIf { !indexDisabled && capped <= it.estimatedDurationMs }
         lastIndexSeek = index != null
         if (index != null) {
-            // Native VLC TS demux (ts-seek-percent) uses HTTP byte position,
-            // bypassing incorrect PCR-to-duration time lookup. One user
-            // gesture -> one native seek; no trial-and-error second jump.
+            guardedTimeFallback.cancel()
+            // Prefer the validated native TS byte index whenever available.
             player.setPosition(index.byteFractionFor(capped))
             PlaybackDiagnostics.event(context, "VLC_BYTE_SEEK", (capped / 1000L).toInt())
         } else {
+            val armed = guardedTimeFallback.requested(
+                targetMs = capped,
+                declaredMs = durationMs,
+                originMs = player.time,
+                nowMs = now,
+                indexedSeekAvailable = false,
+            )
+            // A small +/-10-second seek NEVER starts a delayed correction.
+            // Close to / beyond an untrustworthy EOF we also never chase.
+            if (!armed && durationMs > 0L &&
+                capped >= GuardedSeekFallback.safeUpperMs(durationMs)) {
+                PlaybackDiagnostics.event(context, "VLC_GUARD_SKIP", 1)
+            }
             player.setTime(capped, false)
         }
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
@@ -305,7 +319,45 @@ fun VlcFallbackScreen(
                 val nativeTime = player.time
                 if (!scrubbing) positionMs = seekClock.reconcile(nativeTime, tick)
                 val health = diagHealth.sample(tick, nativeTime.coerceAtLeast(0L), player.isPlaying, paused)
-                // Never use guessed corrections or re-seek automatically.
+                // A single bounded fallback correction is allowed ONLY when
+                // the verified TS byte-index route was not used for this seek,
+                // and both the target and corrective command remain far from
+                // the provider's declared EOF.
+                if (!scrubbing && !lastIndexSeek) {
+                    when (val correction = guardedTimeFallback.observe(
+                        nativeMs = nativeTime,
+                        nowMs = tick,
+                        playing = ready && player.isPlaying && !paused,
+                        buffering = diagHealth.networkBuffering,
+                        currentDeclaredMs = durationMs,
+                    )) {
+                        is GuardedSeekFallback.Decision.RetryAt -> {
+                            postSeekGate.requested(tick)
+                            awaitingSeekPlayback = true
+                            controlsVisible = true
+                            interaction++
+                            player.setTime(correction.commandMs, false)
+                            positionMs = seekClock.requested(correction.intendedMs, tick)
+                            seekTargetMs = correction.intendedMs
+                            PlaybackDiagnostics.event(
+                                context, "VLC_GUARD_RETRY",
+                                ((correction.commandMs - correction.intendedMs) / 1000L)
+                                    .coerceIn(-12L, 12L).toInt(), persistNow = true,
+                            )
+                        }
+                        is GuardedSeekFallback.Decision.Finished -> {
+                            if (!correction.succeeded) {
+                                PlaybackDiagnostics.event(
+                                    context, "VLC_GUARD_FAIL",
+                                    ((correction.landedMs - correction.intendedMs) / 1000L)
+                                        .coerceIn(-999_999L, 999_999L).toInt(),
+                                    persistNow = true,
+                                )
+                            }
+                        }
+                        null -> Unit
+                    }
+                }
                 if (!scrubbing && postSeekGate.observe(
                     tick, nativeTime, ready && player.isPlaying && !paused,
                     diagHealth.networkBuffering,
