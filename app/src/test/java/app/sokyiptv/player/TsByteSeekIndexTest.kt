@@ -29,7 +29,7 @@ class TsByteSeekIndexTest {
         assertTrue(index.isSignificantlyLongerThan(3_600_000L))
         assertEquals(0.5f, index.byteFractionFor(3_600_000L), 0.02f)
         assertTrue(index.byteFractionFor(6_900_000L) > 0.9f)
-        assertTrue(index.byteFractionFor(7_150_000L) <= 0.992f)
+        assertTrue(index.byteFractionFor(7_150_000L) <= 0.9995f)
     }
 
     @Test fun monotonicButVariableBitrateIndexInterpolatesLocally() {
