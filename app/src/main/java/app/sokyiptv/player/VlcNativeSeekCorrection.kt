@@ -21,6 +21,7 @@ internal class VlcNativeSeekCorrection {
     private data class Pending(
         val intendedMs: Long,
         val originMs: Long,
+        var commandMs: Long,
         val startedAtMs: Long,
         var lastNativeMs: Long? = null,
         var lastSampleAtMs: Long = 0L,
@@ -29,11 +30,19 @@ internal class VlcNativeSeekCorrection {
     )
 
     private var pending: Pending? = null
+    private val learned = SeekResponseMap()
+    fun commandFor(intendedMs: Long): Long = learned.commandFor(intendedMs)
     fun clear() { pending = null }
 
     /** Any fresh user request cancels correction of an older request. */
-    fun requested(intendedMs: Long, originNativeMs: Long, nowMs: Long) {
-        pending = Pending(intendedMs.coerceAtLeast(0L), originNativeMs.coerceAtLeast(0L), nowMs)
+    fun requested(
+        intendedMs: Long, originNativeMs: Long, nowMs: Long,
+        commandMs: Long = intendedMs,
+    ) {
+        pending = Pending(
+            intendedMs.coerceAtLeast(0L), originNativeMs.coerceAtLeast(0L),
+            commandMs.coerceAtLeast(0L), nowMs,
+        )
     }
 
     fun observe(
@@ -62,6 +71,10 @@ internal class VlcNativeSeekCorrection {
             return null
         }
         val elapsedSinceCommand = elapsed.coerceAtMost(5_000L)
+        val landedAtSeek = (nativeMs - elapsedSinceCommand).coerceAtLeast(0L)
+        // Learn only from a settled, advancing native clock. The map is
+        // local to this playback session and never persisted by provider.
+        learned.record(p.commandMs, landedAtSeek)
         val errorMs = nativeMs - (p.intendedMs + elapsedSinceCommand)
         if (abs(errorMs) <= ACCEPTABLE_ERROR_MS) {
             pending = null
@@ -77,6 +90,7 @@ internal class VlcNativeSeekCorrection {
             return Decision.Unreliable(p.intendedMs, nativeMs)
         }
         p.retries = 1
+        p.commandMs = compensated
         p.lastNativeMs = null
         p.lastSampleAtMs = 0L
         p.lastCommandAtMs = nowMs
