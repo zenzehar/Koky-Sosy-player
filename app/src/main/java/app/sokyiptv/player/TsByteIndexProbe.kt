@@ -11,7 +11,7 @@ import java.net.URL
 
 /**
  * Indexing never consumes the main media decoder or downloads the file.
- * Total requested payload is <= ~550 KiB, sequential single requests only.
+ * Total requested payload is <= 576 KiB, sequential single requests only.
  * Abandon immediately on playback degradation, unsupported HTTP Range,
  * MIME mismatch (not TS), mixed PID, changed file, or timestamp discontinuity.
  */
