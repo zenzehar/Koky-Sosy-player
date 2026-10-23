@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'experiment/v0.1.11.33-seek-solution-2' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.34-stable-near-end-seeking' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'experiment/v0.1.11.33-seek-solution-2'
+      github.head_ref == 'fix/v0.1.11.34-stable-near-end-seeking'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.33-soky-seek-solution-2-test \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.33_Seek_Solution_2_Test.apk" \
+          gh release create v0.1.11.34-soky-stable-near-end-seek \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.34_Stable_Near_End_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.33 Seek Solution 2 TV test" \
-            --notes "SEEK SOLUTION 2 (UNAPPROVED TV TEST). Retains v32 as Seek Solution 1. Improved supported end detection: read only the finalized EXT-X-ENDLIST HLS media playlist and sum all EXTINF segment lengths; or inspect a complete MP4 moov/mvhd atom at head or tail using strictly capped nonredirected byte-range reads. TS head/tail timestamp probe preserved. These are format metadata duration hints, NOT proof video frames are seekable, and unsupported MKV, malformed files or hostile servers are skipped. All probes run on IO only after 20/30/45 seconds of healthy playback on fast unmetered WiFi/Ethernet, limited to <=320KiB metadata and short network timeouts. New per-session SeekResponseMap uses at least TWO native seek landing samples to learn how this particular stream responds to requested time and safely inverts an observed seek warp with limited interpolation/short extrapolation. Existing one-shot native correction remains. No repeated seek hunting, no background full-video buffering or scanning, no cloud/LAN/Live or catalogue changes. Tests cover finalized/nonfinal HLS, safe MP4 parsing and seek calibration. Existing hardware Play/Pause, D-pad visible/hidden focus, saved watch progress and seek-buffering controls unchanged. Golden v27 untouched. Release is NOT real-device verified." --prerelease
+            --title "Soky IPTV Pro v0.1.11.34 stable near-end seeking TV test" \
+            --notes "SEEK SOLUTION 3 - UNAPPROVED TV TEST, directly based on published v0.1.11.33. User reports uncontrolled seek jumps near end and wrong endpoint. Root cause: v29-v33 speculative compensation issued an unrequested second native setTime and v33 learned command mapping guessed future commands using possibly corrupt timestamps. v34 disables both automatic corrective seeks and learned inverse seek commands; each explicit user seek sends ONE native setTime(targetMilliseconds,false). Native clock is authoritative again after post-seek playback advances, never silently keep target as truth. A stable local ten-minute sliding timeline is shown when seeking near an unreliable declared end, with truthful 'End unverified' and exact clock range rather than invented percent/duration. Large failures (over 20 seconds) report a focusable user-selected 'Try Media3 player' option; no automatic engine switch. Keep v31 buffering-control visibility and v30 hidden-vs-visible Dpad focus. Existing passive HLS/MP4/TS metadata evidence remains; it does not confer endpoint verification. No changes to Movies/Series catalogue, continue watching data model, Google Drive, LAN or Live TV. Unit tests cover stable ruler past reported end, native clock truth, user seek controls. Physical TV validation mandatory; not a golden release. Last known user-validated navigation baseline v27 and prior Seek Solutions 1/2 untouched." --prerelease

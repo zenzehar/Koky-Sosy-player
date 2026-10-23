@@ -21,6 +21,16 @@ internal class VlcSeekClock(
         return pendingTargetMs!!
     }
 
+    /**
+     * Call only after the native player has resumed moving following this
+     * particular seek. If it landed incorrectly, display its real clock
+     * instead of the optimistic requested timestamp.
+     */
+    fun confirmNative(nativeMs: Long): Long {
+        pendingTargetMs = null
+        return nativeMs.coerceAtLeast(0L)
+    }
+
     /** Ignore a stale native clock only while the latest seek remains unacknowledged. */
     fun reconcile(nativeMs: Long, nowMs: Long): Long {
         val observed = nativeMs.coerceAtLeast(0L)
