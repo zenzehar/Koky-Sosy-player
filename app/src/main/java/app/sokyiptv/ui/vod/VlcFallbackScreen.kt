@@ -77,8 +77,9 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.LowImpactTsDurationProbe
+import app.sokyiptv.player.TsByteSeekIndex
+import app.sokyiptv.player.TsByteIndexProbe
 import app.sokyiptv.player.PostSeekPlaybackGate
-import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -109,7 +110,13 @@ fun VlcFallbackScreen(
     val autoplay by preferences.seriesAutoplay.collectAsState()
     val scope = rememberCoroutineScope()
     val libvlc = remember(streamUrl) {
-        LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
+        val opts = arrayListOf("--network-caching=1400", "--no-video-title-show")
+        if (LowImpactTsDurationProbe.eligibleUrl(streamUrl)) {
+            // TS demux supports byte-based position mode when PCR timestamps
+            // misreport duration; time-based seeking is unchanged until indexed.
+            opts.add("--ts-seek-percent")
+        }
+        LibVLC(context.applicationContext, opts)
     }
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
@@ -132,10 +139,15 @@ fun VlcFallbackScreen(
     val seekClock = remember(player) { VlcSeekClock() }
     val postSeekGate = remember(player) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
-    val nativeSeekCorrection = remember(player) { VlcNativeSeekCorrection() }
+    var tsByteIndex by remember(streamUrl) { mutableStateOf<TsByteSeekIndex?>(null) }
+    var indexDisabled by remember(streamUrl) { mutableStateOf(false) }
+    var lastIndexSeek by remember(streamUrl) { mutableStateOf(false) }
+    var seekTargetMs by remember(streamUrl) { mutableLongStateOf(-1L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var discoveredDurationMs by remember(streamUrl) { mutableLongStateOf(0L) }
-    val preferredDurationMs = maxOf(durationMs, discoveredDurationMs)
+    val preferredDurationMs = maxOf(
+        durationMs, discoveredDurationMs, tsByteIndex?.estimatedDurationMs ?: 0L,
+    )
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
     var seekOriginMs by remember { mutableLongStateOf(0L) }
@@ -211,10 +223,20 @@ fun VlcFallbackScreen(
         // request precise decoded-time seeking for transport and timeline taps.
         // Retain the bounded logical-clock guard for repeated fast presses.
         val now = android.os.SystemClock.elapsedRealtime()
-        nativeSeekCorrection.requested(capped, player.time, now)
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
-        player.setTime(capped, false)
+        seekTargetMs = capped
+        val index = tsByteIndex?.takeIf { !indexDisabled && capped <= it.estimatedDurationMs }
+        lastIndexSeek = index != null
+        if (index != null) {
+            // Native VLC TS demux (ts-seek-percent) uses HTTP byte position,
+            // bypassing incorrect PCR-to-duration time lookup. One user
+            // gesture -> one native seek; no trial-and-error second jump.
+            player.setPosition(index.byteFractionFor(capped))
+            PlaybackDiagnostics.event(context, "VLC_BYTE_SEEK", (capped / 1000L).toInt())
+        } else {
+            player.setTime(capped, false)
+        }
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
         positionMs = seekClock.requested(capped, now)
         showControls()
@@ -254,7 +276,6 @@ fun VlcFallbackScreen(
             }
         }
         onDispose {
-            nativeSeekCorrection.clear()
             PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
             onProgress(positionMs, preferredDurationMs)
             player.setEventListener(null)
@@ -277,44 +298,23 @@ fun VlcFallbackScreen(
                 val nativeTime = player.time
                 if (!scrubbing) positionMs = seekClock.reconcile(nativeTime, tick)
                 val health = diagHealth.sample(tick, nativeTime.coerceAtLeast(0L), player.isPlaying, paused)
-                if (!scrubbing) {
-                    when (val correction = nativeSeekCorrection.observe(
-                        nativeTime, tick, ready && player.isPlaying && !paused,
-                        diagHealth.networkBuffering,
-                    )) {
-                        is VlcNativeSeekCorrection.Decision.RetryAt -> {
-                            // One bounded native-time correction. Do not setPosition(%).
-                            postSeekGate.requested(tick)
-                            awaitingSeekPlayback = true
-                            controlsVisible = true
-                            interaction++
-                            player.setTime(correction.commandTimeMs, false)
-                            positionMs = seekClock.requested(correction.intendedMs, tick)
-                            PlaybackDiagnostics.event(
-                                context, "VLC_SEEK_ADJUST",
-                                ((correction.landedMs - correction.intendedMs) / 1_000L)
-                                    .coerceIn(-999_999L, 999_999L).toInt(),
-                                persistNow = true,
-                            )
-                        }
-                        is VlcNativeSeekCorrection.Decision.Unreliable -> {
-                            // Don't loop indefinitely when the server's timestamps
-                            // cannot be reconciled. Native clock remains authoritative.
-                            PlaybackDiagnostics.event(
-                                context, "VLC_SEEK_MISS",
-                                ((correction.landedMs - correction.intendedMs) / 1_000L)
-                                    .coerceIn(-999_999L, 999_999L).toInt(),
-                                persistNow = true,
-                            )
-                        }
-                        null -> Unit
-                    }
-                }
+                // Never use guessed corrections or re-seek automatically.
                 if (!scrubbing && postSeekGate.observe(
                     tick, nativeTime, ready && player.isPlaying && !paused,
                     diagHealth.networkBuffering,
                 )) {
                     awaitingSeekPlayback = false
+                    positionMs = seekClock.confirmNative(nativeTime)
+                    if (seekTargetMs >= 0L) {
+                        val miss = kotlin.math.abs(nativeTime - seekTargetMs)
+                        if (miss > 25_000L) {
+                            PlaybackDiagnostics.event(context, "VLC_SEEK_MISS",
+                                ((nativeTime - seekTargetMs) / 1000L)
+                                    .coerceIn(-999_999L, 999_999L).toInt(), persistNow = true)
+                            if (lastIndexSeek) indexDisabled = true
+                        }
+                        seekTargetMs = -1L
+                    }
                     // Start a fresh five-second visibility interval only now.
                     interaction++
                 }
@@ -331,7 +331,6 @@ fun VlcFallbackScreen(
                 }
                 if (ready && initialSeekPending && player.isSeekable) {
                     val initialTarget = initialPositionMs.coerceAtLeast(0L)
-                    nativeSeekCorrection.requested(initialTarget, player.time, tick)
                     postSeekGate.requested(tick)
                     awaitingSeekPlayback = true
                     controlsVisible = true
@@ -351,12 +350,40 @@ fun VlcFallbackScreen(
         }
     }
 
+    // A compact, validated TS byte index can bypass incorrect PCR time seeks.
+    // It never touches the decoder, downloads full video or alters buffering.
+    LaunchedEffect(player, streamUrl) {
+        if (!TsByteIndexProbe.eligible(context, streamUrl)) return@LaunchedEffect
+        var seconds = 0
+        var prior = positionMs
+        while (isActive && seconds < 20) {
+            delay(1000L)
+            val healthy = ready && !paused && !failed && !ended &&
+                !scrubbing && !awaitingSeekPlayback && !diagHealth.networkBuffering &&
+                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING
+            seconds = if (healthy && positionMs > prior + 250L &&
+                positionMs < prior + 4000L) seconds + 1 else 0
+            prior = positionMs
+        }
+        if (!isActive) return@LaunchedEffect
+        val mapped = TsByteIndexProbe.build(streamUrl, userAgent) {
+            ready && !paused && !failed && !ended &&
+                !scrubbing && !awaitingSeekPlayback && !diagHealth.networkBuffering
+        }
+        if (mapped != null) {
+            tsByteIndex = mapped
+            PlaybackDiagnostics.event(context, "VLC_BYTE_INDEX",
+                (mapped.estimatedDurationMs / 1000L).toInt(), persistNow = true)
+        }
+    }
+
     // One short tail probe only after 45 seconds of uninterrupted playback.
     // LibVLC does not expose reliable buffered-ahead seconds across all
     // providers. Smooth playback and unmetered fast local connection serve as
     // conservative proxies, not a guarantee of spare buffering.
     // Only MPEG-TS VOD with HTTP 206 support can be probed (<160 KiB total).
     LaunchedEffect(player, streamUrl) {
+        if (tsByteIndex != null) return@LaunchedEffect
         if (!LowImpactTsDurationProbe.eligibleUrl(streamUrl) ||
             !LowImpactTsDurationProbe.connectionLooksSuitable(context)) return@LaunchedEffect
         var stableSeconds = 0
@@ -581,6 +608,10 @@ fun VlcFallbackScreen(
                     val media = Media(libvlc, Uri.parse(streamUrl))
                     media.setHWDecoderEnabled(true, false)
                     media.addOption(":http-user-agent=$userAgent")
+                    if (LowImpactTsDurationProbe.eligibleUrl(streamUrl)) {
+                        // Companion to VLC's ts-seek-percent demuxer option.
+                        media.addOption(":ts-seek-percent")
+                    }
                     player.media = media
                     media.release()
                     player.play()
@@ -782,7 +813,9 @@ fun VlcFallbackScreen(
                             }
                         }
                         Text(
-                            if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
+                            if (tsByteIndex != null && !indexDisabled)
+                                "~" + clock(tsByteIndex!!.estimatedDurationMs) + " indexed"
+                            else if (timelineScale.approximate) "~" + clock(timelineScale.maximumMs)
                             else clock(preferredDurationMs),
                             color = Color.White,
                         )
