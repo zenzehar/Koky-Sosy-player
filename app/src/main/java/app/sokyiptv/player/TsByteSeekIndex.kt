@@ -38,7 +38,7 @@ internal class TsByteSeekIndex private constructor(
         val weight = (desired - left.elapsedMs).toDouble() / span.toDouble()
         val offset = left.byteOffset + (right.byteOffset - left.byteOffset) * weight
         // Avoid seeking exactly to EOF; it would trigger EndReached without frames.
-        return (offset / fileBytes.toDouble()).coerceIn(0.0, 0.992).toFloat()
+        return (offset / fileBytes.toDouble()).coerceIn(0.0, 0.9995).toFloat()
     }
 
     fun isSignificantlyLongerThan(declaredMs: Long): Boolean =
