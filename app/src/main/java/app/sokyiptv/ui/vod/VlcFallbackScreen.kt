@@ -276,7 +276,7 @@ fun VlcFallbackScreen(
                 if (!scrubbing) {
                     when (val correction = nativeSeekCorrection.observe(
                         nativeTime, tick, ready && player.isPlaying && !paused,
-                        diagHealth.networkBuffering, durationMs,
+                        diagHealth.networkBuffering,
                     )) {
                         is VlcNativeSeekCorrection.Decision.RetryAt -> {
                             // One bounded native-time correction. Do not setPosition(%).
