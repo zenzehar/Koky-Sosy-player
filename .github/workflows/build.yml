@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.32-opportunistic-ts-duration-probe' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'experiment/v0.1.11.33-seek-solution-2' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.32-opportunistic-ts-duration-probe'
+      github.head_ref == 'experiment/v0.1.11.33-seek-solution-2'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.32-soky-bounded-ts-duration-probe \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.32_TS_Duration_Probe_Test.apk" \
+          gh release create v0.1.11.33-soky-seek-solution-2-test \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.33_Seek_Solution_2_Test.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.32 opportunistic TS duration probe TV test" \
-            --notes "UNAPPROVED TV TEST v0.1.11.32 based on v31. No full file buffering or scanning: opportunistic MPEG-TS VOD head+tail HTTP 206 byte-range probing capped at 64KiB+96KiB. Wait until 45 seconds of smooth playback on a sufficiently fast unmetered WiFi/Ethernet network; do not block native VLC playback, no extra decoder, redirects or retries; reject providers without 206 Content-Range and incompatible MP4/MKV/HLS/live streams. Inspect matching PES PTS values to infer a higher approximate EOF and rescale seekbar with an explicit ~ estimate. No precise EOF guarantee and probing may be skipped when playback/network eligibility is not met. Preserve v31 adaptive runtime, bounded seek correction, hardware Play/Pause, post-seek buffering controls and Continue Watching; Movies/Series catalogue, Google Drive/LAN, Live untouched. Unit tests cover malformed TS, PIDs and timestamp inference. Unapproved until real-TV tests; baseline v27/golden untouched." --prerelease
+            --title "Soky IPTV Pro v0.1.11.33 Seek Solution 2 TV test" \
+            --notes "SEEK SOLUTION 2 (UNAPPROVED TV TEST). Retains v32 as Seek Solution 1. Improved supported end detection: read only the finalized EXT-X-ENDLIST HLS media playlist and sum all EXTINF segment lengths; or inspect a complete MP4 moov/mvhd atom at head or tail using strictly capped nonredirected byte-range reads. TS head/tail timestamp probe preserved. These are format metadata duration hints, NOT proof video frames are seekable, and unsupported MKV, malformed files or hostile servers are skipped. All probes run on IO only after 20/30/45 seconds of healthy playback on fast unmetered WiFi/Ethernet, limited to <=320KiB metadata and short network timeouts. New per-session SeekResponseMap uses at least TWO native seek landing samples to learn how this particular stream responds to requested time and safely inverts an observed seek warp with limited interpolation/short extrapolation. Existing one-shot native correction remains. No repeated seek hunting, no background full-video buffering or scanning, no cloud/LAN/Live or catalogue changes. Tests cover finalized/nonfinal HLS, safe MP4 parsing and seek calibration. Existing hardware Play/Pause, D-pad visible/hidden focus, saved watch progress and seek-buffering controls unchanged. Golden v27 untouched. Release is NOT real-device verified." --prerelease
