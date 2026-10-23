@@ -54,7 +54,7 @@ internal object VodEndMetadata {
         val index = lines.indexOfFirst { it.startsWith("#EXT-X-STREAM-INF:") }
         if (index < 0) return null
         return lines.drop(index + 1).firstOrNull { it.isNotEmpty() && !it.startsWith("#") }
-            ?.takeIf { it.length <= 2_048 && !it.contains('\\u0000') }
+            ?.takeIf { it.length <= 2_048 && !it.contains(0.toChar()) }
     }
 
     fun mp4MovieDurationMillis(bytes: ByteArray): Long? {
