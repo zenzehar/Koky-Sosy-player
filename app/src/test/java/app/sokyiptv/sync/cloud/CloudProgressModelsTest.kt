@@ -53,6 +53,16 @@ class CloudProgressModelsTest {
             "https://another.test:443/series/bob/other/89242.mkv"))
     }
 
+    @Test fun differentProviderPortalHostsShareSameCredentialFreeAliasWhenIdAndTitleMatch() {
+        val a = CloudMediaKeys.catalogueAlias("ep", "71234", "Episode 13")
+        val b = CloudMediaKeys.catalogueAlias("ep", "71234", "EPISODE   13")
+        assertEquals(a, b)
+        assertNotEquals(a, CloudMediaKeys.catalogueAlias("ep", "71235", "Episode 13"))
+        assertNotEquals(a, CloudMediaKeys.catalogueAlias("ep", "71234", "Episode 14"))
+        assertEquals(64, a?.length)
+        assertEquals(null, CloudMediaKeys.catalogueAlias("ep", "not-a-numeric-id", "Episode 13"))
+    }
+
     @Test fun cloudPayloadContainsNoProviderCredentialsOrUrls() {
         val point = CloudWatchPoint(
             profile = "Me",
@@ -61,6 +71,7 @@ class CloudProgressModelsTest {
             positionMillis = 42000,
             durationMillis = 100000,
             updatedAtMillis = 1000,
+            aliases = listOfNotNull(CloudMediaKeys.catalogueAlias("movie", "7", "Some Film")),
         )
         val encoded = Json.encodeToString(CloudWatchSnapshot(
             deviceId = "test-device", generatedAtMillis = 1001, positions = listOf(point),

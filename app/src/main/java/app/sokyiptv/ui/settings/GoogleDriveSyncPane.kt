@@ -186,14 +186,27 @@ fun GoogleDriveSyncPane() {
                         .format(Date(state.lastSuccessMillis))
                 Text("Last successful sync: $last")
                 if (state.remoteCount > 0) {
-                    Text("Shared cloud entries: ${state.remoteCount} · Applied here: ${state.importedCount}")
+                    Text("Shared cloud titles: ${state.remoteCount} · Recognised on this TV: " +
+                        "${state.matchedCount} · Newly updated: ${state.importedCount}")
                     if (state.unmatchedCount > 0) {
+                        val noLocalLibrary = state.localMovies + state.localEpisodes == 0
                         Text(
-                            "${state.unmatchedCount} cloud titles are saved safely but not present in this TV's " +
-                                "local catalogue yet. No profile selection or matching is required.",
+                            if (noLocalLibrary)
+                                "This TV's local VOD catalogue is empty. Refresh Movies and Series " +
+                                    "before expecting Continue Watching to display cloud titles."
+                            else
+                                "${state.unmatchedCount} cloud title(s) are still pending identification. " +
+                                    "Upgrade both TVs, then sync the TV where you watched the title first. " +
+                                    "Soky can now compare hashed provider media IDs and title labels " +
+                                    "without matching local profiles.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
+                    Text(
+                        "Local catalogue: ${state.localMovies} movies · ${state.localEpisodes} episodes. " +
+                            "No progress is assigned to an unidentified or ambiguous title.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 if (state.message.isNotBlank()) {
                     Text(

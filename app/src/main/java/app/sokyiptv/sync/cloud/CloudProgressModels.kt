@@ -5,6 +5,7 @@
 package app.sokyiptv.sync.cloud
 
 import java.security.MessageDigest
+import java.util.Locale
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -15,6 +16,8 @@ data class CloudWatchPoint(
     val positionMillis: Long,
     val durationMillis: Long,
     val updatedAtMillis: Long,
+    /** Optional credential-free portable keys for the same catalogue media on other TVs. */
+    val aliases: List<String> = emptyList(),
 )
 
 @Serializable
@@ -26,6 +29,21 @@ data class CloudWatchSnapshot(
 )
 
 object CloudMediaKeys {
+    /**
+     * Stable fallback when a provider serves the SAME catalogue from different portal URLs.
+     * A numeric provider ID alone is unsafe (unrelated providers can reuse it), so include
+     * the normalized catalogue title. Never upload the ID or title in plaintext.
+     */
+    fun catalogueAlias(kind: String, providerId: String, title: String): String? {
+        if (kind != "movie" && kind != "ep") return null
+        val id = providerId.trim()
+        if (!id.matches(Regex("[0-9]{1,18}"))) return null
+        val normalizedTitle = title.lowercase(Locale.ROOT)
+            .replace(Regex("""[^\p{L}\p{N}]+"""), " ").trim()
+        if (normalizedTitle.length < 2) return null
+        return digest(kind, "catalogue-id-title-v1:$id:$normalizedTitle")
+    }
+
     /** SHA-256 of media identity, never a plaintext URL or login credential. */
     private fun digest(kind: String, identifier: String): String {
         require(kind == "movie" || kind == "ep")

@@ -49,6 +49,8 @@ data class CloudSyncState(
     val matchedCount: Int = 0,
     val remoteCount: Int = 0,
     val unmatchedCount: Int = 0,
+    val localMovies: Int = 0,
+    val localEpisodes: Int = 0,
 )
 
 class GoogleDriveProgressSync private constructor(context: Context) {
@@ -72,7 +74,14 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private var periodicJob: Job? = null
     private var pushJob: Job? = null
     private var lastSyncAttemptMillis: Long = 0L
-    private var cachedIndex: Pair<Map<String, String>, Map<String, String>>? = null
+    private data class LocalFingerprint(val mediaHash: String, val aliases: List<String>)
+    private data class LocalIdentityIndex(
+        val byLocal: Map<String, LocalFingerprint>,
+        val byCloud: Map<String, String>,
+        val movies: Int,
+        val episodes: Int,
+    )
+    private var cachedIndex: LocalIdentityIndex? = null
     private var indexCachedAtMillis = 0L
     private val deviceId: String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
         prefs.edit().putString("device_id", it).apply()
@@ -221,6 +230,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                     matchedCount = result.matched,
                     remoteCount = result.remote,
                     unmatchedCount = result.unmatched,
+                    localMovies = result.movies,
+                    localEpisodes = result.episodes,
                     message = "Account-wide sync: ${result.remote} entries in one shared file; " +
                         "${result.imported} applied to this TV." +
                         if (result.unmatched > 0) " ${result.unmatched} titles retained in cloud until catalogued locally."
@@ -438,58 +449,78 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         driveRequest(token, request)
     }
 
-    /** Only SHA256s of local stream URLs are used for the cross-install lookup. */
-    private suspend fun indexLocalMedia(): Pair<Map<String, String>, Map<String, String>> {
+    /**
+     * Mapping local database IDs into shared hashed media identities.
+     * Never send unencrypted URLs or provider IDs; only hashed, non-ambiguous
+     * fingerprints reach the account's ONE Google Drive ledger.
+     */
+    private suspend fun indexLocalMedia(): LocalIdentityIndex {
         requirePlaybackIdle()
         val now = android.os.SystemClock.elapsedRealtime()
-        cachedIndex?.takeIf { now - indexCachedAtMillis < 120_000L }?.let { return it }
-        val byLocalKey = HashMap<String, String>()
-        val byCloudKey = HashMap<String, String>()
-        val ambiguous = HashSet<String>()
-        fun add(kind: String, id: Long, url: String) {
-            if (url.isBlank()) return
-            val localKey = "$kind:$id"
-            val digest = CloudMediaKeys.hash(kind, url)
-            val cloudKey = "$kind:$digest"
-            byLocalKey[localKey] = digest
-            val keys = setOf(
-                cloudKey,
-                "$kind:${CloudMediaKeys.previousHash(kind, url)}",
-                "$kind:${CloudMediaKeys.legacyHash(kind, url)}",
-            )
-            for (candidate in keys) {
-                val prior = byCloudKey.putIfAbsent(candidate, localKey)
-                if (prior != null && prior != localKey) ambiguous += candidate
+        cachedIndex?.takeIf { now - indexCachedAtMillis < 15_000L }?.let { return it }
+        val movieRefs = graph.database.movies().cloudPortableRefs()
+        val episodeRefs = graph.database.episodes().cloudPortableRefs()
+        data class Candidate(val kind: String, val key: String, val url: String, val alias: String?)
+        val refs = buildList {
+            movieRefs.forEach { row ->
+                add(Candidate("movie", "movie:${row.id}", row.streamUrl,
+                    CloudMediaKeys.catalogueAlias("movie", row.providerId, row.label)))
+            }
+            episodeRefs.forEach { row ->
+                add(Candidate("ep", "ep:${row.id}", row.streamUrl,
+                    CloudMediaKeys.catalogueAlias("ep", row.providerId, row.label)))
+            }
+        }.filter { it.url.isNotBlank() }
+        // A portable hash shared by two distinct LOCAL catalogue titles is
+        // ambiguous. Neither upload nor apply it in that case.
+        val aliasesByKey = refs.mapNotNull { c ->
+            c.alias?.let { alias -> "${c.kind}:$alias" to c.key }
+        }.groupBy({ it.first }, { it.second })
+        val ambiguousAliases = aliasesByKey.filterValues { it.distinct().size > 1 }.keys
+
+        val byLocal = hashMapOf<String, LocalFingerprint>()
+        val byCloud = hashMapOf<String, String>()
+        val ambiguous = hashSetOf<String>()
+        refs.forEach { candidate ->
+            val kind = candidate.kind
+            val url = candidate.url
+            val canonical = CloudMediaKeys.hash(kind, url)
+            val alias = candidate.alias?.takeIf { "$kind:$it" !in ambiguousAliases }
+            byLocal[candidate.key] = LocalFingerprint(canonical, listOfNotNull(alias))
+            val identities = listOf(
+                canonical,
+                CloudMediaKeys.previousHash(kind, url),
+                CloudMediaKeys.legacyHash(kind, url),
+            ) + listOfNotNull(alias)
+            for (identity in identities.distinct()) {
+                val cloudKey = "$kind:$identity"
+                val existing = byCloud.putIfAbsent(cloudKey, candidate.key)
+                if (existing != null && existing != candidate.key) ambiguous += cloudKey
             }
         }
-        graph.database.movies().cloudRefs().forEach { add("movie", it.id, it.streamUrl) }
-        graph.database.episodes().cloudRefs().forEach { add("ep", it.id, it.streamUrl) }
-        // If the same provider URL is used for multiple local rows, we cannot know
-        // which row is the correct playback history target. Skip it; never guess.
-        ambiguous.forEach { byCloudKey.remove(it) }
-        return (byLocalKey to byCloudKey).also {
+        ambiguous.forEach { byCloud.remove(it) }
+        return LocalIdentityIndex(byLocal, byCloud, movieRefs.size, episodeRefs.size).also {
             cachedIndex = it
             indexCachedAtMillis = now
         }
     }
 
-    private suspend fun localSnapshot(index: Map<String, String>): CloudWatchSnapshot {
+    private suspend fun localSnapshot(index: Map<String, LocalFingerprint>): CloudWatchSnapshot {
         requirePlaybackIdle()
-        // The same Google account is the global watch-history namespace.
-        // Only the currently active local profile participates, regardless of its name or id.
         val activeProfile = graph.settings.activeProfileId.value
         val cutoff = prefs.getLong("upload_cutoff", 0L)
         val positions = graph.playbackPositions.all().mapNotNull { position ->
             if (position.updatedAtMillis < cutoff || position.profileId != activeProfile)
                 return@mapNotNull null
-            val key = index[position.mediaKey] ?: return@mapNotNull null
+            val fingerprint = index[position.mediaKey] ?: return@mapNotNull null
             CloudWatchPoint(
                 profile = "",
-                mediaHash = key,
+                mediaHash = fingerprint.mediaHash,
                 kind = position.mediaKey.substringBefore(':'),
                 positionMillis = position.positionMillis.coerceAtLeast(0L),
                 durationMillis = position.durationMillis.coerceAtLeast(0L),
                 updatedAtMillis = position.updatedAtMillis,
+                aliases = fingerprint.aliases,
             )
         }.sortedByDescending { it.updatedAtMillis }.take(10_000)
         return CloudWatchSnapshot(deviceId = deviceId, generatedAtMillis = System.currentTimeMillis(), positions = positions)
@@ -498,6 +529,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private data class SyncOutcome(
         val imported: Int, val matched: Int, val remote: Int,
         val unmatched: Int, val uploaded: Boolean,
+        val movies: Int, val episodes: Int,
     )
 
     /** Owner-separated on-device recovery copy, never another Drive file. */
@@ -598,7 +630,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         } else emptyList()
         requirePlaybackIdle()
         val index = indexLocalMedia()
-        val local = localSnapshot(index.first)
+        val local = localSnapshot(index.byLocal)
         val recovered = readRecovery()
         var combined = mergedPoints(
             remoteSnapshot?.positions.orEmpty(), legacyPoints, recovered, local.positions,
@@ -611,7 +643,12 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         var resolvable = 0
         for (point in combined) {
             requirePlaybackIdle()
-            val localKey = index.second["${point.kind}:${point.mediaHash}"] ?: continue
+            val candidates = (listOf(point.mediaHash) + point.aliases)
+                .mapNotNull { identity -> index.byCloud["${point.kind}:$identity"] }
+                .distinct()
+            // Zero means not catalogued (or incompatible legacy fingerprint).
+            // Two or more is ambiguous; never assign watch progress to the wrong title.
+            val localKey = candidates.singleOrNull() ?: continue
             resolvable++
             imported += graph.playbackPositions.mergeIfNewer(
                 profileId, localKey, point.positionMillis, point.durationMillis, point.updatedAtMillis,
@@ -670,7 +707,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             // Reversible trash, only after the shared ledger has been verified.
             archiveLegacy(token, legacy)
         }
-        return SyncOutcome(imported, resolvable, combined.size, combined.size - resolvable, uploaded)
+        return SyncOutcome(imported, resolvable, combined.size, combined.size - resolvable,
+            uploaded, index.movies, index.episodes)
     }
 
     companion object {

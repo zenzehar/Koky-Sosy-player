@@ -10,6 +10,28 @@ class CloudAccountLedgerTest {
                       kind: String = "movie") =
         CloudWatchPoint(profile, hash, kind, position, 60_000L, time)
 
+    @Test fun twoUrlHashesWithSameProviderTitleAliasBecomeOneRecord() {
+        val identity = "c".repeat(64)
+        val first = point("Living Room", movie, 10_000L, 50_000L)
+            .copy(aliases = listOf(identity))
+        val second = point("Bedroom", episode, 30_000L, 60_000L)
+            .copy(kind = "movie", aliases = listOf(identity))
+        val results = CloudAccountLedger.merge(100_000L, listOf(first), listOf(second))
+        assertEquals(1, results.size)
+        assertEquals(30_000L, results.single().positionMillis)
+        assertEquals(listOf(identity), results.single().aliases)
+        assertTrue(CloudAccountLedger.covers(results, listOf(first)))
+    }
+
+    @Test fun migratingOldHashPreservesNewAliases() {
+        val identity = "d".repeat(64)
+        val legacy = point("", movie, 12_000L, 50_000L)
+        val enriched = legacy.copy(aliases = listOf(identity))
+        val merged = CloudAccountLedger.merge(100_000L, listOf(legacy), listOf(enriched))
+        assertEquals(1, merged.size)
+        assertEquals(listOf(identity), merged.single().aliases)
+    }
+
     @Test fun sameGoogleAccountMergesAcrossDifferentProfileNames() {
         val records = CloudAccountLedger.merge(100_000L,
             listOf(point("Living Room", movie, 20_000L, 50_000L)),
