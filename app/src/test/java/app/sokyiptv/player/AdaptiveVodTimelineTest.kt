@@ -11,27 +11,26 @@ class AdaptiveVodTimelineTest {
         assertEquals(7_200_000L, scale.maximumMs)
         assertFalse(scale.approximate)
     }
-    @Test fun nearingUnderstatedDurationExpandsBeforeSeekbarRunsOut() {
+    @Test fun nearingDeclaredEndDoesNotExpandSeekbar() {
         val scale = AdaptiveVodTimeline.scale(3_600_000L, 3_200_000L)
-        assertEquals(4_320_000L, scale.maximumMs)
-        assertTrue(scale.approximate)
-        assertTrue(AdaptiveVodTimeline.fraction(3_200_000L, scale) < 0.9f)
+        assertEquals(3_600_000L, scale.maximumMs)
+        assertFalse(scale.approximate)
     }
-    @Test fun playbackPastAdvertisedEndKeepsExpandingDisplayedHorizon() {
+    @Test fun beyondDeclaredEndBarStaysFullWithoutExpanding() {
         val scale = AdaptiveVodTimeline.scale(3_600_000L, 5_400_000L)
-        assertTrue(scale.maximumMs >= 6_120_000L)
-        assertTrue(scale.approximate)
-        assertTrue(AdaptiveVodTimeline.fraction(5_400_000L, scale) < 1f)
+        assertEquals(3_600_000L, scale.maximumMs)
+        assertFalse(scale.approximate)
+        assertEquals(1f, AdaptiveVodTimeline.fraction(5_400_000L, scale))
     }
-    @Test fun draggingNearEndExpandsSliderWithoutClaimingTrueRuntime() {
+    @Test fun draggingNearEndDoesNotExpandSlider() {
         val scale = AdaptiveVodTimeline.scale(3_600_000L, 500_000L, 3_400_000L)
-        assertTrue(scale.approximate)
-        assertTrue(scale.maximumMs > 3_600_000L)
+        assertFalse(scale.approximate)
+        assertEquals(3_600_000L, scale.maximumMs)
     }
     @Test fun unknownLengthGetsSafeShortHorizon() {
         val scale = AdaptiveVodTimeline.scale(0L, 0L)
-        assertTrue(scale.approximate)
-        assertTrue(scale.maximumMs > 0L)
+        assertFalse(scale.approximate)
+        assertEquals(60_000L, scale.maximumMs)
         assertEquals(0f, AdaptiveVodTimeline.fraction(0L, scale))
     }
 }
