@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.41-playback-priority-cloud' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.43-portable-media-sync' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.41-playback-priority-cloud'
+      github.head_ref == 'fix/v0.1.11.43-portable-media-sync'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,9 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          gh release create v0.1.11.41-playback-priority-cloud \
-            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.41_Playback_Priority.apk" \
+          gh release create v0.1.11.43-portable-cloud-identity \
+            "apk/app-debug.apk#Soky_IPTV_Pro_v0.1.11.43_Portable_Cloud_Identity.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.41 Playback Priority Fix" \
-            --notes "Test build v0.1.11.41 based on v0.1.11.40 one-file Google Drive ledger and accepted v0.1.11.39 seeking. Fixes potential playback buffering regression by pausing all optional Google Drive sync whenever a full-screen VOD or live player screen is active. Cancels in-flight cloud-only HTTP calls without touching VLC, streaming or catalogue connections; cloud and OAuth networking now have their own OkHttp Dispatcher. Foreground periodic, WorkManager and per-position push all yield to playback. Room progress is persisted as before and a deferred cloud flush occurs after the final video screen closes. The single-file account-wide cloud data design and profile-free import remain; seeking unchanged. User must verify on Android TV. VersionCode 62. APK debug signing certificate compatibility not guaranteed; avoid uninstall without backing up providers." --prerelease
+            --title "Soky IPTV Pro v0.1.11.43 Portable Cloud Media Identity" \
+            --notes "v0.1.11.43 test build, based directly on v0.1.11.41 with accepted v0.1.11.39 seeking and playback files unchanged. Google Drive single-file account sync now supplements legacy stream URL SHA256 with portable hashed numeric provider-media-ID plus normalized title aliases. Resolves the same movie/episode across changed Xtream server URLs on linked TVs when provider ID and title agree, independently of profile names. Remote media still must exist in local catalogue before Continue Watching can display it; ambiguous aliases are not used. v2 records are migrated in place by the originating TV once this build is installed and syncs. Cloud ledger collapses shared alias records newest timestamp wins, and retains unresolved entries. Sync pane now distinguishes titles recognized on this TV from newly updated progress and lists local movie/episode counts. Does not modify VLC, seeking, player lifecycle, Live TV, cloud traffic schedule or login credentials. Install on both TVs, sync the originating TV first, then receiving TV. No Android TV hardware validation yet. versionCode 63, debug-signing compatibility not guaranteed." --prerelease
