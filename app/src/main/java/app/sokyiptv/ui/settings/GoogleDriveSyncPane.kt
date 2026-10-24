@@ -195,10 +195,10 @@ fun GoogleDriveSyncPane() {
                                 "This TV's local VOD catalogue is empty. Refresh Movies and Series " +
                                     "before expecting Continue Watching to display cloud titles."
                             else
-                                "${state.unmatchedCount} cloud title(s) are still pending identification. " +
-                                    "Upgrade both TVs, then sync the TV where you watched the title first. " +
-                                    "Soky can now compare hashed provider media IDs and title labels " +
-                                    "without matching local profiles.",
+                                "${state.unmatchedCount} cloud title(s) are pending identification. " +
+                                    "If this is an episode, this TV can now fetch just that series' episodes " +
+                                    "after the originating TV uploads its episode locator. Install the same " +
+                                    "version on both TVs, sync the originating TV first, then sync here.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
