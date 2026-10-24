@@ -44,14 +44,27 @@ internal object VodProgressStore {
         }
     }
 
-    fun enqueue(graph: ServiceLocator.Graph, progress: PlaybackPosition?) {
-        if (progress == null) return
+    /**
+     * Flushes a captured exit snapshot on IO, then invokes [onSaved] AFTER Room commits.
+     * The caller must never await this function while navigating away from a player.
+     * Null progress still invokes the callback to release the cloud playback gate.
+     */
+    fun enqueue(
+        graph: ServiceLocator.Graph,
+        progress: PlaybackPosition?,
+        onSaved: (Boolean) -> Unit = {},
+    ) {
         persistenceScope.launch {
+            var success = false
             try {
                 persist(graph, progress)
+                success = true
             } catch (e: Exception) {
                 // No URLs, provider secrets or stream identifiers in diagnostics.
                 Log.w("SokyProgress", "Could not persist resume position", e)
+            } finally {
+                // Independent of the player's cancelled Composable scope.
+                onSaved(success)
             }
         }
     }
