@@ -51,7 +51,16 @@ internal object CloudAccountLedger {
                 compareBy<CloudWatchPoint> { it.updatedAtMillis }
                     .thenBy { it.positionMillis },
             )!!
-            newest.copy(aliases = variants.flatMap { it.aliases }.distinct().take(6))
+            // Enrich old v2 URL-only cloud points from the originating TV
+            // without discarding the locator when the latest watch tick lacked it.
+            val locator = variants.asSequence()
+                .sortedByDescending { it.updatedAtMillis }
+                .mapNotNull { it.episodeLocator }
+                .firstOrNull()
+            newest.copy(
+                aliases = variants.flatMap { it.aliases }.distinct().take(6),
+                episodeLocator = locator,
+            )
         }.sortedWith(
             compareByDescending<CloudWatchPoint> { it.updatedAtMillis }
                 .thenBy { it.kind }.thenBy { it.mediaHash },

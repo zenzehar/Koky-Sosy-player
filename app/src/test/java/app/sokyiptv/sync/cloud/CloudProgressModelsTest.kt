@@ -63,6 +63,36 @@ class CloudProgressModelsTest {
         assertEquals(null, CloudMediaKeys.catalogueAlias("ep", "not-a-numeric-id", "Episode 13"))
     }
 
+    @Test fun episodeLocatorIsStableAcrossDevicesButDistinctAcrossSeries() {
+        val a = CloudMediaKeys.episodeLocator("3112", "بنت كلي", "90123", 1, 13)
+        val b = CloudMediaKeys.episodeLocator("3112", "بنت كلي", "90123", 1, 13)
+        val otherEpisode = CloudMediaKeys.episodeLocator("3112", "بنت كلي", "90124", 1, 14)
+        val otherSeries = CloudMediaKeys.episodeLocator("3113", "بنت كلي", "90123", 1, 13)
+        assertEquals(a, b)
+        assertNotEquals(a?.episodeFingerprint, otherEpisode?.episodeFingerprint)
+        assertNotEquals(a?.seriesFingerprint, otherSeries?.seriesFingerprint)
+        assertTrue(CloudMediaKeys.validEpisodeLocator(a!!))
+        assertEquals(null, CloudMediaKeys.episodeLocator("3112", "بنت كلي", "90123", 0, 13))
+    }
+
+    @Test fun legacyCloudPointWithoutEpisodeLocatorStillDeserializes() {
+        val raw = """{"profile":"","kind":"ep","mediaHash":"${"a".repeat(64)}",
+            "positionMillis":25000,"durationMillis":1800000,"updatedAtMillis":12345}"""
+        val restored = Json.decodeFromString<CloudWatchPoint>(raw)
+        assertEquals(null, restored.episodeLocator)
+    }
+
+    @Test fun episodeLocatorSerializesWithoutProviderNameOrCredentials() {
+        val locator = CloudMediaKeys.episodeLocator("3112", "بنت كلي", "90123", 1, 13)!!
+        val point = CloudWatchPoint("", "a".repeat(64), "ep", 75_000, 100_000, 92_000,
+            episodeLocator = locator)
+        val json = Json.encodeToString(point)
+        assertFalse(json.contains("بنت كلي"))
+        assertFalse(json.contains("3112"))
+        assertFalse(json.contains("90123"))
+        assertEquals(locator, Json.decodeFromString<CloudWatchPoint>(json).episodeLocator)
+    }
+
     @Test fun cloudPayloadContainsNoProviderCredentialsOrUrls() {
         val point = CloudWatchPoint(
             profile = "Me",

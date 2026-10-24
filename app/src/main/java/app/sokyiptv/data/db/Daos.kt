@@ -44,6 +44,21 @@ data class CloudPortableMediaRef(
     val label: String,
 )
 
+/** Joins a lazily fetched episode with its parent series for cloud-only lookup. */
+data class CloudEpisodeMediaRef(
+    val id: Long,
+    val streamUrl: String,
+    val providerId: String,
+    val label: String,
+    val seriesProviderId: String,
+    val seriesName: String?,
+    val season: Int,
+    val episodeNumber: Int,
+)
+
+/** Lightweight local series projection: no credentials or episode downloads. */
+data class CloudSeriesRef(val sourceId: Long, val seriesId: String, val name: String)
+
 @Dao
 interface SourceDao {
     @Query("SELECT * FROM sources ORDER BY id")
@@ -573,6 +588,9 @@ interface MovieDao {
 
 @Dao
 interface SeriesDao {
+    @Query("SELECT sourceId, seriesId, name FROM series")
+    suspend fun cloudSeriesRefs(): List<CloudSeriesRef>
+
     @Query("""SELECT * FROM series
         WHERE (:sourceId IS NULL OR sourceId = :sourceId)
         AND (:categoryId IS NULL OR categoryId = :categoryId)
@@ -677,6 +695,14 @@ interface EpisodeDao {
 
     @Query("SELECT id, streamUrl, episodeId AS providerId, title AS label FROM episodes")
     suspend fun cloudPortableRefs(): List<CloudPortableMediaRef>
+
+    @Query("""SELECT e.id AS id, e.streamUrl AS streamUrl,
+        e.episodeId AS providerId, e.title AS label,
+        e.seriesId AS seriesProviderId, s.name AS seriesName,
+        e.season AS season, e.episodeNumber AS episodeNumber
+        FROM episodes e LEFT JOIN series s
+          ON s.sourceId = e.sourceId AND s.seriesId = e.seriesId""")
+    suspend fun cloudEpisodeRefs(): List<CloudEpisodeMediaRef>
 
     @Query("SELECT COUNT(*) FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId")
     suspend fun countForSeries(sourceId: Long, seriesId: String): Int

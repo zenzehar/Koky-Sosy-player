@@ -9,6 +9,16 @@ import java.util.Locale
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class CloudEpisodeLocator(
+    /** Hash of parent series provider ID and series name, no credentials or URLs. */
+    val seriesFingerprint: String,
+    /** Hash of the episode's provider ID within that series. */
+    val episodeFingerprint: String,
+    val season: Int,
+    val episodeNumber: Int,
+)
+
+@Serializable
 data class CloudWatchPoint(
     val profile: String,
     val mediaHash: String,
@@ -18,6 +28,7 @@ data class CloudWatchPoint(
     val updatedAtMillis: Long,
     /** Optional credential-free portable keys for the same catalogue media on other TVs. */
     val aliases: List<String> = emptyList(),
+    val episodeLocator: CloudEpisodeLocator? = null,
 )
 
 @Serializable
@@ -29,6 +40,41 @@ data class CloudWatchSnapshot(
 )
 
 object CloudMediaKeys {
+    fun validEpisodeLocator(locator: CloudEpisodeLocator): Boolean =
+        locator.seriesFingerprint.matches(Regex("[a-f0-9]{64}")) &&
+            locator.episodeFingerprint.matches(Regex("[a-f0-9]{64}")) &&
+            locator.season in 1..1000 && locator.episodeNumber in 1..100_000
+
+    private fun normalizedLabel(label: String): String =
+        label.lowercase(Locale.ROOT).replace(Regex("""[^\p{L}\p{N}]+"""), " ").trim()
+
+    /** Fingerprint for the SERIES parent of a saved episode. */
+    fun seriesFingerprint(seriesId: String, seriesName: String): String? {
+        val id = seriesId.trim()
+        val name = normalizedLabel(seriesName)
+        if (!id.matches(Regex("[0-9]{1,18}")) || name.length < 2) return null
+        return digest("ep", "cloud-series-v1:$id:$name")
+    }
+
+    fun episodeFingerprint(seriesId: String, seriesName: String, episodeId: String): String? {
+        val parent = seriesFingerprint(seriesId, seriesName) ?: return null
+        val episode = episodeId.trim()
+        if (!episode.matches(Regex("[0-9]{1,18}"))) return null
+        return digest("ep", "cloud-episode-v1:$parent:$episode")
+    }
+
+    fun episodeLocator(
+        seriesId: String, seriesName: String, episodeId: String,
+        season: Int, number: Int,
+    ): CloudEpisodeLocator? {
+        if (season < 1 || number < 1) return null
+        return CloudEpisodeLocator(
+            seriesFingerprint(seriesId, seriesName) ?: return null,
+            episodeFingerprint(seriesId, seriesName, episodeId) ?: return null,
+            season, number,
+        )
+    }
+
     /**
      * Stable fallback when a provider serves the SAME catalogue from different portal URLs.
      * A numeric provider ID alone is unsafe (unrelated providers can reuse it), so include
