@@ -190,7 +190,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         periodicJob = scope.launch {
             while (isActive) {
                 if (oauth.connected) syncNow()
-                delay(30_000L)
+                delay(120_000L)
             }
         }
     }
