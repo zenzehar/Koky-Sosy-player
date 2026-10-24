@@ -110,6 +110,7 @@ import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.WatchProgressCapture
 import app.sokyiptv.player.VodProgressStore
+import app.sokyiptv.sync.cloud.GoogleDriveProgressSync
 import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.PostSeekPlaybackGate
@@ -144,6 +145,13 @@ fun VodPlayerScreen(
     val context = LocalContext.current
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
+    // This gate is active through the LAST database write, not merely while
+    // the VLC screen is visible. No cloud I/O or media indexing during playback.
+    // No network operation is invoked by the player itself.
+    DisposableEffect(Unit) {
+        GoogleDriveProgressSync.playbackScreenEntered()
+        onDispose { /* Released after exit position commits in the disposal below. */ }
+    }
     val settings = remember { graph.settings }
     val autoplay by settings.seriesAutoplay.collectAsState()
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
@@ -434,7 +442,11 @@ fun VodPlayerScreen(
             ) else null
             // The screen scope is cancelled below. Persist independently so
             // Back/episode navigation cannot silently discard the exit position.
-            VodProgressStore.enqueue(graph, finalProgress)
+            VodProgressStore.enqueue(graph, finalProgress) { saved ->
+                // Exit navigation never awaits Google Drive. Once the final position is
+                // committed to Room, permit one coalesced background cloud sync.
+                GoogleDriveProgressSync.playbackScreenExited(syncAfterExit = saved)
+            }
             if (media3Holder.isInitialized()) controller.release()
             scope.cancel()
         }
