@@ -23,6 +23,17 @@ class CloudAccountLedgerTest {
         assertTrue(CloudAccountLedger.covers(results, listOf(first)))
     }
 
+    @Test fun legacyEntryGetsLocatorWithoutChangingItsNewerWatchTimestamp() {
+        val locator = CloudMediaKeys.episodeLocator("31", "A Series", "999", 1, 13)!!
+        val newer = point("TV1", episode, 33_000L, 80_000L, "ep")
+        val enriched = point("TV2", episode, 20_000L, 70_000L, "ep")
+            .copy(episodeLocator = locator)
+        val out = CloudAccountLedger.merge(100_000L, listOf(newer), listOf(enriched))
+        assertEquals(1, out.size)
+        assertEquals(33_000L, out.single().positionMillis)
+        assertEquals(locator, out.single().episodeLocator)
+    }
+
     @Test fun migratingOldHashPreservesNewAliases() {
         val identity = "d".repeat(64)
         val legacy = point("", movie, 12_000L, 50_000L)
