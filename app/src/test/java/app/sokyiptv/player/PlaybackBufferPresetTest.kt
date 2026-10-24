@@ -10,6 +10,13 @@ class PlaybackBufferPresetTest {
         assertEquals(PlaybackBufferPreset.BALANCED, PlaybackBufferPreset.fromSaved("OLD_REMOVED_PRESET"))
     }
 
+    @Test fun vlcUsesSelectedNetworkCacheInsteadOfOldHardcoded1400ms() {
+        assertEquals(1_500, PlaybackBufferPreset.FAST.vlcNetworkCacheMs)
+        assertEquals(5_000, PlaybackBufferPreset.fromSaved(null).vlcNetworkCacheMs)
+        assertEquals(8_000, PlaybackBufferPreset.STABLE.vlcNetworkCacheMs)
+        assertEquals(12_000, PlaybackBufferPreset.LARGE.vlcNetworkCacheMs)
+    }
+
     @Test fun allPresetsHaveBoundedExoPlayerBuffers() {
         PlaybackBufferPreset.entries.forEach { preset ->
             assertTrue(preset.media3MinBufferMs <= preset.media3MaxBufferMs)
