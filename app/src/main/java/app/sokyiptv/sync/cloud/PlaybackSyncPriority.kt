@@ -16,9 +16,12 @@ internal object PlaybackSyncPriority {
     /** Returns true on first active playback screen. */
     fun begin(): Boolean = activeScreens.incrementAndGet() == 1
 
-    /** Returns true when the final playback screen closes. */
+    /** Returns true only on an actual transition from one player to none. */
     fun end(): Boolean {
-        val remaining = activeScreens.updateAndGet { if (it > 0) it - 1 else 0 }
-        return remaining == 0
+        while (true) {
+            val old = activeScreens.get()
+            if (old <= 0) return false
+            if (activeScreens.compareAndSet(old, old - 1)) return old == 1
+        }
     }
 }

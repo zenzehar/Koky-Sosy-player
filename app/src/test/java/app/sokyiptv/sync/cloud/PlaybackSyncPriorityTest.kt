@@ -16,6 +16,15 @@ class PlaybackSyncPriorityTest {
         assertFalse(PlaybackSyncPriority.active)
     }
 
+    @Test fun anExtraExitMustNotScheduleAnUnsolicitedCloudSync() {
+        assertFalse(PlaybackSyncPriority.active)
+        assertFalse(PlaybackSyncPriority.end())
+        assertFalse(PlaybackSyncPriority.active)
+        assertTrue(PlaybackSyncPriority.begin())
+        assertTrue(PlaybackSyncPriority.end())
+        assertFalse(PlaybackSyncPriority.end())
+    }
+
     @Test fun switchingScreensNeverReEnablesCloudPrematurely() {
         assertFalse(PlaybackSyncPriority.active)
         try {

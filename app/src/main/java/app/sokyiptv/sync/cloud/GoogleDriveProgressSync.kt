@@ -169,18 +169,23 @@ class GoogleDriveProgressSync private constructor(context: Context) {
      */
     private fun pauseForPlayback() {
         pushJob?.cancel()
-        http.dispatcher.cancelAll()
+        // Never block Compose navigation or video initialization on HTTP cancellation.
+        // Drive uses its own OkHttp dispatcher, separate from the streaming client.
+        scope.launch(Dispatchers.IO) {
+            if (PlaybackSyncPriority.active) http.dispatcher.cancelAll()
+        }
         _state.value = _state.value.copy(
-            busy = false, message = "Cloud sync paused to prioritise video playback.",
+            busy = false, message = "Cloud sync paused until you exit the video.",
         )
     }
 
     /** Allow the final persisted watch position to land before refreshing Drive. */
-    private fun resumeAfterPlayback() {
-        if (!oauth.connected) return
+    private fun resumeAfterPlayback(syncAfterExit: Boolean) {
+        if (!oauth.connected || !syncAfterExit) return
+        // Coalesce rapid episode transitions; no network call runs on Back.
         pushJob?.cancel()
         pushJob = scope.launch {
-            delay(1_500L)
+            delay(2_500L)
             if (!PlaybackSyncPriority.active) syncNow()
         }
     }
@@ -807,8 +812,9 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             if (PlaybackSyncPriority.begin()) instance?.pauseForPlayback()
         }
 
-        fun playbackScreenExited() {
-            if (PlaybackSyncPriority.end()) instance?.resumeAfterPlayback()
+        /** Called by the independent IO progress writer AFTER the final Room save. */
+        fun playbackScreenExited(syncAfterExit: Boolean = true) {
+            if (PlaybackSyncPriority.end()) instance?.resumeAfterPlayback(syncAfterExit)
         }
         fun get(context: Context): GoogleDriveProgressSync =
             instance ?: synchronized(this) {

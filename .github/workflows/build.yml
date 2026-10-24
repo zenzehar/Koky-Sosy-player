@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.45-v39-playback-v44-sync' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.46-exit-only-cloud-sync' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.45-v39-playback-v44-sync'
+      github.head_ref == 'fix/v0.1.11.46-exit-only-cloud-sync'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.45.apk
-          gh release create v0.1.11.45-v39-playback-v44-sync \
-            "apk/Soky_IPTV_Pro_v0.1.11.45.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.46.apk
+          gh release create v0.1.11.46-exit-only-sync-buffer \
+            "apk/Soky_IPTV_Pro_v0.1.11.46.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.45 v39 Playback + v44 Cloud Sync" \
-            --notes "Unapproved TV rollback test v0.1.11.45: restores EXACT v0.1.11.39 VodPlayerScreen.kt, PlayerScreen.kt and VodProgressStore.kt, verified against original Git blob SHA. Keeps the v0.1.11.44 one-file Google Drive sync, account-wide profile-free merging and targeted episode discovery unchanged. Removes the later cloud-trigger call from VOD progress saves and restores the v0.1.11.39 two-minute foreground polling interval in place of v0.1.11.40's 30 seconds, to minimize cloud-related streaming contention. Existing cloud engine includes unused playback-priority hooks, which are not invoked by restored players. Video/VLC, seeking, Back behavior, and watch-position persistence now exactly match v39 source. No proof yet that this fixes the reported VLC stall; reproduce on the same video with stable network. Background/on-exit Drive sync remains. Android versionCode 65, downloadable release asset is named Soky_IPTV_Pro_v0.1.11.45.apk. Compatible upgrade requires matching Android signing certificates. Do not uninstall without provider backup. Real-device testing required." --prerelease
+            --title "Soky IPTV Pro v0.1.11.46 Exit-Only Sync and VLC Buffering" \
+            --notes "v0.1.11.46 TEST BUILD based on user-confirmed v0.1.11.45 successful two-TV Google Drive sync and accepted v0.1.11.39 seeking. No Google Drive network, merge or catalogue scanning while VOD player is open. Position continues saving to local Room for resilience during playback, but uploads only after a saved exit snapshot is committed on an independent IO scope. Back navigation does not await the upload; Drive cancels outstanding cloud HTTP asynchronously on video entry, remains gated while video is open, and starts a coalesced background sync after exit. Prevents stale or duplicate exit sync when players overlap. Also applies the existing Playback Buffer preset to native VLC: the old hardcoded 1400ms ignored user settings; Balanced default is 5000ms, Fast 1500, Stable 8000, Large 12000. Increasing cache can lengthen startup; adjust Settings if needed. No seeking/corrective-jump algorithm changes. The single Drive file, cross-device episode hydration, history merging, media IDs and authorization remain unchanged. versionCode 66. Device validation still required: seek within/beyond declared length, play 15+ minutes, press Back during a stall, sync across TVs. Debug signing compatibility not guaranteed. Actual APK filename Soky_IPTV_Pro_v0.1.11.46.apk." --prerelease
