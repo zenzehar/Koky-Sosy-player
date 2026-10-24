@@ -704,6 +704,22 @@ class GoogleDriveProgressSync private constructor(context: Context) {
             remoteSnapshot?.positions.orEmpty(), legacyPoints, recovered, local.positions,
             now = now,
         )
+        // Migration of existing cloud-only entries: the origin TV may recognize
+        // their hash but have no local progress in the CURRENT profile. Enrich
+        // the remote identity from its local catalogue without requiring a profile
+        // match or modifying the watched position or timestamp.
+        combined = mergedPoints(combined.map { point ->
+            if (point.kind != "ep" || point.episodeLocator != null) return@map point
+            val matchedKeys = (listOf(point.mediaHash) + point.aliases)
+                .mapNotNull { hash -> index.byCloud["ep:$hash"] }.distinct()
+            val fp = matchedKeys.singleOrNull()?.let { index.byLocal[it] }
+                ?: return@map point
+            val locator = fp.episodeLocator ?: return@map point
+            point.copy(
+                episodeLocator = locator,
+                aliases = (point.aliases + fp.aliases).distinct().take(6),
+            )
+        }, now = now)
         // A cloud item always belongs to this Google account. Apply it to the
         // ACTIVE local profile, never match/create cloud profile names.
         val profileId = graph.settings.activeProfileId.value
