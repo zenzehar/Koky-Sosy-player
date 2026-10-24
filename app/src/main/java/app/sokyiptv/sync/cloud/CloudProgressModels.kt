@@ -40,6 +40,11 @@ data class CloudWatchSnapshot(
 )
 
 object CloudMediaKeys {
+    fun validEpisodeLocator(locator: CloudEpisodeLocator): Boolean =
+        locator.seriesFingerprint.matches(Regex("[a-f0-9]{64}")) &&
+            locator.episodeFingerprint.matches(Regex("[a-f0-9]{64}")) &&
+            locator.season in 1..1000 && locator.episodeNumber in 1..100_000
+
     private fun normalizedLabel(label: String): String =
         label.lowercase(Locale.ROOT).replace(Regex("""[^\p{L}\p{N}]+"""), " ").trim()
 
