@@ -74,7 +74,12 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     private var periodicJob: Job? = null
     private var pushJob: Job? = null
     private var lastSyncAttemptMillis: Long = 0L
-    private data class LocalFingerprint(val mediaHash: String, val aliases: List<String>)
+    private data class LocalFingerprint(
+        val mediaHash: String, val aliases: List<String>,
+        val episodeLocator: CloudEpisodeLocator? = null,
+    )
+    /** Prevent repeat portal calls when a series has no episodes or the provider is offline. */
+    private val episodeHydrationAttempts = hashMapOf<String, Long>()
     private data class LocalIdentityIndex(
         val byLocal: Map<String, LocalFingerprint>,
         val byCloud: Map<String, String>,
@@ -450,49 +455,57 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     /**
-     * Mapping local database IDs into shared hashed media identities.
-     * Never send unencrypted URLs or provider IDs; only hashed, non-ambiguous
-     * fingerprints reach the account's ONE Google Drive ledger.
+     * Map local DB primary keys to portable hashed media identities.
+     * The episode locator carries the hashed series identity and season/episode
+     * slot; raw provider credentials, IDs, and titles never reach Google Drive.
      */
     private suspend fun indexLocalMedia(): LocalIdentityIndex {
         requirePlaybackIdle()
         val now = android.os.SystemClock.elapsedRealtime()
         cachedIndex?.takeIf { now - indexCachedAtMillis < 15_000L }?.let { return it }
         val movieRefs = graph.database.movies().cloudPortableRefs()
-        val episodeRefs = graph.database.episodes().cloudPortableRefs()
-        data class Candidate(val kind: String, val key: String, val url: String, val alias: String?)
+        val episodeRefs = graph.database.episodes().cloudEpisodeRefs()
+        data class Candidate(
+            val kind: String, val key: String, val url: String,
+            val aliases: List<String>, val locator: CloudEpisodeLocator? = null,
+        )
         val refs = buildList {
             movieRefs.forEach { row ->
                 add(Candidate("movie", "movie:${row.id}", row.streamUrl,
-                    CloudMediaKeys.catalogueAlias("movie", row.providerId, row.label)))
+                    listOfNotNull(CloudMediaKeys.catalogueAlias("movie", row.providerId, row.label))))
             }
             episodeRefs.forEach { row ->
+                val locator = row.seriesName?.let { name ->
+                    CloudMediaKeys.episodeLocator(
+                        row.seriesProviderId, name, row.providerId, row.season, row.episodeNumber,
+                    )
+                }
                 add(Candidate("ep", "ep:${row.id}", row.streamUrl,
-                    CloudMediaKeys.catalogueAlias("ep", row.providerId, row.label)))
+                    listOfNotNull(
+                        CloudMediaKeys.catalogueAlias("ep", row.providerId, row.label),
+                        locator?.episodeFingerprint,
+                    ), locator))
             }
         }.filter { it.url.isNotBlank() }
-        // A portable hash shared by two distinct LOCAL catalogue titles is
-        // ambiguous. Neither upload nor apply it in that case.
-        val aliasesByKey = refs.mapNotNull { c ->
-            c.alias?.let { alias -> "${c.kind}:$alias" to c.key }
+        val duplicateAliases = refs.flatMap { candidate ->
+            candidate.aliases.map { "${candidate.kind}:$it" to candidate.key }
         }.groupBy({ it.first }, { it.second })
-        val ambiguousAliases = aliasesByKey.filterValues { it.distinct().size > 1 }.keys
-
+            .filterValues { it.distinct().size > 1 }.keys
         val byLocal = hashMapOf<String, LocalFingerprint>()
         val byCloud = hashMapOf<String, String>()
         val ambiguous = hashSetOf<String>()
         refs.forEach { candidate ->
             val kind = candidate.kind
-            val url = candidate.url
-            val canonical = CloudMediaKeys.hash(kind, url)
-            val alias = candidate.alias?.takeIf { "$kind:$it" !in ambiguousAliases }
-            byLocal[candidate.key] = LocalFingerprint(canonical, listOfNotNull(alias))
-            val identities = listOf(
+            val canonical = CloudMediaKeys.hash(kind, candidate.url)
+            val safeAliases = candidate.aliases.distinct()
+                .filterNot { "$kind:$it" in duplicateAliases }
+            byLocal[candidate.key] = LocalFingerprint(canonical, safeAliases, candidate.locator)
+            val identities = (listOf(
                 canonical,
-                CloudMediaKeys.previousHash(kind, url),
-                CloudMediaKeys.legacyHash(kind, url),
-            ) + listOfNotNull(alias)
-            for (identity in identities.distinct()) {
+                CloudMediaKeys.previousHash(kind, candidate.url),
+                CloudMediaKeys.legacyHash(kind, candidate.url),
+            ) + safeAliases).distinct()
+            for (identity in identities) {
                 val cloudKey = "$kind:$identity"
                 val existing = byCloud.putIfAbsent(cloudKey, candidate.key)
                 if (existing != null && existing != candidate.key) ambiguous += cloudKey
@@ -502,6 +515,57 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         return LocalIdentityIndex(byLocal, byCloud, movieRefs.size, episodeRefs.size).also {
             cachedIndex = it
             indexCachedAtMillis = now
+        }
+    }
+
+    /**
+     * Series are fully indexed, but episode rows are intentionally lazy.
+     * Hydrate ONLY the unambiguous parent series named by a cloud episode locator,
+     * not the entire series catalogue. This is essential for second TVs that
+     * have never opened that series (zero local episodes).
+     */
+    private suspend fun hydrateCloudEpisodes(points: List<CloudWatchPoint>) {
+        requirePlaybackIdle()
+        val pending = points.asSequence()
+            .filter { it.kind == "ep" }.mapNotNull { it.episodeLocator }
+            .filter { CloudMediaKeys.validEpisodeLocator(it) }
+            .distinctBy { it.seriesFingerprint to it.episodeFingerprint }
+            .toList()
+        if (pending.isEmpty()) return
+        val series = graph.database.series().cloudSeriesRefs()
+        if (series.isEmpty()) return
+        val byFingerprint = series.groupBy {
+            CloudMediaKeys.seriesFingerprint(it.seriesId, it.name)
+        }
+        val alreadyKnown = graph.database.episodes().cloudEpisodeRefs()
+            .mapNotNull { row ->
+                row.seriesName?.let { name ->
+                    CloudMediaKeys.episodeFingerprint(
+                        row.seriesProviderId, name, row.providerId,
+                    )
+                }
+            }.toHashSet()
+        var requests = 0
+        val now = android.os.SystemClock.elapsedRealtime()
+        for (locator in pending) {
+            requirePlaybackIdle()
+            if (locator.episodeFingerprint in alreadyKnown) continue
+            val candidates = byFingerprint[locator.seriesFingerprint].orEmpty()
+            val parent = candidates.singleOrNull() ?: continue
+            val last = episodeHydrationAttempts[locator.seriesFingerprint] ?: -120_000L
+            if (now - last < 90_000L) continue
+            // If the catalogue contains part of the series, avoid an automatic
+            // full refresh during a quick watch-progress sync.
+            if (graph.database.episodes().countForSeries(parent.sourceId, parent.seriesId) > 0) continue
+            val source = graph.database.sources().byId(parent.sourceId) ?: continue
+            if (source.kind != app.sokyiptv.data.model.SourceKind.XTREAM) continue
+            episodeHydrationAttempts[locator.seriesFingerprint] = now
+            if (++requests > 2) break // never fan out to the entire catalogue
+            kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                graph.catalogRepository.ensureEpisodes(source, parent.seriesId)
+            }
+            // The Room episode query is re-read in this very sync iteration.
+            cachedIndex = null
         }
     }
 
@@ -521,6 +585,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
                 durationMillis = position.durationMillis.coerceAtLeast(0L),
                 updatedAtMillis = position.updatedAtMillis,
                 aliases = fingerprint.aliases,
+                episodeLocator = fingerprint.episodeLocator,
             )
         }.sortedByDescending { it.updatedAtMillis }.take(10_000)
         return CloudWatchSnapshot(deviceId = deviceId, generatedAtMillis = System.currentTimeMillis(), positions = positions)
@@ -628,6 +693,9 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         val legacyPoints = if (migration) legacy.flatMap { file ->
             downloadSnapshot(token, file)?.positions.orEmpty()
         } else emptyList()
+        // The receiving TV may have never opened the remote episode's series.
+        // Resolve its parent from the cloud locator and fetch just those episodes.
+        hydrateCloudEpisodes(remoteSnapshot?.positions.orEmpty() + legacyPoints)
         requirePlaybackIdle()
         val index = indexLocalMedia()
         val local = localSnapshot(index.byLocal)
@@ -643,7 +711,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
         var resolvable = 0
         for (point in combined) {
             requirePlaybackIdle()
-            val candidates = (listOf(point.mediaHash) + point.aliases)
+            val candidates = (listOf(point.mediaHash) + point.aliases +
+                    listOfNotNull(point.episodeLocator?.episodeFingerprint))
                 .mapNotNull { identity -> index.byCloud["${point.kind}:$identity"] }
                 .distinct()
             // Zero means not catalogued (or incompatible legacy fingerprint).
