@@ -107,9 +107,15 @@ fun VlcFallbackScreen(
     val context = LocalContext.current
     val preferences = remember { AppSettings.get(context) }
     val autoplay by preferences.seriesAutoplay.collectAsState()
+    // Apply the existing TV buffering preset to native VLC when a new stream starts.
+    // The former hardcoded 1.4-second cache ignored the Settings selection entirely.
+    val bufferPreset by preferences.playbackBufferPreset.collectAsState()
     val scope = rememberCoroutineScope()
     val libvlc = remember(streamUrl) {
-        LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
+        LibVLC(context.applicationContext, arrayListOf(
+            "--network-caching=${bufferPreset.vlcNetworkCacheMs}",
+            "--no-video-title-show",
+        ))
     }
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
