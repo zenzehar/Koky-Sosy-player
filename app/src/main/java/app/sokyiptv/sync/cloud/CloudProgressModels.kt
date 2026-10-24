@@ -51,12 +51,11 @@ object CloudMediaKeys {
         return digest("ep", "cloud-series-v1:$id:$name")
     }
 
-    fun episodeFingerprint(seriesId: String, episodeId: String): String? {
-        val series = seriesId.trim()
+    fun episodeFingerprint(seriesId: String, seriesName: String, episodeId: String): String? {
+        val parent = seriesFingerprint(seriesId, seriesName) ?: return null
         val episode = episodeId.trim()
-        if (!series.matches(Regex("[0-9]{1,18}")) ||
-            !episode.matches(Regex("[0-9]{1,18}"))) return null
-        return digest("ep", "cloud-episode-v1:$series:$episode")
+        if (!episode.matches(Regex("[0-9]{1,18}"))) return null
+        return digest("ep", "cloud-episode-v1:$parent:$episode")
     }
 
     fun episodeLocator(
@@ -66,7 +65,7 @@ object CloudMediaKeys {
         if (season < 1 || number < 1) return null
         return CloudEpisodeLocator(
             seriesFingerprint(seriesId, seriesName) ?: return null,
-            episodeFingerprint(seriesId, episodeId) ?: return null,
+            episodeFingerprint(seriesId, seriesName, episodeId) ?: return null,
             season, number,
         )
     }
