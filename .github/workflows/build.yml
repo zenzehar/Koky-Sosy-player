@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.47-legacy-v019-playback-seeking' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.51-v47-playback-stability' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.47-legacy-v019-playback-seeking'
+      github.head_ref == 'fix/v0.1.11.51-v47-playback-stability'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.47.apk
-          gh release create v0.1.11.47-v019-native-vlc-restored \
-            "apk/Soky_IPTV_Pro_v0.1.11.47.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.51.apk
+          gh release create v0.1.11.51-v47-playback-stability \
+            "apk/Soky_IPTV_Pro_v0.1.11.51.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.47 Original v0.1.9 VLC Restored" \
-            --notes "v0.1.11.47 TEST BUILD: restore only the original v0.1.9 native LibVLC playback and seeking mechanisms from the milestone/v0.1.9-tv-approved and hybrid v0.1.11.0 rollback. Native LibVLC remains 3.6.1; startup is again fixed 1400ms VLC network cache, native MediaPlayer.setTime(ms) one-shot seeks, declared-duration clamping, original D-pad accelerated hold, initial position seek, and native clock polling. Removes later VlcSeekClock, VlcNativeSeekCorrection, post-seek recovery, tail probing, and TV decoder rebind from the VLC player. Modern television transport visuals, episode navigation/autoplay, screensaver pause compatibility and passive playback diagnostics retained. Critically preserves the confirmed v0.1.11.45/v0.1.11.46 one-file Google Drive history sync, profile-free merge, episode discovery, and exit-only asynchronous cloud sync WITHOUT edits. Playback buffer presets remain for Media3; restored VLC ignores them and uses fixed 1400ms per the original. This is a regression experiment and may restore old seek limits on underreported-duration streams; user requested fidelity to original. Run 20-minute VOD/episode playback test, direct 10s seek and hold tests, Back while buffering, screensaver, cross-TV resume sync. versionCode 67. Actual download filename Soky_IPTV_Pro_v0.1.11.47.apk. Debug signing certificate may block upgrade across versions. Hardware validation pending." --prerelease
+            --title "Soky IPTV Pro v0.1.11.51 v47 Playback Stability" \
+            --notes "v0.1.11.51 TEST BUILD, versionCode 71. Branches from v0.1.11.47, not from any emulator test builds. Restore v39 one-shot selected-target VLC seek correction (one additional bounded attempt only, no TS probes or Media3 fallback). Controls remain visible during buffering or native clock stalls; full five-second hide delay begins only once video actually plays again. Stalled/error text is player-neutral. Reattach the existing VLC video surface when returning from background, without reloading provider stream or changing seek position. Play/Pause responds to user intent immediately and stale native Playing callbacks cannot negate Pause. Maintain v47/v46 exit-only cloud sync, all settings, login providers, episode navigation and modern TV controls unchanged. IMPORTANT: screen restoration and seek correction require Android TV hardware acceptance. Only CI/unit-test acceptance is automated; not a production or golden build. Signing compatibility may differ across prior debug builds." --prerelease
