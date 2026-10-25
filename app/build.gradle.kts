@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 67
-        versionName = "0.1.11.47-v019-native-vlc-restored"
+        versionCode = 68
+        versionName = "0.1.11.48-xtream-json-recovery"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
@@ -151,6 +151,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
+    // Lenient catalogue-only token recovery (fallback after Soky's Kotlinx parser fails).
+    implementation("com.google.code.gson:gson:2.11.0")
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.datastore.preferences)
