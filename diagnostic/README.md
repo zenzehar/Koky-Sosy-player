@@ -10,13 +10,13 @@ The original Soky application stores optional encrypted backups in `Documents/So
 
 Open this diagnostic app, choose **Import encrypted backup**, navigate to the file using Android's system document picker. It tries the original app's documented device-vault derivation (both production and debug IDs). This succeeds **only if original and diagnostic installs derive the same Android ID** (same device/user/signing key) and the vault exists. Android's sandbox prevents directly reading the original app's private data.
 
-If device-vault decryption fails, use **Soky settings → Provider backup → Save manual backup to shared device folder**, choose a backup passphrase, and open `manual-logins.kspc` in the probe with that passphrase. No credentials are written to the diagnostic app's disk.
+If device-vault decryption fails, use **Soky settings → Provider backup → Save manual backup to shared device folder**, choose a backup passphrase, and open `manual-logins.kspc` in the probe with that passphrase. D5 optionally saves the selected provider encrypted with an app-specific Android Keystore key in this diagnostic app's private storage, never in GitHub or the APK. This survives in-place updates to the same diagnostic application package, but not an uninstall/clear data.
 
 ## Manual provider entry (new in Diagnostic D2)
 
 Choose **Or enter Xtream provider manually** and provide the Xtream **server URL (including port)**, username, password, and optionally the same User-Agent you use in Soky. Tap **Use manually entered provider**, then **Run read-only Xtream API probes**. There is **no backup requirement** for this option.
 
-The app accepts HTTP or HTTPS, including a plain `hostname:port` and an optional known `/player_api.php` suffix. Login details must be in their **own fields**, not embedded in the URL. The information lives in process memory only; the form clears after selecting the provider, and the app never writes provider credentials to storage, reports, Android logs or clipboard.
+The app accepts HTTP or HTTPS, including a plain `hostname:port` and an optional known `/player_api.php` suffix. Login details must be in their **own fields**, not embedded in the URL. By default, D5 encrypts the selected account locally for future diagnostic upgrades. Untick **Remember this provider privately on this device** for memory-only testing. The form still clears after selection; no credentials appear in reports, Android logs, source code, public release APKs or clipboard.
 
 This APK has the **same independent diagnostic package ID** as D1 and upgrades it if installed, but it **does not replace Soky IPTV Pro**.
 
@@ -41,3 +41,11 @@ The main app runs `kotlinx.serialization.json.Json { ignoreUnknownKeys = true; i
 ## D4: differentiating JSON parser errors from truncated responses
 
 D4 uses Soky's **exact** Kotlinx lenient parser for complete responses <=4MiB, including the 2.3MiB Live TV streams response measured on the Android 14 emulator. The ~8MiB Movie streams response remains memory-bounded streaming JSON validation. For every endpoint it records wire Content-Length (if present), Transfer-Encoding and Content-Encoding safely (never actual URLs or credentials), and classifies the *shape* of the response tail without printing sensitive data. If either Movie endpoint fails, it automatically retries that specific endpoint **once** after a short delay, providing two lengths and failure outcomes to compare. A mismatch is evidence for intermittent truncation; identical errors are more consistent with reproducibly malformed server output. Neither alone proves whether the fault is at origin, proxy, or connection. Install beside Soky, original TV player unaffected.
+
+## D5: repeatable diagnosis without GitHub credential exposure
+
+Manual provider login and single-provider encrypted backup imports support a checked-by-default **Remember this provider privately on this device for future test versions** control. D5 encrypts credentials locally using Android Keystore AES-256-GCM and reloads them automatically on next launch or after **in-place diagnostic APK updates** that preserve the package ID and signing certificate. There is a **Forget saved diagnostic provider** action, and uninstalling/clearing the diagnostic app removes saved state. This does NOT copy credentials into the APK, source code, GitHub Actions variables, release assets, or public Git history. If updating from D4, enter/import the provider ONE more time in D5 because earlier versions never saved it. The original Soky app maintains its own already-saved login and will keep it on in-place updates.
+
+## Post-test release cleanup
+
+No automatic deletions are scheduled. After testing is finished, use `scripts/cleanup_soky_test_releases.sh --dry-run` to review eligible **prerelease-only** GitHub releases, then run `--delete-diagnostics` and explicitly type `DELETE-TEST-RELEASES`. For wider cleanup of unapproved v0.1.11.* test prereleases, the script offers `--delete-all-test-prereleases`; this deliberately excludes named milestone/golden/approved releases and v0.1.11.0. Requires locally authenticated GitHub CLI and repo release-write privileges. The removal cannot purge already downloaded binaries, forks, histories, workflow artifacts or external mirrors. Since a credential was shared during this test, rotate it when done if exposure is a concern.
