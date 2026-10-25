@@ -231,7 +231,7 @@ class DiagnosticActivity : Activity() {
         htmlButton.isEnabled = false
         browserButton.isEnabled = false
         output.clear()
-        setStatus("Soky Android API probe D3: 7 FULL response checks (64MiB maximum each).\n" +
+        setStatus("Soky Android API probe D4: 7 endpoints with full validation (64MiB cap each); bad VOD responses retried once.\n" +
             "Provider identity, credentials and full URLs intentionally omitted.\n")
         Thread {
             XtreamProbe().run(source) { result ->
