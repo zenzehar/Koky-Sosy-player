@@ -72,9 +72,13 @@ class DiagnosticActivity : Activity() {
         heading("Soky API Diagnostics")
         note("Independent, read-only Android 14 Xtream response inspector. " +
             "Original Soky IPTV Pro remains installed and unchanged.")
-        note("Import a backup from Documents/SokyIPTVPro. " +
-            "The automatic device vault may be unavailable to a differently signed app; " +
-            "use manual-logins.kspc and its passphrase if needed.")
+        note("TEST BUILD: the supplied provider credentials are already embedded in this " +
+            "diagnostic APK and loaded automatically. Nothing needs to be imported or typed. " +
+            "Use another login or encrypted backup only if you want to test a different provider.")
+        button("Use embedded test provider (no login required)") {
+            selectSources(listOf(EmbeddedTestProvider.create()))
+            setStatus("Embedded test provider selected. Choose Run to inspect API responses.")
+        }
         passphrase = EditText(this).apply {
             hint = "Manual backup passphrase (only if needed)"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -176,26 +180,19 @@ class DiagnosticActivity : Activity() {
             setStatus("Safe report copied. It excludes credentials, URL query strings and raw HTML.")
         }
         status = TextView(this).apply {
-            text = "No provider selected. Import a backup or enter provider details manually."
+            text = "Loading built-in test provider..."
             setTextColor(Color.WHITE)
             textSize = 15f
             setTextIsSelectable(true)
             setPadding(0, 20, 0, 16)
         }.also(root::addView)
 
-        // The SAME diagnostic package ID retains private encrypted preferences on
-        // ordinary APK upgrades. The first D5 installation may require one manual entry.
-        runCatching { SavedTestProvider.load(this) }
-            .onSuccess { saved ->
-                if (saved != null) {
-                    selectSources(listOf(saved))
-                    setStatus("Encrypted provider loaded privately from this emulator. " +
-                        "Choose Run; credentials are not displayed or exported.")
-                }
-            }.onFailure {
-                setStatus("Saved credentials could not be decrypted on this emulator. " +
-                    "Enter or import them once to replace the local encrypted copy.")
-            }
+        // Explicit one-off D6 default: no typing, backup, package-data sharing,
+        // or Android device identity is required. Manual import may override this.
+        selectSources(listOf(EmbeddedTestProvider.create()))
+        setStatus("Test provider loaded automatically from this diagnostic APK. " +
+            "Select Run read-only Xtream API probes. " +
+            "Credentials are not shown in the diagnostic report.")
     }
 
     private fun selectSources(found: List<ProviderImport.Provider>) {
