@@ -17,6 +17,7 @@ import android.view.View
 import android.webkit.WebView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -39,6 +40,7 @@ class DiagnosticActivity : Activity() {
     private lateinit var runButton: Button
     private lateinit var htmlButton: Button
     private lateinit var browserButton: Button
+    private lateinit var rememberOnDevice: CheckBox
     private var lastHtml: String? = null
     private val output = StringBuilder()
 
@@ -94,8 +96,8 @@ class DiagnosticActivity : Activity() {
             }
         }
         heading("Or enter Xtream provider manually")
-        note("No import needed. Credentials are used only for these diagnostic requests " +
-            "and are not written to storage, clipboard or diagnostics.")
+        note("No import needed. Credentials are never embedded in APKs or uploaded to GitHub. " +
+            "Optional device-local encryption lets future diagnostic updates reuse this account.")
         fun manualField(hintText: String, passwordField: Boolean = false): EditText =
             EditText(this).apply {
                 hint = hintText
@@ -113,6 +115,11 @@ class DiagnosticActivity : Activity() {
         manualUsername = manualField("Xtream username")
         manualPassword = manualField("Xtream password", passwordField = true)
         manualUserAgent = manualField("User-Agent (optional; defaults to Soky)")
+        rememberOnDevice = CheckBox(this).apply {
+            text = "Remember this provider privately on this device for future test versions"
+            isChecked = true
+            setTextColor(Color.WHITE)
+        }.also(root::addView)
         button("Use manually entered provider") {
             val provider = try {
                 ManualProviderInput.create(
@@ -127,19 +134,21 @@ class DiagnosticActivity : Activity() {
                 null
             }
             if (provider != null) {
-                sources = listOf(provider)
-                providerSelect.adapter = ArrayAdapter(
-                    this, android.R.layout.simple_spinner_dropdown_item,
-                    listOf("1. Manual Xtream provider"),
-                )
-                runButton.isEnabled = true
+                selectSources(listOf(provider))
+                if (rememberOnDevice.isChecked) {
+                    val saved = runCatching { SavedTestProvider.save(this, provider) }.isSuccess
+                    setStatus(if (saved)
+                        "Provider encrypted locally. It will be available after future " +
+                            "diagnostic app updates on this emulator."
+                    else
+                        "Provider selected for this session; Android could not save it securely.")
+                }
                 // Remove cleartext credentials from on-screen widgets immediately.
                 manualServer.text.clear()
                 manualUsername.text.clear()
                 manualPassword.text.clear()
                 manualUserAgent.text.clear()
-                setStatus("Manual Xtream account loaded into memory. " +
-                    "Select Run to inspect the seven API responses.")
+                setStatus("Manual Xtream account loaded; choose Run to inspect API responses.")
             }
         }
         note("Or select a provider imported from encrypted backup:")
@@ -150,6 +159,17 @@ class DiagnosticActivity : Activity() {
         htmlButton.isEnabled = false
         browserButton = button("Open sanitized HTML in browser") { openHtmlInBrowser() }
         browserButton.isEnabled = false
+        button("Forget saved diagnostic provider (this app only)") {
+            runCatching { SavedTestProvider.clear(this) }
+                .onSuccess {
+                    sources = emptyList()
+                    providerSelect.adapter = null
+                    runButton.isEnabled = false
+                    setStatus("Saved diagnostic login cleared. Original Soky account unchanged.")
+                }.onFailure {
+                    setStatus("Could not clear local diagnostic login; clear app storage in Android Settings.")
+                }
+        }
         button("Copy safe diagnostic report") {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("Soky diagnostics", output.toString()))
@@ -162,6 +182,31 @@ class DiagnosticActivity : Activity() {
             setTextIsSelectable(true)
             setPadding(0, 20, 0, 16)
         }.also(root::addView)
+
+        // The SAME diagnostic package ID retains private encrypted preferences on
+        // ordinary APK upgrades. The first D5 installation may require one manual entry.
+        runCatching { SavedTestProvider.load(this) }
+            .onSuccess { saved ->
+                if (saved != null) {
+                    selectSources(listOf(saved))
+                    setStatus("Encrypted provider loaded privately from this emulator. " +
+                        "Choose Run; credentials are not displayed or exported.")
+                }
+            }.onFailure {
+                setStatus("Saved credentials could not be decrypted on this emulator. " +
+                    "Enter or import them once to replace the local encrypted copy.")
+            }
+    }
+
+    private fun selectSources(found: List<ProviderImport.Provider>) {
+        sources = found
+        providerSelect.adapter = ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            found.mapIndexed { index, source ->
+                "${index + 1}. ${if (source.name.startsWith("Manual")) "Saved/manual Xtream" else "Imported Xtream provider"}"
+            }
+        )
+        runButton.isEnabled = sources.isNotEmpty()
     }
 
     private fun setStatus(message: String) {
@@ -212,15 +257,15 @@ class DiagnosticActivity : Activity() {
             )
             return
         }
-        sources = parsed.filter { it.kind == "XTREAM" }
-        // Clear passphrase from UI immediately. Passwords remain only in memory.
+        selectSources(parsed.filter { it.kind == "XTREAM" })
+        // Clear passphrase from UI immediately.
         passphrase.text.clear()
-        providerSelect.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item,
-            sources.mapIndexed { i, s -> "${i+1}. ${s.name.take(55)}" }
-        )
-        runButton.isEnabled = sources.isNotEmpty()
-        setStatus("Imported ${sources.size} Xtream provider(s) into memory; no account files altered.")
+        if (sources.size == 1 && rememberOnDevice.isChecked) {
+            val saved = runCatching { SavedTestProvider.save(this, sources.single()) }.isSuccess
+            setStatus(if (saved) "Imported account also encrypted privately for future diagnostic updates."
+                else "Imported account loaded; secure device storage unavailable.")
+        }
+        setStatus("Imported ${sources.size} Xtream provider(s) into memory; original account files unchanged.")
     }
 
     private fun runProbe() {
