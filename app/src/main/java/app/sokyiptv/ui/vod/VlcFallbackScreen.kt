@@ -6,6 +6,7 @@ package app.sokyiptv.ui.vod
 
 import android.net.Uri
 import android.content.Intent
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -76,6 +77,7 @@ import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.VlcPlaybackHealth
+import app.sokyiptv.player.VlcAdaptiveBufferPolicy
 import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -106,13 +108,33 @@ fun VlcFallbackScreen(
     val preferences = remember { AppSettings.get(context) }
     val autoplay by preferences.seriesAutoplay.collectAsState()
     val scope = rememberCoroutineScope()
-    // Restore exact v0.1.9 LibVLC initialization: fixed 1400ms native cache.
+    val cachePrefs = remember {
+        context.getSharedPreferences(VlcAdaptiveBufferPolicy.PREF_FILE, Context.MODE_PRIVATE)
+    }
+    // Native cache can only be selected before opening media. Preserve the selected
+    // Settings buffer preset as the minimum; learn a larger bounded tier after
+    // observed trouble, effective on the NEXT video, not via a disruptive restart.
+    val cacheTier = remember(streamUrl) {
+        cachePrefs.getInt(VlcAdaptiveBufferPolicy.PREF_TIER, 0).coerceIn(0, 2)
+    }
+    val nativeCacheMs = remember(streamUrl) {
+        VlcAdaptiveBufferPolicy.cacheMillis(
+            preferences.playbackBufferPreset.value.vlcNetworkCacheMs, cacheTier,
+        )
+    }
     val libvlc = remember(streamUrl) {
-        LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
+        LibVLC(context.applicationContext, arrayListOf(
+            "--network-caching=$nativeCacheMs", "--no-video-title-show",
+        ))
     }
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
     val diagHealth = remember(streamUrl) { VlcPlaybackHealth() }
+    val bufferForecast = remember(streamUrl) { VlcAdaptiveBufferPolicy() }
+    var cachePressure by remember(streamUrl) {
+        mutableStateOf(VlcAdaptiveBufferPolicy.Pressure.UNKNOWN)
+    }
+    var totalStablePlaybackMs by remember(streamUrl) { mutableLongStateOf(0L) }
     // Re-enable v39 selected-target, one-retry seek correction. The v47 renderer did not call it.
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
@@ -234,6 +256,15 @@ fun VlcFallbackScreen(
             }
         }
         onDispose {
+            // No per-provider URL, credential or cloud state is persisted.
+            // Learn at most one bounded native cache tier for future VOD sessions.
+            val newTier = VlcAdaptiveBufferPolicy.nextTier(
+                cacheTier, healthSnapshot.interruptions, bufferForecast.sustainedRisk,
+                totalStablePlaybackMs,
+            )
+            if (newTier != cacheTier) {
+                cachePrefs.edit().putInt(VlcAdaptiveBufferPolicy.PREF_TIER, newTier).apply()
+            }
             PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
             onProgress(positionMs, durationMs)
             player.setEventListener(null)
@@ -281,6 +312,7 @@ fun VlcFallbackScreen(
         var previousHealth = VlcPlaybackHealth.State.STARTING
         var previousNativeClockMs = -1L
         var lastObservedClockAdvanceAtMs = Long.MIN_VALUE
+        var lastStatsAtMs = Long.MIN_VALUE
         while (isActive) {
             runCatching {
                 val length = player.length
@@ -304,6 +336,21 @@ fun VlcFallbackScreen(
                 nativePlaybackActive = ready && nativePlaying && clockAdvancing &&
                     !paused && !suspendPlayback && !diagHealth.networkBuffering &&
                     health.state == VlcPlaybackHealth.State.PLAYING
+                if (nativePlaybackActive) totalStablePlaybackMs += 500L
+                // Bitrates do not indicate the exact media time buffered ahead.
+                // Sample infrequently to avoid contention with the decoder.
+                if (lastStatsAtMs == Long.MIN_VALUE || tick - lastStatsAtMs >= 2_500L) {
+                    lastStatsAtMs = tick
+                    val stats = if (ready && !failed && !ended) runCatching {
+                        val currentMedia = player.media
+                        try { currentMedia?.stats } finally { currentMedia?.release() }
+                    }.getOrNull() else null
+                    cachePressure = bufferForecast.observe(
+                        stats?.inputBitrate, stats?.demuxBitrate, diagHealth.networkBuffering,
+                    )
+                } else if (diagHealth.networkBuffering) {
+                    cachePressure = VlcAdaptiveBufferPolicy.Pressure.REFILLING
+                }
                 // A buffering/stalled transition reveals chrome; it cannot disappear until
                 // continuous confirmed playback has lasted the full five seconds.
                 if (ready && !failed && !ended && !paused &&
@@ -508,6 +555,9 @@ fun VlcFallbackScreen(
                     val media = Media(libvlc, Uri.parse(streamUrl))
                     media.setHWDecoderEnabled(true, false)
                     media.addOption(":http-user-agent=$userAgent")
+                    // The same bounded cache applies to this source; no parallel
+                    // HTTP probe/prefetch or provider connection is opened.
+                    media.addOption(":network-caching=$nativeCacheMs")
                     player.media = media
                     media.release()
                     player.play()
@@ -674,7 +724,7 @@ fun VlcFallbackScreen(
                                     shape = RoundedCornerShape(12.dp),
                                 )
                                 .semantics {
-                                    contentDescription = "Seek timeline. Left and right seek by ten seconds; hold to accelerate. Down moves to playback buttons."
+                                    contentDescription = "Seek timeline. A faint indicator near the playhead shows approximate cache health, not a verified buffered-video endpoint. Left and right seek by ten seconds; hold to accelerate. Down moves to playback buttons."
                                 }
                                 .focusable(),
                             contentAlignment = Alignment.Center,
@@ -694,6 +744,38 @@ fun VlcFallbackScreen(
                                     if (scrubbing) previewMs else positionMs, timelineScale,
                                 )
                                 val playheadX = startX + (endX - startX) * fraction
+                                // Elegant, restrained *qualitative* cache runway. Do not paint
+                                // downloaded video as a solid timeline range: LibVLC only
+                                // exposes cache-fill events and advisory bitrates, not
+                                // a verified buffer-to-time endpoint on IPTV streams.
+                                val runwayColor = when (cachePressure) {
+                                    VlcAdaptiveBufferPolicy.Pressure.HEALTHY -> CinemaPaleBlue
+                                    VlcAdaptiveBufferPolicy.Pressure.THIN -> Color(0xFFFFB56E)
+                                    VlcAdaptiveBufferPolicy.Pressure.REFILLING -> CinemaBlue
+                                    VlcAdaptiveBufferPolicy.Pressure.UNKNOWN -> CinemaTrack
+                                }
+                                val runwaySegments = when (cachePressure) {
+                                    VlcAdaptiveBufferPolicy.Pressure.HEALTHY -> 3
+                                    VlcAdaptiveBufferPolicy.Pressure.THIN -> 1
+                                    VlcAdaptiveBufferPolicy.Pressure.REFILLING -> 2
+                                    VlcAdaptiveBufferPolicy.Pressure.UNKNOWN -> 0
+                                }
+                                if (ready && !scrubbing && runwaySegments > 0) {
+                                    val gap = 7.dp.toPx()
+                                    val dash = 4.dp.toPx()
+                                    for (segment in 0 until runwaySegments) {
+                                        val dashStart = playheadX + 10.dp.toPx() + segment * gap
+                                        val dashEnd = (dashStart + dash).coerceAtMost(endX)
+                                        if (dashEnd > dashStart) {
+                                            drawLine(
+                                                color = runwayColor.copy(alpha = 0.55f - segment * 0.12f),
+                                                start = androidx.compose.ui.geometry.Offset(dashStart, centerY),
+                                                end = androidx.compose.ui.geometry.Offset(dashEnd, centerY),
+                                                strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round,
+                                            )
+                                        }
+                                    }
+                                }
                                 drawLine(
                                     color = CinemaBlue,
                                     start = androidx.compose.ui.geometry.Offset(startX, centerY),
