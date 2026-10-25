@@ -15,6 +15,7 @@ class VlcAdaptiveBufferPolicyTest {
     @Test fun doesntEscalateAfterOneOrdinaryBufferingEvent() {
         assertThat(VlcAdaptiveBufferPolicy.nextTier(0, 1, false, 0)).isEqualTo(0)
         assertThat(VlcAdaptiveBufferPolicy.nextTier(0, 2, false, 0)).isEqualTo(1)
+        assertThat(VlcAdaptiveBufferPolicy.nextTier(0, 0, true, 120_000L)).isEqualTo(1)
         assertThat(VlcAdaptiveBufferPolicy.nextTier(1, 1, true, 0)).isEqualTo(2)
         assertThat(VlcAdaptiveBufferPolicy.nextTier(2, 10, true, 0)).isEqualTo(2)
     }
@@ -30,6 +31,9 @@ class VlcAdaptiveBufferPolicyTest {
         assertThat(monitor.observe(1f, 2f, false)).isEqualTo(VlcAdaptiveBufferPolicy.Pressure.UNKNOWN)
         assertThat(monitor.observe(1f, 2f, false)).isEqualTo(VlcAdaptiveBufferPolicy.Pressure.UNKNOWN)
         assertThat(monitor.observe(1f, 2f, false)).isEqualTo(VlcAdaptiveBufferPolicy.Pressure.THIN)
+        assertThat(monitor.sustainedRisk).isFalse()
+        monitor.observe(1f, 2f, false)
+        monitor.observe(1f, 2f, false)
         assertThat(monitor.sustainedRisk).isTrue()
         assertThat(monitor.observe(4f, 2f, false)).isEqualTo(VlcAdaptiveBufferPolicy.Pressure.THIN)
         assertThat(monitor.observe(4f, 2f, false)).isEqualTo(VlcAdaptiveBufferPolicy.Pressure.HEALTHY)
