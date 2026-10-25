@@ -159,7 +159,7 @@ fun VlcFallbackScreen(
             return
         }
         paused = !shouldPlay
-        if (shouldPlay) player.play() else player.setPause(true)
+        if (shouldPlay) player.play() else player.pause()
         showControls()
     }
     fun togglePlayback() = setPlayback(paused)
