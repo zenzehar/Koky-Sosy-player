@@ -30,6 +30,10 @@ This APK has the **same independent diagnostic package ID** as D1 and upgrades i
 - `get_series_categories`
 - `get_series`
 
-Reports HTTP status, response content type, redirection, number of bytes sampled, JSON top-level structure or unexpected HTML title. **Never prints or logs credentials, query strings, provider URL or unredacted response**. If HTML is detected, inspect its sanitized/escaped first 24KiB inside the app, or open the sanitized HTML sample using a browser. Requests use the imported source's User-Agent and same Xtream API paths as Soky. Each probe reads at most 32KiB, so even huge catalogues won't be imported or parsed in full.
+Reports HTTP status, response content type, redirection, number of bytes sampled, JSON top-level structure or unexpected HTML title. **Never prints or logs credentials, query strings, provider URL or unredacted response**. If HTML is detected, inspect its sanitized/escaped first 24KiB inside the app, or open the sanitized HTML sample using a browser. Requests use the imported source's User-Agent and same Xtream API paths as Soky. D3 examines complete responses: up to 2MiB using Soky's exact Kotlinx lenient JSON parser, and larger catalogues using a memory-bounded streaming JSON validator (maximum 64MiB per request). The first 32KiB prefix is no longer considered proof of valid JSON. Raw JSON is never written to shared storage or a diagnostic report.
 
 This probe is an opt-in diagnosis utility, not an alternative player. Delete it when finished. It never attempts to reuse private Android app data or silently bypass scoped storage.
+
+## D3 validation interpretation
+
+The main app runs `kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }`. D3 tests that exact parser for complete JSON bodies up to 2MiB, and reports whether Android's `org.json` disagrees (useful for distinguishing a D2 probe false positive). Larger catalogue bodies are parsed with Android's bounded streaming `JsonReader`, whose tolerance can differ slightly from Kotlinx; those findings are labelled separately. All error details are safely classified without logging response text or credentials. Do not infer validity of large catalogues from their prefix alone.
