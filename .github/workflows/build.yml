@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.48-xtream-catalogue-recovery' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.49-android-json-fallback' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.48-xtream-catalogue-recovery'
+      github.head_ref == 'fix/v0.1.11.49-android-json-fallback'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.48.apk
-          gh release create v0.1.11.48-xtream-json-recovery \
-            "apk/Soky_IPTV_Pro_v0.1.11.48.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.49.apk
+          gh release create v0.1.11.49-android-platform-catalogue-parser \
+            "apk/Soky_IPTV_Pro_v0.1.11.49.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.48 Xtream Catalogue Recovery" \
-            --notes "v0.1.11.48 ISOLATED TEST: fixes Android 14 emulator catalogue failures confirmed by Diagnostic D4 (7,498 Live channels full JSON body 2.28MB reaches client, Android streaming parser accepts, Kotlinx parser rejects at char 2165036; malformed VOD categories near final char). Original Kotlinx parsing still runs first. Only if it fails, the Xtream catalogue parser attempts narrowly scoped recovery: append a single missing closing array bracket if the entire response then parses successfully, otherwise canonicalize entire JSON through a lenient Gson token reader and REQUIRE the resulting whole array to pass Kotlinx. No partial imports, no acceptance of incomplete or non-array data. Auth and noncatalogue APIs unchanged. VOD/Series/Live parsing, existing TV favourites and sync persist with same database schema. v0.1.9 VLC playback, native seek, video cache, Back and one-file Google Drive cloud sync are unchanged. One-off DEBUG emulator builds prefill the user-authorized test provider on a new-login screen, without overwriting saved provider logins; RELEASE source variant has no embedded test provider. v68, actual APK filename Soky_IPTV_Pro_v0.1.11.48.apk. Real TV/emulator validation pending. Do not merge to golden or production until tested; when testing ends remove disposable test releases only by explicit approval." --prerelease
+            --title "Soky IPTV Pro v0.1.11.49 Android Catalogue Parser" \
+            --notes "v0.1.11.49 ISOLATED TEST. v48 failed again on the Android 14 emulator because its fallback used Gson JsonReader, which did not match the actual android.util.JsonReader that the D3 test proved could consume all 7,498 live channels. v49 keeps original Kotlinx parser first, preserves bracket-only full-parse repair, and replaces failed Gson fallback with actual Android framework JsonReader configured lenient; recursively builds Kotlinx JsonObject/JsonArray/JsonPrimitive, enforces top-level array, full END_DOCUMENT, max 90 nesting and 1.5M tokens; NEVER imports partial JSON or prints provider data. Covers malformed Live and VOD catalogue cases but effectiveness requires user Android14 test. Robolectric Android 14 unit tests. NO changes to v0.1.9 native VLC playback/seek, TV navigation, Google Drive single-file history, exit-only progress sync or original provider database. Debug-emulator-only fresh login form prefilled with user-authorized throwaway Xtream test account, release source variant contains no such account. VERSION 0.1.11.49 code69; file Soky_IPTV_Pro_v0.1.11.49.apk. Prerelease only; do not merge golden/main before physical tests. Temporary release cleanup occurs only on user's explicit post-testing approval." --prerelease
