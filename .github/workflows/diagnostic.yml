@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-diagnostic:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/private-on-device-provider-d5') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/android14-embedded-test-login-d6') }}
     name: Build isolated diagnostic
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +34,7 @@ jobs:
           if-no-files-found: error
 
   publish-diagnostic:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/private-on-device-provider-d5' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/android14-embedded-test-login-d6' }}
     name: Publish side-by-side diagnostic APK
     needs: build-diagnostic
     runs-on: ubuntu-latest
@@ -52,11 +52,11 @@ jobs:
         run: |
           set -euo pipefail
           test -s diagnostic-apk/diagnostic-debug.apk
-          mv diagnostic-apk/diagnostic-debug.apk diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D5.apk
-          gh release create diagnostic-v0.1.11.47-android14-probe-v5 \
-            "diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D5.apk" \
+          mv diagnostic-apk/diagnostic-debug.apk diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D6.apk
+          gh release create diagnostic-v0.1.11.47-android14-probe-v6 \
+            "diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D6.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky Xtream API Diagnostics v0.1.11.47 D5 (Remember Test Provider)" \
-            --notes "One-off independent utility, package tv.sokyiptv.responseprobe; installs beside Soky IPTV Pro without touching the original. User chooses encrypted backup via Storage Access Framework from Documents/SokyIPTVPro. Device-specific vault requires identical signature-scoped Android ID; use manual-logins.kspc with its passphrase if separate-app decryption fails. Runs seven Xtream player_api.php requests using imported credentials in-memory, validates the ENTIRE catalogue responses using the SAME Kotlinx lenient parser as Soky for bodies up to 4MiB, and uses bounded streaming token validation up to 64MiB for bigger catalogues; reports safe wire length, transfer encoding and a one-time retry if VOD endpoints return invalid JSON. Shows safe HTTP status, Content-Type, redirects, JSON accept/reject and optional sanitized HTML preview/browser. Never logs, uploads or saves credentials. Adds manual Xtream server URL, username, password and optional User-Agent entry as an alternative to encrypted backup import. Manual credentials stay in memory, are removed from the form after selection, and are never written to settings or disk. D5 optionally remembers the diagnostic provider encrypted on the emulator with AndroidKeystore AES-GCM (never embedded in APK or committed to GitHub) so all later diagnostic updates with the same package ID can load it automatically. Forget-provider control deletes its encrypted copy. No original app source/settings/cloud/player changes. Diagnostic only. Uninstall after testing." \
+            --title "Soky Xtream API Diagnostics v0.1.11.47 D6 (Embedded Test Provider)" \
+            --notes "One-off Android14 Xtream test utility D6: the user expressly requested their test provider credentials be embedded in the diagnostic APK. Embedded provider auto-selected on launch; no manual typing or backup required. User-Agent stays the Soky default. Credentials are only trivially obfuscated in bytecode and MAY BE RECOVERED by anyone with this publicly downloadable binary, even after the release is removed. Not a production build. Manual provider entry, encrypted backup import, safe HTML preview, full JSON validation up to 4MiB with Soky Kotlinx parser, up to 64MiB streaming validation, safe transfer metadata and retry of malformed VOD endpoints remain available. Does NOT modify or replace the main Soky player; separate applicationId tv.sokyiptv.responseprobe. No raw server URL, username or password appears in release notes. Future diagnostic branches should inherit the D6 EmbeddedTestProvider until user says testing is finished. Remove prerelease builds using scripts/cleanup_soky_test_releases.sh once user approves; previously downloaded binaries, Git history, caches and forks cannot be recalled. versionCode 6, downloadable asset Soky_Xtream_Diagnostic_v0.1.11.47_D6.apk." --prerelease
             --prerelease
