@@ -12,6 +12,14 @@ Open this diagnostic app, choose **Import encrypted backup**, navigate to the fi
 
 If device-vault decryption fails, use **Soky settings → Provider backup → Save manual backup to shared device folder**, choose a backup passphrase, and open `manual-logins.kspc` in the probe with that passphrase. No credentials are written to the diagnostic app's disk.
 
+## Manual provider entry (new in Diagnostic D2)
+
+Choose **Or enter Xtream provider manually** and provide the Xtream **server URL (including port)**, username, password, and optionally the same User-Agent you use in Soky. Tap **Use manually entered provider**, then **Run read-only Xtream API probes**. There is **no backup requirement** for this option.
+
+The app accepts HTTP or HTTPS, including a plain `hostname:port` and an optional known `/player_api.php` suffix. Login details must be in their **own fields**, not embedded in the URL. The information lives in process memory only; the form clears after selecting the provider, and the app never writes provider credentials to storage, reports, Android logs or clipboard.
+
+This APK has the **same independent diagnostic package ID** as D1 and upgrades it if installed, but it **does not replace Soky IPTV Pro**.
+
 ## Tests
 
 - `player_api.php` account endpoint (do not confuse cached expiry with an authentication success)
