@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-diagnostic:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/android14-full-catalogue-d3') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/android14-full-json-transfer-d4') }}
     name: Build isolated diagnostic
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +34,7 @@ jobs:
           if-no-files-found: error
 
   publish-diagnostic:
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/android14-full-catalogue-d3' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/android14-full-json-transfer-d4' }}
     name: Publish side-by-side diagnostic APK
     needs: build-diagnostic
     runs-on: ubuntu-latest
@@ -52,11 +52,11 @@ jobs:
         run: |
           set -euo pipefail
           test -s diagnostic-apk/diagnostic-debug.apk
-          mv diagnostic-apk/diagnostic-debug.apk diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D3.apk
-          gh release create diagnostic-v0.1.11.47-android14-probe-v3 \
-            "diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D3.apk" \
+          mv diagnostic-apk/diagnostic-debug.apk diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D4.apk
+          gh release create diagnostic-v0.1.11.47-android14-probe-v4 \
+            "diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_D4.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky Xtream API Diagnostics v0.1.11.47 D3 (Full JSON Validation)" \
-            --notes "One-off independent utility, package tv.sokyiptv.responseprobe; installs beside Soky IPTV Pro without touching the original. User chooses encrypted backup via Storage Access Framework from Documents/SokyIPTVPro. Device-specific vault requires identical signature-scoped Android ID; use manual-logins.kspc with its passphrase if separate-app decryption fails. Runs seven Xtream player_api.php requests using imported credentials in-memory, validates the ENTIRE catalogue responses using the SAME Kotlinx lenient parser as Soky for bodies up to 2MiB, and uses bounded streaming token validation up to 64MiB for bigger catalogues. Shows safe HTTP status, Content-Type, redirects, JSON accept/reject and optional sanitized HTML preview/browser. Never logs, uploads or saves credentials. Adds manual Xtream server URL, username, password and optional User-Agent entry as an alternative to encrypted backup import. Manual credentials stay in memory, are removed from the form after selection, and are never written to settings or disk. No original app source/settings/cloud/player changes. Diagnostic only. Uninstall after testing." \
+            --title "Soky Xtream API Diagnostics v0.1.11.47 D4 (Transfer Diagnostics)" \
+            --notes "One-off independent utility, package tv.sokyiptv.responseprobe; installs beside Soky IPTV Pro without touching the original. User chooses encrypted backup via Storage Access Framework from Documents/SokyIPTVPro. Device-specific vault requires identical signature-scoped Android ID; use manual-logins.kspc with its passphrase if separate-app decryption fails. Runs seven Xtream player_api.php requests using imported credentials in-memory, validates the ENTIRE catalogue responses using the SAME Kotlinx lenient parser as Soky for bodies up to 4MiB, and uses bounded streaming token validation up to 64MiB for bigger catalogues; reports safe wire length, transfer encoding and a one-time retry if VOD endpoints return invalid JSON. Shows safe HTTP status, Content-Type, redirects, JSON accept/reject and optional sanitized HTML preview/browser. Never logs, uploads or saves credentials. Adds manual Xtream server URL, username, password and optional User-Agent entry as an alternative to encrypted backup import. Manual credentials stay in memory, are removed from the form after selection, and are never written to settings or disk. No original app source/settings/cloud/player changes. Diagnostic only. Uninstall after testing." \
             --prerelease
