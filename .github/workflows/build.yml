@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.49-android-json-fallback' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.50-streaming-live-import' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.49-android-json-fallback'
+      github.head_ref == 'fix/v0.1.11.50-streaming-live-import'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.49.apk
-          gh release create v0.1.11.49-android-platform-catalogue-parser \
-            "apk/Soky_IPTV_Pro_v0.1.11.49.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.50.apk
+          gh release create v0.1.11.50-direct-live-streaming-import \
+            "apk/Soky_IPTV_Pro_v0.1.11.50.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.49 Android Catalogue Parser" \
-            --notes "v0.1.11.49 ISOLATED TEST. v48 failed again on the Android 14 emulator because its fallback used Gson JsonReader, which did not match the actual android.util.JsonReader that the D3 test proved could consume all 7,498 live channels. v49 keeps original Kotlinx parser first, preserves bracket-only full-parse repair, and replaces failed Gson fallback with actual Android framework JsonReader configured lenient; recursively builds Kotlinx JsonObject/JsonArray/JsonPrimitive, enforces top-level array, full END_DOCUMENT, max 90 nesting and 1.5M tokens; NEVER imports partial JSON or prints provider data. Covers malformed Live and VOD catalogue cases but effectiveness requires user Android14 test. Robolectric Android 14 unit tests. NO changes to v0.1.9 native VLC playback/seek, TV navigation, Google Drive single-file history, exit-only progress sync or original provider database. Debug-emulator-only fresh login form prefilled with user-authorized throwaway Xtream test account, release source variant contains no such account. VERSION 0.1.11.49 code69; file Soky_IPTV_Pro_v0.1.11.49.apk. Prerelease only; do not merge golden/main before physical tests. Temporary release cleanup occurs only on user's explicit post-testing approval." --prerelease
+            --title "Soky IPTV Pro v0.1.11.50 Direct Live Stream Import" \
+            --notes "v0.1.11.50 EXPERIMENTAL FIX for Android14 Live TV refresh failures. Unlike v48/v49, the app no longer materializes the 7,498-channel Live catalogue as a Kotlinx JsonElement tree, or reconstructs one using a fallback parser. Instead get_live_streams is downloaded and parsed DIRECTLY into Channel entries through Android platform android.util.JsonReader(isLenient=true), the same parser and complete-response validation strategy that passed Diagnostic D3 with the user's actual 2.28MB Live response. Unknown vendor metadata skipped; known category, name, stream ID, icon, EPG, number and archive fields read safely. No database import until the JSON array closes successfully and END_DOCUMENT is reached, preventing partial catalogue corruption. Stage-specific messages now distinguish authentication, category download/decoding, channel download/stream decoding, and local database import. Android14 unit tests include a realistic complete 7,498-channel fixture, malformed/truncated bodies, vendor syntax and missing fields. The real provider has not yet been tested in the running app; do not declare fixed until user confirms. v0.1.9 VLC native playback/seek and v0.1.11.46 exit-only Google Drive sync unchanged. Existing TEST-only emulator login prefill maintained on new debug login; production build variant contains no provider embedded login. versionCode70, downloadable file Soky_IPTV_Pro_v0.1.11.50.apk. Do not merge to main/golden and do not remove existing test releases until user confirms cleanup." --prerelease
