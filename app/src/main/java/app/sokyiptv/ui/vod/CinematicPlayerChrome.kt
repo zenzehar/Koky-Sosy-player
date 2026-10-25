@@ -130,7 +130,16 @@ internal fun CinematicTitle(
         Spacer(Modifier.size(4.dp))
         Box(
             Modifier.clip(RoundedCornerShape(24.dp))
-                .background(Color.Black.copy(alpha = .82f))
+                // Transparent midnight glass, retaining legibility without a black slab.
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF111A29).copy(alpha = 0.44f),
+                            Color(0xFF23334B).copy(alpha = 0.26f),
+                        ),
+                    ),
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(24.dp))
                 .padding(horizontal = 14.dp, vertical = 5.dp),
         ) {
             Text(

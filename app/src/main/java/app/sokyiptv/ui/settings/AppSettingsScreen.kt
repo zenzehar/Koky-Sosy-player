@@ -333,8 +333,9 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "Legacy v0.1.9 VLC playback uses a fixed 1.4-second cache. These presets " +
-                    "continue to apply to Media3 but do not override legacy VLC caching.",
+                "Network cache presets apply to new VLC and Media3 playback sessions. " +
+                    "VLC increases its cache gradually on later videos after repeated buffering, " +
+                    "up to 12 seconds. Changing a preset does not interrupt the current video.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
