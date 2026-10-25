@@ -1,87 +1,103 @@
 package app.sokyiptv.data.remote
 
-import com.google.gson.stream.JsonReader
-import com.google.gson.stream.JsonToken
-import com.google.gson.stream.JsonWriter
+import android.util.JsonReader
+import android.util.JsonToken
 import java.io.StringReader
-import java.io.StringWriter
-import java.math.BigDecimal
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Conservative compatibility fallback for non-standard Xtream catalogue JSON.
+ * Fallback for non-standard Xtream catalogue JSON. The normal Kotlinx decoder is
+ * always tried first by XtreamApi. Diagnostic D3 proved Android's *platform*
+ * JsonReader can consume the actual 7,498-channel response rejected by Kotlinx.
  *
- * Production parser always runs FIRST. This is only used after a full response
- * fails to decode; no best-effort partial catalogue is ever imported.
- * The lenient token reader canonicalises unescaped control chars, stray commas
- * and related panel quirks into valid JSON before revalidating with Kotlinx.
+ * This intentionally uses android.util.JsonReader, NOT Gson's similar-looking
+ * JsonReader (whose fallback in v48 failed on the same provider response).
+ * A failed or partially consumed document is discarded in its entirety.
  */
 internal object XtreamJsonRecovery {
     private const val MAX_INPUT_CHARS = 12_000_000
-    private const val MAX_NESTING = 80
+    private const val MAX_DEPTH = 90
+    private const val MAX_NODES = 1_500_000
 
     fun recover(raw: String, decoder: Json, requireArray: Boolean): JsonElement? {
         if (raw.length > MAX_INPUT_CHARS) return null
-        val stripped = raw.trimEnd()
-        // Some Xtream panels omit the final ] after the final category object.
-        // Only accept the repair after a SECOND, successful Kotlinx full parse.
-        if (requireArray && stripped.startsWith("[") && stripped.endsWith("}")) {
-            runCatching { decoder.parseToJsonElement("$stripped]") }
+        val trimmed = raw.trimEnd()
+        // Provider occasionally omits the final ] after a complete last object.
+        // This repair is acceptable ONLY after the ENTIRE corrected JSON parses.
+        if (requireArray && trimmed.startsWith("[") && trimmed.endsWith("}")) {
+            runCatching { decoder.parseToJsonElement("$trimmed]") }
                 .getOrNull()?.takeIf { it is JsonArray }?.let { return it }
         }
         return runCatching {
-            val input = JsonReader(StringReader(raw)).apply { isLenient = true }
-            val output = StringWriter(raw.length.coerceAtMost(4_000_000))
-            val writer = JsonWriter(output).apply {
-                isLenient = true
-                serializeNulls = true
+            JsonReader(StringReader(raw)).use { reader ->
+                reader.isLenient = true
+                val counter = NodeCounter()
+                val value = readValue(reader, decoder, counter, 0)
+                check(reader.peek() == JsonToken.END_DOCUMENT) {
+                    "Unexpected trailing catalogue content"
+                }
+                check(!requireArray || value is JsonArray) {
+                    "Catalogue root must be an array"
+                }
+                value
             }
-            writeValue(input, writer, 0)
-            require(input.peek() == JsonToken.END_DOCUMENT) {
-                "Trailing content after catalogue"
-            }
-            writer.flush()
-            val result = decoder.parseToJsonElement(output.toString())
-            require(!requireArray || result is JsonArray) { "Invalid catalogue root" }
-            result
         }.getOrNull()
     }
 
-    private fun writeValue(input: JsonReader, output: JsonWriter, depth: Int) {
-        require(depth < MAX_NESTING) { "JSON nesting exceeds safety limit" }
-        when (input.peek()) {
+    private class NodeCounter {
+        var count = 0
+        fun next() {
+            check(++count <= MAX_NODES) { "Catalogue too large" }
+        }
+    }
+
+    private fun readValue(
+        reader: JsonReader,
+        decoder: Json,
+        counter: NodeCounter,
+        depth: Int,
+    ): JsonElement {
+        check(depth < MAX_DEPTH) { "Catalogue too deeply nested" }
+        counter.next()
+        return when (reader.peek()) {
             JsonToken.BEGIN_ARRAY -> {
-                input.beginArray()
-                output.beginArray()
-                while (input.hasNext()) writeValue(input, output, depth + 1)
-                input.endArray()
-                output.endArray()
+                reader.beginArray()
+                val items = ArrayList<JsonElement>()
+                while (reader.hasNext()) {
+                    items.add(readValue(reader, decoder, counter, depth + 1))
+                }
+                reader.endArray()
+                JsonArray(items)
             }
             JsonToken.BEGIN_OBJECT -> {
-                input.beginObject()
-                output.beginObject()
-                while (input.hasNext()) {
-                    output.name(input.nextName())
-                    writeValue(input, output, depth + 1)
+                reader.beginObject()
+                val fields = LinkedHashMap<String, JsonElement>()
+                while (reader.hasNext()) {
+                    val name = reader.nextName()
+                    fields[name] = readValue(reader, decoder, counter, depth + 1)
                 }
-                input.endObject()
-                output.endObject()
+                reader.endObject()
+                JsonObject(fields)
             }
-            JsonToken.STRING -> output.value(input.nextString())
+            JsonToken.STRING -> JsonPrimitive(reader.nextString())
             JsonToken.NUMBER -> {
-                // Do not emit NaN, Infinity or malformed number tokens.
-                val number = input.nextString()
-                val value = number.toBigDecimalOrNull()
-                if (value != null) output.value(value) else output.value(number)
+                val rawNumber = reader.nextString()
+                // Preserve numeric JSON values when valid; unusual vendor number
+                // tokens are preserved as strings, which Xtream's accessors support.
+                runCatching { decoder.parseToJsonElement(rawNumber) }
+                    .getOrElse { JsonPrimitive(rawNumber) }
             }
-            JsonToken.BOOLEAN -> output.value(input.nextBoolean())
+            JsonToken.BOOLEAN -> JsonPrimitive(reader.nextBoolean())
             JsonToken.NULL -> {
-                input.nextNull()
-                output.nullValue()
+                reader.nextNull()
+                JsonNull
             }
-            else -> error("Unsupported catalogue token")
+            else -> error("Unsupported Xtream catalogue token")
         }
     }
 }
