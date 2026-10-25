@@ -6,7 +6,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class XtreamJsonRecoveryTest {
     private val decoder = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -24,6 +29,27 @@ class XtreamJsonRecoveryTest {
         assertTrue(result is JsonArray)
         assertEquals("Live One", (result as JsonArray)[0]
             .let { it as JsonObject }["name"]?.jsonPrimitive?.content)
+    }
+
+    @Test fun platformReaderAcceptsVendorSyntaxWhichTheOldGsonFallbackDidNotFix() {
+        val input = """[{"stream_id":1,"name":"Normal"}, {stream_id:2,name:'Vendor item'}]"""
+        val recovered = XtreamJsonRecovery.recover(input, decoder, requireArray = true)
+        assertTrue(recovered is JsonArray)
+        assertEquals(2, (recovered as JsonArray).size)
+        assertEquals("Vendor item", (recovered[1] as JsonObject)["name"]?.jsonPrimitive?.content)
+        assertEquals("2", (recovered[1] as JsonObject)["stream_id"]?.jsonPrimitive?.content)
+    }
+
+    @Test fun fullyConsumedStructuralValidationRejectsExtraTrailingContent() {
+        assertNull(XtreamJsonRecovery.recover("""[{"stream_id":1}] trailing""", decoder, true))
+    }
+
+    @Test fun numericallyTypedProviderIdsStillReadAsTextContent() {
+        val input = """[{stream_id:1723467, name:'Channel', category_id:28}]"""
+        val recovered = XtreamJsonRecovery.recover(input, decoder, true) as JsonArray
+        val entry = recovered.single() as JsonObject
+        assertEquals("1723467", entry["stream_id"]?.jsonPrimitive?.content)
+        assertEquals("28", entry["category_id"]?.jsonPrimitive?.content)
     }
 
     @Test fun rejectsTruncatedAndWrongRootInsteadOfImportingPartialCatalogue() {
