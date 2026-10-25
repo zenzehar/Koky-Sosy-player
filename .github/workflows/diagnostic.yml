@@ -1,0 +1,62 @@
+name: One-off Android 14 Xtream Diagnostic APK
+
+on:
+  pull_request:
+    paths:
+      - 'diagnostic/**'
+      - 'settings.gradle.kts'
+      - '.github/workflows/diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-diagnostic:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/one-off-android14-xtream-responses') }}
+    name: Build isolated diagnostic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile and test diagnostic only
+        run: ./gradlew :diagnostic:testDebugUnitTest :diagnostic:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soky-android14-xtream-diagnostic
+          path: diagnostic/build/outputs/apk/debug/diagnostic-debug.apk
+          if-no-files-found: error
+
+  publish-diagnostic:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'diagnostic/one-off-android14-xtream-responses' }}
+    name: Publish side-by-side diagnostic APK
+    needs: build-diagnostic
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: soky-android14-xtream-diagnostic
+          path: diagnostic-apk
+      - name: Publish separate diagnostic test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test -s diagnostic-apk/diagnostic-debug.apk
+          mv diagnostic-apk/diagnostic-debug.apk diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_Android14.apk
+          gh release create diagnostic-v0.1.11.47-android14-probe \
+            "diagnostic-apk/Soky_Xtream_Diagnostic_v0.1.11.47_Android14.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "Soky Xtream API Diagnostics v0.1.11.47 (Android 14)" \
+            --notes "One-off independent utility, package tv.sokyiptv.responseprobe; installs beside Soky IPTV Pro without touching the original. User chooses encrypted backup via Storage Access Framework from Documents/SokyIPTVPro. Device-specific vault requires identical signature-scoped Android ID; use manual-logins.kspc with its passphrase if separate-app decryption fails. Runs seven bounded Xtream player_api.php requests using imported credentials in-memory, shows safe HTTP status, Content-Type, redirects, JSON/HTML detection and optional sanitized HTML preview/browser. Never logs, uploads or saves credentials. No original app source/settings/cloud/player changes. Diagnostic only. Uninstall after testing." \
+            --prerelease
