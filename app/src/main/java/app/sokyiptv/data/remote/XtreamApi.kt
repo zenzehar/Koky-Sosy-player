@@ -341,11 +341,20 @@ class XtreamApi(
             return try {
                 json.parseToJsonElement(text)
             } catch (e: Exception) {
-                // Panels behind a captive portal or Cloudflare return HTML here. Saying
-                // "not valid JSON" is useless to a user; say what it probably means.
-                throw XtreamException(
-                    "The server replied with something that is not a valid catalogue. " +
-                        "Check the address and port are correct.",
+                // Android 14 emulator reproduction: Live response has a complete
+                // closing array yet Kotlinx rejects an interior provider record.
+                // Use a conservative full-response repair as a *fallback only*.
+                // No partial or truncated catalogue is committed to Room.
+                val catalogueAction = action in setOf(
+                    "get_live_categories", "get_live_streams", "get_vod_categories",
+                    "get_vod_streams", "get_series_categories", "get_series",
+                )
+                val recovered = if (catalogueAction) {
+                    XtreamJsonRecovery.recover(text, json, requireArray = true)
+                } else null
+                recovered ?: throw XtreamException(
+                    "The provider returned malformed catalogue JSON. " +
+                        "A complete, safely recoverable response could not be verified.",
                     e,
                 )
             }
