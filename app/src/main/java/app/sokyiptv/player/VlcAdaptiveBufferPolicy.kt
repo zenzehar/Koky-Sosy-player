@@ -42,10 +42,10 @@ internal class VlcAdaptiveBufferPolicy {
         if (ratio < 0.85) {
             weakSamples++
             goodSamples = 0
-            if (weakSamples >= 3) {
-                pressure = Pressure.THIN
-                sawConfirmedRisk = true
-            }
+            if (weakSamples >= 3) pressure = Pressure.THIN
+            // Five consecutive native bitrate observations (~12 seconds) are needed
+            // before learning from a possible upcoming interruption.
+            if (weakSamples >= 5) sawConfirmedRisk = true
         } else if (ratio >= 1.10) {
             goodSamples++
             weakSamples = 0
@@ -90,7 +90,9 @@ internal class VlcAdaptiveBufferPolicy {
         ): Int {
             val tier = currentTier.coerceIn(0, MAX_TIER)
             return when {
-                confirmedRebuffers >= 2 || (confirmedRebuffers >= 1 && sustainedRisk) ->
+                confirmedRebuffers >= 2 ||
+                    (confirmedRebuffers >= 1 && sustainedRisk) ||
+                    (sustainedRisk && stablePlaybackMillis >= 90_000L) ->
                     (tier + 1).coerceAtMost(MAX_TIER)
                 stablePlaybackMillis >= 25 * 60_000L && confirmedRebuffers == 0 ->
                     (tier - 1).coerceAtLeast(0)
