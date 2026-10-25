@@ -1,3 +1,7 @@
+# D6 built-in test account and future test builds
+
+**D6 auto-loads the test provider supplied by the user**, including server endpoint, login and password, embedded in this disposable diagnostic APK's compiled bytecode. There is no need to enter the provider or import backups. Launch the app and press **Run read-only Xtream API probes**. The **Use embedded test provider** button restores it if you temporarily switch accounts. All future D6-derived diagnostic test builds will inherit the provider until the user instructs removal. The embedded values are lightly obfuscated as integer arrays in source solely to avoid basic plaintext scraping; **they are not secured and can be extracted from APKs and Git history**. Do not publish production APKs from this branch. A GitHub release deletion cannot undo downloads or forks. Never paste provider credentials into debug reports, GitHub release notes or issue descriptions.
+
 # Soky IPTV Pro — Android 14 Xtream API probe (one-off)
 
 **Package**: `tv.sokyiptv.responseprobe`. Not an update to `tv.sokyiptv.pro.debug` or `tv.sokyiptv.pro`. It does not link to or change the original app's Room database, settings or cloud sync.
