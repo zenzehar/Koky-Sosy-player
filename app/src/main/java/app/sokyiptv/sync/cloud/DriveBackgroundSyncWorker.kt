@@ -21,28 +21,15 @@ class DriveBackgroundSyncWorker(
     context: Context, params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val sync = GoogleDriveProgressSync.get(applicationContext)
-        if (!sync.authorized) return Result.success()
-        return try {
-            if (sync.syncNow()) Result.success() else Result.retry()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            Result.retry()
-        }
+        // v53 stability isolation: disable cloud I/O without deleting any Drive data.
+        return Result.success()
     }
 
     companion object {
         private const val NAME = "soky-drive-progress-periodic-v1"
         fun schedule(context: Context) {
-            val request = PeriodicWorkRequestBuilder<DriveBackgroundSyncWorker>(15, TimeUnit.MINUTES)
-                .setConstraints(
-                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-                )
-                .build()
-            WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
-                NAME, ExistingPeriodicWorkPolicy.KEEP, request,
-            )
+            // Cancel jobs installed by old builds; do not enqueue new cloud work.
+            cancel(context)
         }
         fun cancel(context: Context) {
             WorkManager.getInstance(context.applicationContext).cancelUniqueWork(NAME)
