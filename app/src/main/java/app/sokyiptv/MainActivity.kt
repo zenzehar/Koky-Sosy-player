@@ -63,7 +63,7 @@ import app.sokyiptv.data.work.SyncWorker
 import app.sokyiptv.data.work.LiveSectionSyncWorker
 import app.sokyiptv.data.work.CatalogueGate
 import app.sokyiptv.core.ServiceLocator
-import app.sokyiptv.sync.cloud.GoogleDriveProgressSync
+import app.sokyiptv.sync.cloud.DriveBackgroundSyncWorker
 import app.sokyiptv.data.parser.displayTitle
 import app.sokyiptv.ui.MainScreen
 import app.sokyiptv.ui.ProfilesViewModel
@@ -158,12 +158,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        GoogleDriveProgressSync.get(applicationContext).startForegroundSync()
-    }
-
-    override fun onStop() {
-        GoogleDriveProgressSync.get(applicationContext).stopForegroundSync()
-        super.onStop()
+        // One-time cancellation of queued cloud jobs left by an earlier installation.
+        // No Drive read/write/automatic sync while we isolate playback stability.
+        DriveBackgroundSyncWorker.cancel(applicationContext)
     }
 
     // singleTask: a reminder tapped while the app is already running arrives here, not a fresh
