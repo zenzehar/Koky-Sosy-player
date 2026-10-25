@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.47-legacy-v019-playback-seeking' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.48-xtream-catalogue-recovery' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.47-legacy-v019-playback-seeking'
+      github.head_ref == 'fix/v0.1.11.48-xtream-catalogue-recovery'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.47.apk
-          gh release create v0.1.11.47-v019-native-vlc-restored \
-            "apk/Soky_IPTV_Pro_v0.1.11.47.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.48.apk
+          gh release create v0.1.11.48-xtream-json-recovery \
+            "apk/Soky_IPTV_Pro_v0.1.11.48.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.47 Original v0.1.9 VLC Restored" \
-            --notes "v0.1.11.47 TEST BUILD: restore only the original v0.1.9 native LibVLC playback and seeking mechanisms from the milestone/v0.1.9-tv-approved and hybrid v0.1.11.0 rollback. Native LibVLC remains 3.6.1; startup is again fixed 1400ms VLC network cache, native MediaPlayer.setTime(ms) one-shot seeks, declared-duration clamping, original D-pad accelerated hold, initial position seek, and native clock polling. Removes later VlcSeekClock, VlcNativeSeekCorrection, post-seek recovery, tail probing, and TV decoder rebind from the VLC player. Modern television transport visuals, episode navigation/autoplay, screensaver pause compatibility and passive playback diagnostics retained. Critically preserves the confirmed v0.1.11.45/v0.1.11.46 one-file Google Drive history sync, profile-free merge, episode discovery, and exit-only asynchronous cloud sync WITHOUT edits. Playback buffer presets remain for Media3; restored VLC ignores them and uses fixed 1400ms per the original. This is a regression experiment and may restore old seek limits on underreported-duration streams; user requested fidelity to original. Run 20-minute VOD/episode playback test, direct 10s seek and hold tests, Back while buffering, screensaver, cross-TV resume sync. versionCode 67. Actual download filename Soky_IPTV_Pro_v0.1.11.47.apk. Debug signing certificate may block upgrade across versions. Hardware validation pending." --prerelease
+            --title "Soky IPTV Pro v0.1.11.48 Xtream Catalogue Recovery" \
+            --notes "v0.1.11.48 ISOLATED TEST: fixes Android 14 emulator catalogue failures confirmed by Diagnostic D4 (7,498 Live channels full JSON body 2.28MB reaches client, Android streaming parser accepts, Kotlinx parser rejects at char 2165036; malformed VOD categories near final char). Original Kotlinx parsing still runs first. Only if it fails, the Xtream catalogue parser attempts narrowly scoped recovery: append a single missing closing array bracket if the entire response then parses successfully, otherwise canonicalize entire JSON through a lenient Gson token reader and REQUIRE the resulting whole array to pass Kotlinx. No partial imports, no acceptance of incomplete or non-array data. Auth and noncatalogue APIs unchanged. VOD/Series/Live parsing, existing TV favourites and sync persist with same database schema. v0.1.9 VLC playback, native seek, video cache, Back and one-file Google Drive cloud sync are unchanged. One-off DEBUG emulator builds prefill the user-authorized test provider on a new-login screen, without overwriting saved provider logins; RELEASE source variant has no embedded test provider. v68, actual APK filename Soky_IPTV_Pro_v0.1.11.48.apk. Real TV/emulator validation pending. Do not merge to golden or production until tested; when testing ends remove disposable test releases only by explicit approval." --prerelease
