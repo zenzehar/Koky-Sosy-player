@@ -81,6 +81,7 @@ import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlin.math.max
 import kotlin.math.min
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Native VLC is the first VOD choice. Media3 remains an explicitly bounded alternative. */
 @Composable
@@ -111,6 +112,11 @@ fun VlcFallbackScreen(
         LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
     }
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
+    // Compose disposes the native view and parent effects separately. Never release
+    // the same native surface from both callbacks or query a released VLC instance.
+    val leaving = remember(streamUrl) { AtomicBoolean(false) }
+    val nativeReleased = remember(streamUrl) { AtomicBoolean(false) }
+    var startupErrorEpoch by remember(streamUrl) { mutableIntStateOf(0) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
     val diagHealth = remember(streamUrl) { VlcPlaybackHealth() }
     // Re-enable v39 selected-target, one-retry seek correction. The v47 renderer did not call it.
@@ -151,7 +157,11 @@ fun VlcFallbackScreen(
     val seekFocus = remember { FocusRequester() }
 
     fun showControls() { controlsVisible = true; interaction++ }
+    fun leaveVideo() {
+        if (leaving.compareAndSet(false, true)) onBack()
+    }
     fun setPlayback(shouldPlay: Boolean) {
+        if (leaving.get() || nativeReleased.get()) return
         // The user intent is authoritative during delayed/out-of-order native events.
         // Setting the state immediately avoids a stale Playing callback undoing Pause.
         if (paused == !shouldPlay) {
@@ -188,7 +198,7 @@ fun VlcFallbackScreen(
         }
     }
     fun seekTo(target: Long) {
-        if (!player.isSeekable) return
+        if (leaving.get() || nativeReleased.get() || !player.isSeekable) return
         // v0.1.9 direct native seek: only one call; reported duration is the limit.
         val capped = target.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
         seekCorrection.requested(capped, player.time.coerceAtLeast(0L),
@@ -203,8 +213,11 @@ fun VlcFallbackScreen(
         PlaybackDiagnostics.begin("VLC", "RESTORED_V019")
         PlaybackDiagnostics.event(context, "VLC_START", persistNow = true)
         player.setEventListener { event ->
+            if (leaving.get() || nativeReleased.get()) return@setEventListener
             when (event.type) {
                 MediaPlayer.Event.Playing -> scope.launch {
+                    if (leaving.get() || nativeReleased.get()) return@launch
+                    startupErrorEpoch++
                     diagHealth.onPlaying(android.os.SystemClock.elapsedRealtime())
                     PlaybackDiagnostics.event(context, "VLC_READY", persistNow = true)
                     ready = true; failed = false
@@ -213,16 +226,27 @@ fun VlcFallbackScreen(
                 MediaPlayer.Event.Buffering -> {
                     val percentage = event.getBuffering()
                     scope.launch {
+                        if (leaving.get() || nativeReleased.get()) return@launch
                         diagHealth.onBuffering(
                             percentage, android.os.SystemClock.elapsedRealtime(),
                         )
                     }
                 }
                 MediaPlayer.Event.EncounteredError -> scope.launch {
+                    if (leaving.get() || nativeReleased.get()) return@launch
+                    // Provider startup can temporarily fail and recover. Don't flash
+                    // an alarming error while it is still opening/buffering.
                     PlaybackDiagnostics.event(context, "VLC_ERROR", persistNow = true)
-                    failed = true; ready = false; showControls()
+                    val epoch = ++startupErrorEpoch
+                    delay(7_000L)
+                    if (epoch == startupErrorEpoch && !leaving.get() && !nativeReleased.get()) {
+                        failed = true
+                        ready = false
+                        showControls()
+                    }
                 }
                 MediaPlayer.Event.EndReached -> scope.launch {
+                    if (leaving.get() || nativeReleased.get()) return@launch
                     if (!ended) {
                         PlaybackDiagnostics.event(context, "VLC_END", persistNow = true)
                         ended = true
@@ -234,14 +258,13 @@ fun VlcFallbackScreen(
             }
         }
         onDispose {
+            leaving.set(true)
+            // Stop newly queued native events before the Compose view is destroyed.
+            runCatching { player.setEventListener(null) }
             PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
             onProgress(positionMs, durationMs)
-            player.setEventListener(null)
-            runCatching { player.stop() }
-            // This is the ONLY detach; factory runs only once per AndroidView instance.
-            runCatching { player.detachViews() }
-            runCatching { player.release() }
-            runCatching { libvlc.release() }
+            // Native cleanup belongs ONLY to AndroidView.onRelease below, when its
+            // VLCVideoLayout is removed. Releasing here races with view detachment.
         }
     }
 
@@ -253,7 +276,7 @@ fun VlcFallbackScreen(
             when (event) {
                 Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> surfaceRebindPending = true
                 Lifecycle.Event.ON_RESUME -> {
-                    if (surfaceRebindPending) {
+                    if (!leaving.get() && !nativeReleased.get() && surfaceRebindPending) {
                         videoLayout?.let { layout ->
                             runCatching {
                                 player.detachViews()
@@ -281,8 +304,9 @@ fun VlcFallbackScreen(
         var previousHealth = VlcPlaybackHealth.State.STARTING
         var previousNativeClockMs = -1L
         var lastObservedClockAdvanceAtMs = Long.MIN_VALUE
-        while (isActive) {
+        while (isActive && !leaving.get() && !nativeReleased.get()) {
             runCatching {
+                if (leaving.get() || nativeReleased.get()) return@runCatching
                 val length = player.length
                 if (length > 0L) durationMs = length
                 val nativeClockMs = player.time.coerceAtLeast(0L)
@@ -304,10 +328,9 @@ fun VlcFallbackScreen(
                 nativePlaybackActive = ready && nativePlaying && clockAdvancing &&
                     !paused && !suspendPlayback && !diagHealth.networkBuffering &&
                     health.state == VlcPlaybackHealth.State.PLAYING
-                // A buffering/stalled transition reveals chrome; it cannot disappear until
-                // continuous confirmed playback has lasted the full five seconds.
-                if (ready && !failed && !ended && !paused &&
-                    !nativePlaybackActive && !controlsVisible) showControls()
+                // Buffering can HOLD an already visible bar but must NEVER pop up
+                // controls that the user previously allowed to auto-hide.
+                // nativePlaybackActive=false cancels the existing auto-hide timer.
                 if (ready && !failed && !ended && player.isSeekable) {
                     when (val decision = seekCorrection.observe(
                         nativeMs = nativeClockMs, nowMs = tick,
@@ -409,6 +432,7 @@ fun VlcFallbackScreen(
 
     BackHandler {
         when {
+            leaving.get() -> Unit
             scrubbing -> {
                 // Back cancels a preview, it does not exit the playing episode.
                 scrubbing = false
@@ -417,7 +441,7 @@ fun VlcFallbackScreen(
                 showControls()
             }
             controlsVisible && ready && !failed -> controlsVisible = false
-            else -> onBack()
+            else -> leaveVideo()
         }
     }
 
@@ -425,6 +449,7 @@ fun VlcFallbackScreen(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
+                if (leaving.get()) return@onPreviewKeyEvent true
                 val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 if (TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode)) {
                     if (event.type == KeyEventType.KeyDown) {
@@ -513,6 +538,20 @@ fun VlcFallbackScreen(
                     player.play()
                 }
             },
+            onRelease = {
+                // Called once when the actual native video view leaves Compose.
+                // Stop/flush/detach/release on the UI thread; no stale callbacks
+                // or 500 ms health polling may touch the native player afterward.
+                leaving.set(true)
+                if (nativeReleased.compareAndSet(false, true)) {
+                    runCatching { player.setEventListener(null) }
+                    runCatching { player.stop() }
+                    runCatching { player.detachViews() }
+                    runCatching { player.release() }
+                    runCatching { libvlc.release() }
+                    videoLayout = null
+                }
+            },
         )
         if (!ready && !failed && !ended) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -531,29 +570,8 @@ fun VlcFallbackScreen(
                 TvVlcButton("Back to title", onClick = onBack)
             }
         }
-        // Diagnose stutter without claiming a decoder-clock stall is network buffering.
-        if (ready && !failed && !ended && !paused &&
-            healthSnapshot.state in setOf(
-                VlcPlaybackHealth.State.BUFFERING,
-                VlcPlaybackHealth.State.STALLED,
-            )
-        ) {
-            Column(
-                modifier = Modifier.align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.60f), RoundedCornerShape(15.dp))
-                    .padding(horizontal = 24.dp, vertical = 18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                CircularProgressIndicator(color = CinemaBlue)
-                Text(
-                    if (healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING)
-                        "Buffering ${healthSnapshot.bufferPercent}%"
-                    else "Playback stalled",
-                    color = Color.White,
-                )
-            }
-        }
+        // Keep buffering/stall state internal. The initial opening spinner remains,
+        // but no buffering percentage or false-stalled overlay covers playing video.
         if (controlsVisible) {
             Box(
                 Modifier.fillMaxSize()
