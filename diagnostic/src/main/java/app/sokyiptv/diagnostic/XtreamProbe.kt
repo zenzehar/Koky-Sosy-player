@@ -16,7 +16,7 @@ internal class XtreamProbe {
     private val client = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
+        .callTimeout(100, TimeUnit.SECONDS)
         .followRedirects(true).followSslRedirects(true)
         .retryOnConnectionFailure(true).build()
     private val actions = listOf(
@@ -45,57 +45,22 @@ internal class XtreamProbe {
                 val request = Request.Builder().url(url)
                     .header("User-Agent", source.userAgent).get().build()
                 client.newCall(request).execute().use { response ->
-                    val millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
-                    val sample = ByteArrayOutputStream()
-                    val cap = 32 * 1024
-                    response.body?.byteStream()?.use { stream ->
-                        val buffer = ByteArray(4096)
-                        while (sample.size() < cap) {
-                            val read = stream.read(buffer, 0, minOf(buffer.size, cap - sample.size()))
-                            if (read < 0) break
-                            sample.write(buffer, 0, read)
-                        }
-                    }
-                    val raw = sample.toByteArray().toString(Charsets.UTF_8)
-                        .trimStart('\uFEFF', ' ', '\r', '\n', '\t')
                     val contentType = response.header("Content-Type").orEmpty().take(80)
                         .ifBlank { "(missing)" }
+                    val inspection = response.body?.byteStream()?.use {
+                        CatalogueJsonInspector.inspect(it, contentType)
+                    } ?: CatalogueJsonInspector.Inspection("Empty HTTP response body")
+                    val millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
                     val changedOrigin = response.request.url.host != url.host ||
                         response.request.url.scheme != url.scheme ||
                         response.request.url.port != url.port
                     val redirect = if (response.priorResponse != null) {
                         "redirected ${if (changedOrigin) "to different origin" else "on same origin"}"
                     } else "not redirected"
-                    val html = looksLikeHtml(raw, contentType)
-                    val kind = when {
-                        html -> "HTML/website response"
-                        raw.startsWith("[") -> "JSON array"
-                        raw.startsWith("{") -> "JSON object"
-                        raw.isBlank() -> "EMPTY response"
-                        else -> "Unexpected non-JSON text/binary"
-                    }
-                    val jsonExtra = if (!html && sample.size() < cap) {
-                        runCatching {
-                            when {
-                                raw.startsWith("[") -> " · array items ${JSONArray(raw).length()}"
-                                raw.startsWith("{") -> {
-                                    val obj = JSONObject(raw)
-                                    if (action == null) {
-                                        val info = obj.optJSONObject("user_info")
-                                        " · account auth=${info?.opt("auth") ?: "absent"}" +
-                                            " · status=${safeStatus(info?.optString("status"))}"
-                                    } else " · JSON object keys ${obj.length()}"
-                                }
-                                else -> ""
-                            }
-                        }.getOrDefault(" · JSON parse failed")
-                    } else if (!html && (raw.startsWith("[") || raw.startsWith("{"))) {
-                        " · first 32 KiB only (not a full validation)"
-                    } else ""
                     val info = "HTTP ${response.code}, ${millis}ms, type=$contentType, " +
-                        "$redirect, sample=${sample.size()} bytes, $kind$jsonExtra"
-                    val safeHtml = if (html) sanitise(raw, source) else null
-                    val title = if (html) extractTitle(safeHtml.orEmpty()) else ""
+                        "$redirect, ${inspection.detail}"
+                    val safeHtml = inspection.html?.let { sanitise(it, source) }
+                    val title = safeHtml?.let { extractTitle(it) }.orEmpty()
                     report(Result(label, info +
                         if (title.isNotBlank()) " · HTML title: $title" else "", safeHtml))
                 }
