@@ -6,9 +6,6 @@ package app.sokyiptv.ui.vod
 
 import android.net.Uri
 import android.content.Intent
-import android.content.Context
-import android.os.PowerManager
-import app.sokyiptv.isRunningOnTelevision
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,11 +71,7 @@ import org.videolan.libvlc.util.VLCVideoLayout
 import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
 import app.sokyiptv.player.TvHardwarePlaybackKeys
-import app.sokyiptv.player.VlcSeekClock
 import app.sokyiptv.player.AdaptiveVodTimeline
-import app.sokyiptv.player.LowImpactTsDurationProbe
-import app.sokyiptv.player.PostSeekPlaybackGate
-import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
@@ -107,15 +100,10 @@ fun VlcFallbackScreen(
     val context = LocalContext.current
     val preferences = remember { AppSettings.get(context) }
     val autoplay by preferences.seriesAutoplay.collectAsState()
-    // Apply the existing TV buffering preset to native VLC when a new stream starts.
-    // The former hardcoded 1.4-second cache ignored the Settings selection entirely.
-    val bufferPreset by preferences.playbackBufferPreset.collectAsState()
     val scope = rememberCoroutineScope()
+    // Restore exact v0.1.9 LibVLC initialization: fixed 1400ms native cache.
     val libvlc = remember(streamUrl) {
-        LibVLC(context.applicationContext, arrayListOf(
-            "--network-caching=${bufferPreset.vlcNetworkCacheMs}",
-            "--no-video-title-show",
-        ))
+        LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
     }
     val player = remember(streamUrl) { MediaPlayer(libvlc) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
@@ -123,8 +111,6 @@ fun VlcFallbackScreen(
     var healthSnapshot by remember(streamUrl) {
         mutableStateOf(VlcPlaybackHealth.Snapshot(VlcPlaybackHealth.State.STARTING, 0, 0))
     }
-    var resumeNeedsVideoRebind by remember(streamUrl) { mutableStateOf(false) }
-    var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     var diagnosticText by remember(streamUrl) { mutableStateOf<String?>(null) }
     var diagnosticsState by remember(streamUrl) { mutableStateOf(false) }
     var ready by remember(streamUrl) { mutableStateOf(false) }
@@ -132,16 +118,7 @@ fun VlcFallbackScreen(
     var ended by remember(streamUrl) { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
     var positionMs by remember { mutableLongStateOf(0L) }
-    // LibVLC may report the pre-seek clock for several polling cycles. Keep
-    // repeated +/-10 presses anchored to the latest requested target until
-    // the native clock catches up or a short bounded timeout expires.
-    val seekClock = remember(player) { VlcSeekClock() }
-    val postSeekGate = remember(player) { PostSeekPlaybackGate() }
-    var awaitingSeekPlayback by remember(player) { mutableStateOf(false) }
-    val nativeSeekCorrection = remember(player) { VlcNativeSeekCorrection() }
     var durationMs by remember { mutableLongStateOf(0L) }
-    var discoveredDurationMs by remember(streamUrl) { mutableLongStateOf(0L) }
-    val preferredDurationMs = maxOf(durationMs, discoveredDurationMs)
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
     var seekOriginMs by remember { mutableLongStateOf(0L) }
@@ -195,7 +172,7 @@ fun VlcFallbackScreen(
         }
         // A provider may limit simultaneous connections; stop our decoder before handoff.
         runCatching {
-            onProgress(positionMs, preferredDurationMs)
+            onProgress(positionMs, durationMs)
             player.stop()
             context.startActivity(intent)
             onBack()
@@ -206,19 +183,11 @@ fun VlcFallbackScreen(
     }
     fun seekTo(target: Long) {
         if (!player.isSeekable) return
-        // Native absolute milliseconds, never a percentage of an unreliable runtime.
-        val capped = target.coerceAtLeast(0L)
-        // LibVLC fast seek may resume at a neighbouring keyframe, causing
-        // +10 to land earlier and -10 to land later than requested. Always
-        // request precise decoded-time seeking for transport and timeline taps.
-        // Retain the bounded logical-clock guard for repeated fast presses.
-        val now = android.os.SystemClock.elapsedRealtime()
-        nativeSeekCorrection.requested(capped, player.time, now, durationMs)
-        postSeekGate.requested(now)
-        awaitingSeekPlayback = true
-        player.setTime(capped, false)
+        // v0.1.9 direct native seek: only one call; reported duration is the limit.
+        val capped = target.coerceIn(0L, durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        player.setTime(capped)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
-        positionMs = seekClock.requested(capped, now)
+        positionMs = capped
         showControls()
     }
 
@@ -256,9 +225,8 @@ fun VlcFallbackScreen(
             }
         }
         onDispose {
-            nativeSeekCorrection.clear()
             PlaybackDiagnostics.event(context, "VLC_EXIT", persistNow = true)
-            onProgress(positionMs, preferredDurationMs)
+            onProgress(positionMs, durationMs)
             player.setEventListener(null)
             runCatching { player.stop() }
             // This is the ONLY detach; factory runs only once per AndroidView instance.
@@ -268,58 +236,17 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Reinstated v0.1.9 native playback loop. Diagnostics remain read-only.
     LaunchedEffect(player) {
-        var lastSavedAtMs = 0L
+        var lastSaved = 0L
         var previousHealth = VlcPlaybackHealth.State.STARTING
         while (isActive) {
             runCatching {
                 val length = player.length
                 if (length > 0L) durationMs = length
+                if (!scrubbing) positionMs = player.time.coerceAtLeast(0L)
                 val tick = android.os.SystemClock.elapsedRealtime()
-                val nativeTime = player.time
-                if (!scrubbing) positionMs = seekClock.reconcile(nativeTime, tick)
-                val health = diagHealth.sample(tick, nativeTime.coerceAtLeast(0L), player.isPlaying, paused)
-                if (!scrubbing) {
-                    when (val correction = nativeSeekCorrection.observe(
-                        nativeTime, tick, ready && player.isPlaying && !paused,
-                        diagHealth.networkBuffering,
-                    )) {
-                        is VlcNativeSeekCorrection.Decision.RetryAt -> {
-                            // One bounded native-time correction. Do not setPosition(%).
-                            postSeekGate.requested(tick)
-                            awaitingSeekPlayback = true
-                            controlsVisible = true
-                            interaction++
-                            player.setTime(correction.commandTimeMs, false)
-                            positionMs = seekClock.requested(correction.intendedMs, tick)
-                            PlaybackDiagnostics.event(
-                                context, "VLC_SEEK_ADJUST",
-                                ((correction.landedMs - correction.intendedMs) / 1_000L)
-                                    .coerceIn(-999_999L, 999_999L).toInt(),
-                                persistNow = true,
-                            )
-                        }
-                        is VlcNativeSeekCorrection.Decision.Unreliable -> {
-                            // Don't loop indefinitely when the server's timestamps
-                            // cannot be reconciled. Native clock remains authoritative.
-                            PlaybackDiagnostics.event(
-                                context, "VLC_SEEK_MISS",
-                                ((correction.landedMs - correction.intendedMs) / 1_000L)
-                                    .coerceIn(-999_999L, 999_999L).toInt(),
-                                persistNow = true,
-                            )
-                        }
-                        null -> Unit
-                    }
-                }
-                if (!scrubbing && postSeekGate.observe(
-                    tick, nativeTime, ready && player.isPlaying && !paused,
-                    diagHealth.networkBuffering,
-                )) {
-                    awaitingSeekPlayback = false
-                    // Start a fresh five-second visibility interval only now.
-                    interaction++
-                }
+                val health = diagHealth.sample(tick, positionMs, player.isPlaying, paused)
                 healthSnapshot = health
                 PlaybackDiagnostics.sample(positionMs, durationMs, health.interruptions)
                 if (health.state != previousHealth) {
@@ -331,115 +258,37 @@ fun VlcFallbackScreen(
                     }
                     previousHealth = health.state
                 }
-                if (ready && initialSeekPending && player.isSeekable) {
-                    val initialTarget = initialPositionMs.coerceAtLeast(0L)
-                    nativeSeekCorrection.requested(initialTarget, player.time, tick, durationMs)
-                    postSeekGate.requested(tick)
-                    awaitingSeekPlayback = true
-                    controlsVisible = true
-                    player.setTime(initialTarget, false)
-                    positionMs = seekClock.requested(initialTarget, tick)
+                if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
+                    player.setTime(initialPositionMs.coerceIn(0L, durationMs))
                     initialSeekPending = false
                 }
-                if (ready && positionMs > 5_000L && tick - lastSavedAtMs >= 10_000L) {
-                    // Wall-clock cadence, not playback-position delta. Rewinding from
-                    // 60m to 20m must not disable saves until the viewer reaches 60m!
-                    // An unknown total duration must also never disable persistence.
-                    lastSavedAtMs = tick
-                    onProgress(positionMs, preferredDurationMs)
+                if (ready && positionMs - lastSaved >= 10_000L && durationMs > 0L) {
+                    lastSaved = positionMs
+                    onProgress(positionMs, durationMs)
                 }
             }
             delay(500)
         }
     }
 
-    // One short tail probe only after 45 seconds of uninterrupted playback.
-    // LibVLC does not expose reliable buffered-ahead seconds across all
-    // providers. Smooth playback and unmetered fast local connection serve as
-    // conservative proxies, not a guarantee of spare buffering.
-    // Only MPEG-TS VOD with HTTP 206 support can be probed (<160 KiB total).
-    LaunchedEffect(player, streamUrl) {
-        if (!LowImpactTsDurationProbe.eligibleUrl(streamUrl) ||
-            !LowImpactTsDurationProbe.connectionLooksSuitable(context)) return@LaunchedEffect
-        var stableSeconds = 0
-        var previous = positionMs
-        while (isActive && stableSeconds < 45) {
-            delay(1_000L)
-            val healthy = ready && !paused && !failed && !ended &&
-                !scrubbing && !awaitingSeekPlayback &&
-                !diagHealth.networkBuffering &&
-                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING
-            val advancing = positionMs > previous + 250L && positionMs < previous + 4_000L
-            stableSeconds = if (healthy && advancing) stableSeconds + 1 else 0
-            previous = positionMs
-        }
-        if (!isActive) return@LaunchedEffect
-        val candidate = LowImpactTsDurationProbe.investigate(streamUrl, userAgent) {
-            ready && !paused && !failed && !ended &&
-                !scrubbing && !awaitingSeekPlayback && !diagHealth.networkBuffering
-        }
-        if (candidate != null && candidate > maxOf(durationMs + 120_000L,
-                durationMs * 115L / 100L) &&
-            candidate > discoveredDurationMs) {
-            discoveredDurationMs = candidate
-            // Estimate from sampled head/tail timestamps, not a verified EOF.
-            PlaybackDiagnostics.event(context, "VLC_DURATION_PROBED",
-                (candidate / 1_000L).coerceAtMost(999_999L).toInt(), persistNow = true)
-        }
-    }
-
-    // Some television firmwares ignore KEEP_SCREEN_ON on a SurfaceView while video is
-    // decoding. Use a TV-only screen wake lock as a secondary safeguard, releasing it
-    // immediately when playback pauses, ends, or this composable leaves composition.
-    @Suppress("DEPRECATION")
-    DisposableEffect(ready, paused, ended, suspendPlayback) {
-        val wakeLock = if (ready && !paused && !ended && !suspendPlayback &&
-            isRunningOnTelevision(context)) {
-            runCatching {
-                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-                pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK,
-                    "SokyIPTVPro:VodPlayback").apply { acquire() }
-            }.getOrNull()
-        } else null
-        onDispose { runCatching { if (wakeLock?.isHeld == true) wakeLock.release() } }
-    }
-
-    // Retain the modern screensaver pause hook without replacing v0.1.9 playback internals.
-    // Do not auto-resume: the viewer should explicitly unpause after waking.
+    // Preserve modern screensaver pause API, without newer decoder rebind or seek recovery.
     LaunchedEffect(suspendPlayback) {
         if (suspendPlayback) {
-            // A TV dream can destroy the LibVLC SurfaceView while keeping audio alive.
-            resumeNeedsVideoRebind = true
             runCatching { player.pause() }
             paused = true
             controlsVisible = true
-            PlaybackDiagnostics.event(context, "VLC_DREAM_PAUSED", persistNow = true)
-        } else if (resumeNeedsVideoRebind) {
-            delay(250) // give Android a chance to recreate the surface
-            val layout = videoLayout
-            if (layout != null) {
-                runCatching {
-                    player.detachViews()
-                    player.attachViews(layout, null, true, false)
-                }.onSuccess {
-                    PlaybackDiagnostics.event(context, "VLC_VIDEO_REBOUND", persistNow = true)
-                    resumeNeedsVideoRebind = false
-                }.onFailure {
-                    PlaybackDiagnostics.event(context, "VLC_VIDEO_REBIND_FAILED", persistNow = true)
-                }
-            }
-            // Keep paused after waking. User explicitly presses Play to resume.
         }
     }
 
     // Drive long-press preview from monotonic time, regardless of remote repeat rate.
     LaunchedEffect(seekHeldDirection, seekHoldStartedAtMs, durationMs) {
         val direction = seekHeldDirection ?: return@LaunchedEffect
+        if (durationMs <= 0L) return@LaunchedEffect
         while (isActive && seekHeldDirection == direction) {
             val heldMs = (android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs).coerceAtLeast(0L)
             if (heldMs >= TvSeekPolicy.HOLD_THRESHOLD_MS) {
-                val accelerated = TvSeekPolicy.heldPreview(seekOriginMs, heldMs, direction, null)
-                val firstTap = TvSeekPolicy.tap(seekOriginMs, null, direction)
+                val accelerated = TvSeekPolicy.heldPreview(seekOriginMs, heldMs, direction, durationMs)
+                val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
                 previewMs = if (direction == SeekDirection.FORWARD) max(firstTap, accelerated)
                     else min(firstTap, accelerated)
                 scrubbing = true
@@ -448,9 +297,8 @@ fun VlcFallbackScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed, ended, awaitingSeekPlayback) {
-        if (controlsVisible && ready && !paused && !scrubbing && !failed && !ended &&
-            !awaitingSeekPlayback) {
+    LaunchedEffect(controlsVisible, interaction, ready, paused, scrubbing, failed, ended) {
+        if (controlsVisible && ready && !paused && !scrubbing && !failed && !ended) {
             delay(5_000)
             controlsVisible = false
         }
@@ -555,7 +403,7 @@ fun VlcFallbackScreen(
                         if (player.isSeekable) {
                             val direction = if (event.key == Key.DirectionRight)
                                 SeekDirection.FORWARD else SeekDirection.BACKWARD
-                            seekTo(TvSeekPolicy.tap(positionMs, null, direction))
+                            seekTo(TvSeekPolicy.tap(positionMs, durationMs, direction))
                         }
                         true
                     }
@@ -573,7 +421,6 @@ fun VlcFallbackScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 VLCVideoLayout(ctx).apply {
-                    videoLayout = this
                     keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
@@ -690,7 +537,7 @@ fun VlcFallbackScreen(
                                                     seekOriginMs = positionMs
                                                     seekHoldStartedAtMs = android.os.SystemClock.uptimeMillis()
                                                     seekHeldDirection = direction
-                                                    previewMs = TvSeekPolicy.tap(seekOriginMs, null, direction)
+                                                    previewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
                                                 } else {
                                                     val heldMs = (
                                                         android.os.SystemClock.uptimeMillis() - seekHoldStartedAtMs
@@ -698,7 +545,7 @@ fun VlcFallbackScreen(
                                                     val accelerated = TvSeekPolicy.heldPreview(
                                                         seekOriginMs, heldMs, direction, null,
                                                     )
-                                                    val firstTap = TvSeekPolicy.tap(seekOriginMs, null, direction)
+                                                    val firstTap = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
                                                     previewMs = if (direction == SeekDirection.FORWARD) {
                                                         max(firstTap, accelerated)
                                                     } else {
@@ -794,9 +641,9 @@ fun VlcFallbackScreen(
                     previousEnabled = previousEpisodeAvailable,
                     nextEnabled = nextEpisodeAvailable,
                     onPrevious = onPreviousEpisode,
-                    onRewind = { seekTo(TvSeekPolicy.tap(positionMs, null, SeekDirection.BACKWARD)) },
+                    onRewind = { seekTo(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.BACKWARD)) },
                     onTogglePause = ::togglePlayback,
-                    onForward = { seekTo(TvSeekPolicy.tap(positionMs, null, SeekDirection.FORWARD)) },
+                    onForward = { seekTo(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)) },
                     onNext = onNextEpisodeClick,
                     pauseRequester = pauseFocus,
                     modifier = Modifier.align(Alignment.BottomCenter)
