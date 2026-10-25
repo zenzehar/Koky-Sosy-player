@@ -856,12 +856,16 @@ class CatalogRepository(
     ): SyncResult {
         // Authenticate first so a wrong password produces a clear message rather than
         // four separate confusing failures further down.
-        api.authenticate(source)
+        liveStage("authentication") { api.authenticate(source) }
         onProgress(0.08f)
 
-        val liveCategories = api.liveCategories(source)
+        val liveCategories = liveStage("category download/decoding") {
+            api.liveCategories(source)
+        }
         onProgress(0.15f)
-        val channels = api.liveStreams(source)
+        val channels = liveStage("channel download/stream decoding") {
+            api.liveStreams(source)
+        }
         onProgress(0.25f)
         if (channels.isEmpty()) {
             return SyncResult.Failed(
@@ -870,13 +874,27 @@ class CatalogRepository(
             )
         }
 
-        categoryDao.upsertAll(liveCategories)
-        val categoryNames = liveCategories.associate { it.id to it.name }
-        channelDao.replaceCatalogue(
-            source.id, normalized(channels, categoryNames), nowUtcMillis,
-        ) { fraction -> onProgress(0.25f + 0.74f * fraction) }
-        sourceDao.markCatalogSynced(source.id, nowUtcMillis)
+        liveStage("local database import") {
+            categoryDao.upsertAll(liveCategories)
+            val categoryNames = liveCategories.associate { it.id to it.name }
+            channelDao.replaceCatalogue(
+                source.id, normalized(channels, categoryNames), nowUtcMillis,
+            ) { fraction -> onProgress(0.25f + 0.74f * fraction) }
+            sourceDao.markCatalogSynced(source.id, nowUtcMillis)
+        }
         return SyncResult.Success(channels.size, 0, 0)
+    }
+
+    private suspend fun <T> liveStage(name: String, task: suspend () -> T): T = try {
+        task()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (e: Exception) {
+        // Display the failing stage instead of another unhelpful generic 'catalogue
+        // malformed' message. Never print the provider's server URL or credentials.
+        val detail = (e as? XtreamApi.XtreamException)?.message
+            ?.take(160) ?: e.javaClass.simpleName
+        throw XtreamApi.XtreamException("Live TV $name failed: $detail", e)
     }
 
     /**
