@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 69
-        versionName = "0.1.11.49-android-platform-catalogue-parser"
+        versionCode = 70
+        versionName = "0.1.11.50-direct-live-streaming-import"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
