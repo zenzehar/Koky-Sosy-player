@@ -29,7 +29,7 @@ The S/K logo, adaptive icon, phone launcher icon, TV banner and splash artwork a
 
 ## Download, install and test
 
-Find an installable APK under the project's **Releases** section. Experimental builds are **not** production releases until physical-device tests pass.
+The retained **Android TV test baseline** is **[Soky IPTV Pro v0.1.11.47](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.47-v019-native-vlc-restored)** ([direct version-numbered APK](https://github.com/zenzehar/Koky-Sosy-player/releases/download/v0.1.11.47-v019-native-vlc-restored/Soky_IPTV_Pro_v0.1.11.47.apk)). Its CI build passed, but it has **not** received final physical-TV acceptance and is **not** a production release. Later emulator-oriented v0.1.11.48–v0.1.11.50 test builds are withdrawn from the recommended download path. **Do not use diagnostic or experimental APKs containing embedded test logins.**
 
 **Important for existing testers:** This full rebrand changes the Android package identity to `tv.sokyiptv.pro`, and therefore installs separately from earlier versions. Before installing, export and verify an encrypted provider login backup from the previous app. Copying providers or viewing history across package identities requires an explicit migration or import; it does not happen automatically.
 
@@ -55,7 +55,7 @@ The debug APK appears in `app/build/outputs/apk/debug/`. A production release re
 
 ## Privacy and licensing
 
-The player stores IPTV details on your device. It does not require a central subscription service. Optional third-party metadata or add-on services use their own terms and privacy policies. LAN / NAS sync and Google account cloud sync are separate optional capabilities; **Google Drive sync is planned but not currently shipped**.
+The player stores IPTV details on your device. It does not require a central subscription service. Optional third-party metadata or add-on services use their own terms and privacy policies. LAN / NAS sync and Google account cloud sync are separate optional capabilities; **Google Drive progress sync is available in the experimental v0.1.11.45–v0.1.11.47 line, but is not yet production-certified**.
 
 This source distribution includes GPL-licensed material and must preserve applicable copyright and licence obligations. See [LICENSE](LICENSE), [third-party notices](docs/THIRD_PARTY_NOTICES.md), [Privacy](docs/PRIVACY.md) and [Release information](docs/RELEASING.md).
 
@@ -63,6 +63,6 @@ This source distribution includes GPL-licensed material and must preserve applic
 
 **Current user-approved golden standard: [Soky IPTV Pro v0.1.11.12](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.12-soky-iptv-pro)** at [`milestone/v0.1.11.12-soky-iptv-pro-golden`](https://github.com/zenzehar/Koky-Sosy-player/tree/milestone/v0.1.11.12-soky-iptv-pro-golden). Exact accepted commit: `4334c26291c8555a0bb37f6a0f6c99f53cf0b5e1`. [Approval record](https://github.com/zenzehar/Koky-Sosy-player/issues/40). This **README on `main` is the public project homepage**, while the named golden branch contains the actual approved application source; do not assume `main` contains the current gold app code. Future fixes and features must branch from that golden commit without modifying the approved APK. Prior golden versions remain archived.
 
-Outstanding v1.0 checks include precise ±10-second seek landing, automatic initial catalogue refresh, phone/TV regression and production signing. This golden designation is user-approved; it does not itself constitute newly completed device tests of the rebrand.
+The latest retained non-golden test branch is `fix/v0.1.11.47-legacy-v019-playback-seeking` (draft PR #65), which restores original v0.1.9 native VLC playback/seeking and retains the exit-only Google Drive sync architecture. It is separate from the user-approved golden v0.1.11.12 branch. Outstanding v1.0 checks include playback/seek/exit validation on real TVs, sync regression tests, initial catalogue refresh, phone/TV regression and production signing. This golden designation is user-approved; it does not itself constitute newly completed device tests of the rebrand.
 
 **Soky IPTV Pro is not affiliated with IPTV content providers, television networks or streaming subscription services.**
