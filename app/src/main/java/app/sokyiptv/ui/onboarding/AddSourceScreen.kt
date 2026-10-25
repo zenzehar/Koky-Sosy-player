@@ -68,6 +68,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.sokyiptv.R
+import app.sokyiptv.debug.TestXtreamDefaults
 import app.sokyiptv.data.model.Source
 import app.sokyiptv.data.model.SourceKind
 import app.sokyiptv.isRunningOnTelevision
@@ -144,11 +145,24 @@ fun AddSourceScreen(
         editingSourceId?.let { id -> ui.sources.firstOrNull { it.id == id } }
     }
 
+    // One-off TEST convenience only: prefills new login forms in the Android
+    // emulator's debug APK. Never overwrites saved providers or auto-submits.
+    // The release APK variant intentionally contains no embedded credentials.
+    val emulatorTestLogin = remember(editingSourceId) {
+        val emulator = android.os.Build.FINGERPRINT.contains("generic", ignoreCase = true) ||
+            android.os.Build.MODEL.contains("sdk_gphone", ignoreCase = true) ||
+            android.os.Build.PRODUCT.contains("sdk", ignoreCase = true)
+        if (app.sokyiptv.BuildConfig.DEBUG && emulator && editingSourceId == null) {
+            TestXtreamDefaults.values()
+        } else null
+    }
     var kind by remember(existing?.id) { mutableStateOf(existing?.kind ?: SourceKind.XTREAM) }
-    var name by remember(existing?.id) { mutableStateOf(existing?.name ?: "") }
-    var url by remember(existing?.id) { mutableStateOf(existing?.url ?: "") }
-    var username by remember(existing?.id) { mutableStateOf(existing?.username ?: "") }
-    var password by remember(existing?.id) { mutableStateOf(existing?.password ?: "") }
+    var name by remember(existing?.id) {
+        mutableStateOf(existing?.name ?: if (emulatorTestLogin != null) "Emulator test provider" else "")
+    }
+    var url by remember(existing?.id) { mutableStateOf(existing?.url ?: emulatorTestLogin?.first.orEmpty()) }
+    var username by remember(existing?.id) { mutableStateOf(existing?.username ?: emulatorTestLogin?.second.orEmpty()) }
+    var password by remember(existing?.id) { mutableStateOf(existing?.password ?: emulatorTestLogin?.third.orEmpty()) }
     var mac by remember(existing?.id) { mutableStateOf(existing?.macAddress ?: "") }
     var epgUrl by remember(existing?.id) { mutableStateOf(existing?.epgUrl ?: "") }
     var showAdvanced by remember { mutableStateOf(false) }
