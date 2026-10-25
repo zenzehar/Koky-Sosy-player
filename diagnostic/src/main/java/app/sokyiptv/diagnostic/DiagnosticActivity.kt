@@ -30,6 +30,10 @@ class DiagnosticActivity : Activity() {
     private val pickCode = 7002
     private var sources: List<ProviderImport.Provider> = emptyList()
     private lateinit var passphrase: EditText
+    private lateinit var manualServer: EditText
+    private lateinit var manualUsername: EditText
+    private lateinit var manualPassword: EditText
+    private lateinit var manualUserAgent: EditText
     private lateinit var providerSelect: Spinner
     private lateinit var status: TextView
     private lateinit var runButton: Button
@@ -89,6 +93,56 @@ class DiagnosticActivity : Activity() {
                     "Documents/SokyIPTVPro/manual-logins.kspc.")
             }
         }
+        heading("Or enter Xtream provider manually")
+        note("No import needed. Credentials are used only for these diagnostic requests " +
+            "and are not written to storage, clipboard or diagnostics.")
+        fun manualField(hintText: String, passwordField: Boolean = false): EditText =
+            EditText(this).apply {
+                hint = hintText
+                inputType = InputType.TYPE_CLASS_TEXT or if (passwordField) {
+                    InputType.TYPE_TEXT_VARIATION_PASSWORD
+                } else {
+                    InputType.TYPE_TEXT_VARIATION_URI
+                }
+                setSingleLine(true)
+                setTextColor(Color.WHITE)
+                setHintTextColor(Color.GRAY)
+            }.also(root::addView)
+
+        manualServer = manualField("Server URL (http://host:port)")
+        manualUsername = manualField("Xtream username")
+        manualPassword = manualField("Xtream password", passwordField = true)
+        manualUserAgent = manualField("User-Agent (optional; defaults to Soky)")
+        button("Use manually entered provider") {
+            val provider = try {
+                ManualProviderInput.create(
+                    manualServer.text.toString(),
+                    manualUsername.text.toString(),
+                    manualPassword.text.toString(),
+                    manualUserAgent.text.toString(),
+                )
+            } catch (e: IllegalArgumentException) {
+                // Only our own validation messages are displayed; never display input or URLs.
+                setStatus(e.message ?: "Invalid provider fields.")
+                null
+            }
+            if (provider != null) {
+                sources = listOf(provider)
+                providerSelect.adapter = ArrayAdapter(
+                    this, android.R.layout.simple_spinner_dropdown_item,
+                    listOf("1. Manual Xtream provider"),
+                )
+                runButton.isEnabled = true
+                // Remove cleartext credentials from on-screen widgets immediately.
+                manualServer.text.clear()
+                manualUsername.text.clear()
+                manualPassword.text.clear()
+                manualUserAgent.text.clear()
+                setStatus("Manual Xtream account loaded into memory. " +
+                    "Select Run to inspect the seven API responses.")
+            }
+        }
+        note("Or select a provider imported from encrypted backup:")
         providerSelect = Spinner(this).also(root::addView)
         runButton = button("Run read-only Xtream API probes") { runProbe() }
         runButton.isEnabled = false
@@ -102,7 +156,7 @@ class DiagnosticActivity : Activity() {
             setStatus("Safe report copied. It excludes credentials, URL query strings and raw HTML.")
         }
         status = TextView(this).apply {
-            text = "No provider imported. Import your encrypted original backup first."
+            text = "No provider selected. Import a backup or enter provider details manually."
             setTextColor(Color.WHITE)
             textSize = 15f
             setTextIsSelectable(true)
