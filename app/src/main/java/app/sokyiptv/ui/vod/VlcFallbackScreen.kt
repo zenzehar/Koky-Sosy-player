@@ -251,7 +251,7 @@ fun VlcFallbackScreen(
     DisposableEffect(lifecycleOwner, player) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> surfaceRebindPending = true
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> surfaceRebindPending = true
                 Lifecycle.Event.ON_RESUME -> {
                     if (surfaceRebindPending) {
                         videoLayout?.let { layout ->
@@ -279,24 +279,38 @@ fun VlcFallbackScreen(
     LaunchedEffect(player) {
         var lastSaved = 0L
         var previousHealth = VlcPlaybackHealth.State.STARTING
+        var previousNativeClockMs = -1L
+        var lastObservedClockAdvanceAtMs = Long.MIN_VALUE
         while (isActive) {
             runCatching {
                 val length = player.length
                 if (length > 0L) durationMs = length
-                if (!scrubbing) positionMs = player.time.coerceAtLeast(0L)
+                val nativeClockMs = player.time.coerceAtLeast(0L)
+                if (!scrubbing) positionMs = nativeClockMs
                 val tick = android.os.SystemClock.elapsedRealtime()
+                // isPlaying alone can stay true even while no frames/clock are advancing.
+                // A new stable ~500 ms clock sample confirms forward progress; a seek jump
+                // or rewind itself never starts the five-second chrome hide timer.
+                if (previousNativeClockMs >= 0L &&
+                    nativeClockMs - previousNativeClockMs in 100L..1_600L) {
+                    lastObservedClockAdvanceAtMs = tick
+                }
+                previousNativeClockMs = nativeClockMs
+                val clockAdvancing = lastObservedClockAdvanceAtMs != Long.MIN_VALUE &&
+                    tick - lastObservedClockAdvanceAtMs <= 1_300L
                 val nativePlaying = player.isPlaying
-                val health = diagHealth.sample(tick, positionMs, nativePlaying, paused)
+                val health = diagHealth.sample(tick, nativeClockMs, nativePlaying, paused)
                 healthSnapshot = health
-                nativePlaybackActive = ready && nativePlaying && !paused && !suspendPlayback &&
-                    !diagHealth.networkBuffering && health.state == VlcPlaybackHealth.State.PLAYING
+                nativePlaybackActive = ready && nativePlaying && clockAdvancing &&
+                    !paused && !suspendPlayback && !diagHealth.networkBuffering &&
+                    health.state == VlcPlaybackHealth.State.PLAYING
                 // A buffering/stalled transition reveals chrome; it cannot disappear until
                 // continuous confirmed playback has lasted the full five seconds.
                 if (ready && !failed && !ended && !paused &&
                     !nativePlaybackActive && !controlsVisible) showControls()
                 if (ready && !failed && !ended && player.isSeekable) {
                     when (val decision = seekCorrection.observe(
-                        nativeMs = player.time.coerceAtLeast(0L), nowMs = tick,
+                        nativeMs = nativeClockMs, nowMs = tick,
                         playing = nativePlaybackActive,
                         buffering = !nativePlaybackActive,
                     )) {
