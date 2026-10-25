@@ -13,14 +13,25 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 /**
- * D3: validate the ENTIRE server response, not just a 32KiB JSON-looking prefix.
+ * D4: validate the ENTIRE server response, not just a 32KiB JSON-looking prefix.
  * For small payloads use the exact JSON configuration used by Soky's XtreamApi.
  * For larger payloads, parse a bounded stream without building a huge catalogue tree.
  * No provider response bodies are persisted or included in the diagnostic report.
  */
 internal object CatalogueJsonInspector {
-    private const val SMALL_LIMIT = 2 * 1024 * 1024
+    private const val SMALL_LIMIT = 4 * 1024 * 1024
     private const val FULL_LIMIT = 64L * 1024 * 1024
+
+    /** Only a JSON structural shape, never a raw character from provider data. */
+    private fun tailShape(c: Char?): String = when (c) {
+        ']' -> "closed array ]"
+        '}' -> "closed object }"
+        '"' -> "quoted value (no closing bracket)"
+        ',' -> "trailing comma"
+        ':' -> "unfinished key/value"
+        null -> "empty"
+        else -> "non-structural ending (content withheld)"
+    }
     private val appJson = Json { ignoreUnknownKeys = true; isLenient = true }
     data class Inspection(val detail: String, val html: String? = null)
 
@@ -72,6 +83,7 @@ internal object CatalogueJsonInspector {
                     .find(e.message.orEmpty())?.groupValues?.getOrNull(1).orEmpty()
                 Inspection("FULL response ${prefix.size} bytes; Soky's kotlinx parser REJECTS" +
                     (if (offset.isNotBlank()) " near character $offset" else "") +
+                    "; final character shape=${tailShape(raw.trimEnd().lastOrNull())}" +
                     "; failure=${e.javaClass.simpleName.take(50)}")
             }
         }
@@ -101,12 +113,14 @@ internal object CatalogueJsonInspector {
             if (reader.peek() != JsonToken.END_DOCUMENT) throw IOException("Trailing JSON content")
             Inspection("FULL response ${counted.total} bytes; streaming JSON validator ACCEPTS" +
                 (if (top == JsonToken.BEGIN_ARRAY) "; array items=$items" else "; object root") +
+                "; final character shape=${tailShape(counted.lastNonWhitespace?.toChar())}" +
                 "; large-body validation (not exactly Soky's in-memory parser)")
         } catch (e: Exception) {
             val clipped = counted.total >= FULL_LIMIT
             Inspection(
                 if (clipped) "Response exceeds 64MiB safety cap; cannot fully validate"
                 else "Streaming JSON validator REJECTS after approximately ${counted.total} bytes" +
+                    "; final character shape=${tailShape(counted.lastNonWhitespace?.toChar())}" +
                     "; failure=${e.javaClass.simpleName.take(50)} (no response text retained)"
             )
         }
@@ -138,16 +152,24 @@ internal object CatalogueJsonInspector {
     private class CountLimitedStream(private val delegate: InputStream, private val limit: Long): InputStream() {
         var total = 0L
             private set
+        var lastNonWhitespace: Int? = null
+            private set
+        private fun record(byteValue: Int) {
+            if (byteValue !in listOf(9, 10, 13, 32)) lastNonWhitespace = byteValue
+        }
         override fun read(): Int {
             if (total >= limit) throw IOException("Diagnostic size limit reached")
             val b = delegate.read()
-            if (b >= 0) total++
+            if (b >= 0) { total++; record(b) }
             return b
         }
         override fun read(b: ByteArray, off: Int, len: Int): Int {
             if (total >= limit) throw IOException("Diagnostic size limit reached")
             val read = delegate.read(b, off, minOf(len.toLong(), limit - total).toInt())
-            if (read > 0) total += read
+            if (read > 0) {
+                total += read
+                for (i in off until off + read) record(b[i].toInt() and 0xFF)
+            }
             return read
         }
     }
