@@ -332,6 +332,12 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                "Legacy v0.1.9 VLC playback uses a fixed 1.4-second cache. These presets " +
+                    "continue to apply to Media3 but do not override legacy VLC caching.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             PlaybackBufferPreset.entries.forEach { preset ->
                 BufferPresetRow(
                     label = when (preset) {
