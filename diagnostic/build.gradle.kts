@@ -10,8 +10,8 @@ android {
         applicationId = "tv.sokyiptv.responseprobe"
         minSdk = 23
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.1.11.47-diagnostic-5"
+        versionCode = 6
+        versionName = "0.1.11.47-diagnostic-6"
     }
     buildTypes {
         release { isMinifyEnabled = false }
