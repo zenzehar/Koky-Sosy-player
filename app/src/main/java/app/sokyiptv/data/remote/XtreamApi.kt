@@ -98,26 +98,37 @@ class XtreamApi(
         }
     }
 
+    /**
+     * D3 on the actual Android 14 emulator validated 7,498 channels using
+     * android.util.JsonReader. Decode that stream DIRECTLY into Channel records,
+     * rather than first loading Kotlinx JSON or reconstructing a JsonElement tree.
+     * Nothing is committed until the entire response passes END_DOCUMENT.
+     */
     suspend fun liveStreams(source: Source): List<Channel> = withContext(Dispatchers.IO) {
-        getJson(source, "get_live_streams").arrayOrEmpty.mapIndexedNotNull { index, element ->
-            val obj = element.jsonObjectOrNull ?: return@mapIndexedNotNull null
-            val streamId = obj["stream_id"].asStringOrNull ?: return@mapIndexedNotNull null
-            val name = obj["name"].asStringOrNull ?: return@mapIndexedNotNull null
-            Channel(
-                sourceId = source.id,
-                streamId = streamId,
-                name = name,
-                categoryId = obj["category_id"].asStringOrNull,
-                logoUrl = obj["stream_icon"].asStringOrNull?.takeIf { it.isNotBlank() },
-                // epg_channel_id is what joins to XMLTV; it is frequently blank, in which
-                // case the channel simply has no guide rather than the guide being broken.
-                epgChannelId = obj["epg_channel_id"].asStringOrNull?.takeIf { it.isNotBlank() },
-                tvArchive = obj["tv_archive"].asIntOrNull == 1,
-                tvArchiveDays = obj["tv_archive_duration"].asIntOrNull ?: 0,
-                number = obj["num"].asIntOrNull,
-                streamUrl = liveStreamUrl(source, streamId),
-                sortIndex = obj["num"].asIntOrNull ?: index,
+        val url = baseUrl(source).newBuilder()
+            .encodedPath("/player_api.php")
+            .addQueryParameter("username", source.username.orEmpty())
+            .addQueryParameter("password", source.password.orEmpty())
+            .addQueryParameter("action", "get_live_streams")
+            .build()
+        http.newCall(request(source, url)).execute().use { response ->
+            if (!response.isSuccessful) throw XtreamException(
+                "Live streams download returned HTTP ${response.code}.",
             )
+            val body = response.body ?: throw XtreamException("Live streams response was empty.")
+            try {
+                XtreamLiveStreamDecoder.decode(body.byteStream(), source) { streamId ->
+                    liveStreamUrl(source, streamId)
+                }
+            } catch (e: XtreamLiveStreamDecoder.LiveDecodeException) {
+                throw XtreamException(
+                    "Live streams stage: decoder rejected full response near record " +
+                        "${e.itemIndex} (${e.failureType}). No channels were imported.",
+                    e,
+                )
+            } catch (e: java.io.IOException) {
+                throw XtreamException("Live streams stage: network body read failed.", e)
+            }
         }
     }
 
