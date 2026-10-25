@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.46-exit-only-cloud-sync' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.47-legacy-v019-playback-seeking' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.46-exit-only-cloud-sync'
+      github.head_ref == 'fix/v0.1.11.47-legacy-v019-playback-seeking'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.46.apk
-          gh release create v0.1.11.46-exit-only-sync-buffer \
-            "apk/Soky_IPTV_Pro_v0.1.11.46.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.47.apk
+          gh release create v0.1.11.47-v019-native-vlc-restored \
+            "apk/Soky_IPTV_Pro_v0.1.11.47.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.46 Exit-Only Sync and VLC Buffering" \
-            --notes "v0.1.11.46 TEST BUILD based on user-confirmed v0.1.11.45 successful two-TV Google Drive sync and accepted v0.1.11.39 seeking. No Google Drive network, merge or catalogue scanning while VOD player is open. Position continues saving to local Room for resilience during playback, but uploads only after a saved exit snapshot is committed on an independent IO scope. Back navigation does not await the upload; Drive cancels outstanding cloud HTTP asynchronously on video entry, remains gated while video is open, and starts a coalesced background sync after exit. Prevents stale or duplicate exit sync when players overlap. Also applies the existing Playback Buffer preset to native VLC: the old hardcoded 1400ms ignored user settings; Balanced default is 5000ms, Fast 1500, Stable 8000, Large 12000. Increasing cache can lengthen startup; adjust Settings if needed. No seeking/corrective-jump algorithm changes. The single Drive file, cross-device episode hydration, history merging, media IDs and authorization remain unchanged. versionCode 66. Device validation still required: seek within/beyond declared length, play 15+ minutes, press Back during a stall, sync across TVs. Debug signing compatibility not guaranteed. Actual APK filename Soky_IPTV_Pro_v0.1.11.46.apk." --prerelease
+            --title "Soky IPTV Pro v0.1.11.47 Original v0.1.9 VLC Restored" \
+            --notes "v0.1.11.47 TEST BUILD: restore only the original v0.1.9 native LibVLC playback and seeking mechanisms from the milestone/v0.1.9-tv-approved and hybrid v0.1.11.0 rollback. Native LibVLC remains 3.6.1; startup is again fixed 1400ms VLC network cache, native MediaPlayer.setTime(ms) one-shot seeks, declared-duration clamping, original D-pad accelerated hold, initial position seek, and native clock polling. Removes later VlcSeekClock, VlcNativeSeekCorrection, post-seek recovery, tail probing, and TV decoder rebind from the VLC player. Modern television transport visuals, episode navigation/autoplay, screensaver pause compatibility and passive playback diagnostics retained. Critically preserves the confirmed v0.1.11.45/v0.1.11.46 one-file Google Drive history sync, profile-free merge, episode discovery, and exit-only asynchronous cloud sync WITHOUT edits. Playback buffer presets remain for Media3; restored VLC ignores them and uses fixed 1400ms per the original. This is a regression experiment and may restore old seek limits on underreported-duration streams; user requested fidelity to original. Run 20-minute VOD/episode playback test, direct 10s seek and hold tests, Back while buffering, screensaver, cross-TV resume sync. versionCode 67. Actual download filename Soky_IPTV_Pro_v0.1.11.47.apk. Debug signing certificate may block upgrade across versions. Hardware validation pending." --prerelease
