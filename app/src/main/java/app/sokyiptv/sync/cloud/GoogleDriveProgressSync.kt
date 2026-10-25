@@ -104,8 +104,8 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     )
     init {
         vault.write("test_secret", null)
-        // Re-establish periodic background work after Android process restart.
-        if (oauth.connected) DriveBackgroundSyncWorker.schedule(appContext)
+        // Stability mode: retain account tokens and cloud files but cancel old work.
+        DriveBackgroundSyncWorker.cancel(appContext)
     }
     val authorized: Boolean get() = oauth.connected
 
@@ -124,6 +124,11 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     suspend fun connect() {
+        if (SYNC_PAUSED) {
+            _state.value = _state.value.copy(busy = false,
+                message = "Cloud sync temporarily disabled for playback stability testing.")
+            return
+        }
         _state.value = _state.value.copy(busy = true, pendingCode = null, message = "Requesting a Google sign-in code…")
         try {
             val code = oauth.createDeviceCode()
@@ -181,6 +186,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     /** Allow the final persisted watch position to land before refreshing Drive. */
     private fun resumeAfterPlayback(syncAfterExit: Boolean) {
+        if (SYNC_PAUSED) return
         if (!oauth.connected || !syncAfterExit) return
         // Coalesce rapid episode transitions; no network call runs on Back.
         pushJob?.cancel()
@@ -191,6 +197,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     fun startForegroundSync() {
+        if (SYNC_PAUSED) return
         if (periodicJob?.isActive == true) return
         periodicJob = scope.launch {
             while (isActive) {
@@ -203,11 +210,13 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     fun stopForegroundSync() {
         periodicJob?.cancel()
         periodicJob = null
+        if (SYNC_PAUSED) return
         if (oauth.connected) scope.launch { syncNow() }
     }
 
     /** Debounced near-real-time upload after a saved local watch-position change. */
     fun requestSoon() {
+        if (SYNC_PAUSED) return
         // Progress remains durable in Room and recovery is rebuilt at next sync.
         // No cloud activity may take bandwidth/CPU while video is visible.
         if (!oauth.connected || PlaybackSyncPriority.active) return
@@ -222,6 +231,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
 
     /** Returns true only if a complete cloud read/merge/write succeeds. */
     suspend fun syncNow(): Boolean {
+        if (SYNC_PAUSED) return false
         if (!oauth.connected) return false
         // Defer WorkManager/foreground/manual operations until playback has ended.
         if (PlaybackSyncPriority.active) return true
@@ -802,6 +812,7 @@ class GoogleDriveProgressSync private constructor(context: Context) {
     }
 
     companion object {
+        const val SYNC_PAUSED = true // v53 temporary safety switch, retains all credentials/data.
         @Volatile private var instance: GoogleDriveProgressSync? = null
 
         fun signalLocalProgressChanged() {
