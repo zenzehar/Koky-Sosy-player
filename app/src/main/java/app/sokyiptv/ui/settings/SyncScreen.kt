@@ -57,6 +57,21 @@ fun SyncScreen(
     onBack: () -> Unit,
     viewModel: SyncViewModel = viewModel(),
 ) {
+    // Temporarily pause all shared-history functions (LAN, NAS and Google Drive).
+    // Keep their source and stored settings intact for a later restored version.
+    if (SYNC_STABILITY_PAUSE) {
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text("Watch-history synchronization is temporarily disabled",
+                style = MaterialTheme.typography.headlineMedium)
+            Text("Local Continue Watching and saved positions remain enabled. No cloud " +
+                "history, account configuration or LAN pairing information was deleted.")
+            OutlinedButton(onClick = onBack) { Text("Back to settings") }
+        }
+        return
+    }
     var mode by remember { mutableStateOf(Mode.SHARE) }
     // Closing or switching away from Share also closes its LAN listener. No hidden timeout.
     DisposableEffect(mode) {
@@ -104,6 +119,7 @@ fun SyncScreen(
     }
 }
 
+private const val SYNC_STABILITY_PAUSE = true
 private enum class Mode { SHARE, RECEIVE, NAS, CLOUD }
 
 @Composable

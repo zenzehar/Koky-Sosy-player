@@ -52,12 +52,16 @@
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.faketouch"
+        android:required="false" />
 
     <application
         android:name=".SokyIptvApp"
         android:allowBackup="true"
         android:banner="@drawable/soky_tv_banner"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.SokyIPTV"
@@ -72,6 +76,10 @@
 
         <activity
             android:name=".MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:banner="@drawable/soky_tv_banner"
+            android:label="@string/app_name"
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:launchMode="singleTask"
