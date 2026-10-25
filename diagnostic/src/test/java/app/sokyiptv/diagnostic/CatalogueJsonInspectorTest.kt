@@ -22,6 +22,21 @@ class CatalogueJsonInspectorTest {
         assertFalse(result.detail.contains("Family"))
     }
 
+    @Test fun malformedVODCategoriesAtEndReportsSafeClosingShape() {
+        val result = check("""[{"category_id":"7","category_name":"Films"}""")
+        assertTrue(result.detail, result.detail.contains("kotlinx parser REJECTS"))
+        assertTrue(result.detail, result.detail.contains("closed object"))
+        assertFalse(result.detail.contains("Films"))
+    }
+
+    @Test fun twoPointThreeMegabyteLiveResponseUsesExactSokyParserNotStreamingSubstitute() {
+        // D3 streamed this size even though it is practical to test the exact parser.
+        val large = "[{\"name\":\"" + "z".repeat(2_300_000) + "\"}]"
+        val result = check(large)
+        assertTrue(result.detail, result.detail.contains("kotlinx parser ACCEPTS"))
+        assertTrue(result.detail, result.detail.contains("array items=1"))
+    }
+
     @Test fun emptyArrayAndHtmlAreDistinguished() {
         assertTrue(check("[]").detail.contains("array items=0"))
         val html = CatalogueJsonInspector.inspect(
