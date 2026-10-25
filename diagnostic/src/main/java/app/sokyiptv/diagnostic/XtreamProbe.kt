@@ -35,6 +35,12 @@ internal class XtreamProbe {
         }
         actions.forEach { action ->
             val label = action ?: "account/authentication"
+            // Repeat ONLY the endpoints that the previous emulator report showed
+            // as malformed, and only when validation fails. Keep network usage bounded.
+            val retryable = action in setOf("get_vod_categories", "get_vod_streams")
+            val attempts = if (retryable) 2 else 1
+            for (attempt in 1..attempts) {
+            var retry = false
             val url = root.newBuilder().encodedPath("/player_api.php")
                 .addQueryParameter("username", source.username)
                 .addQueryParameter("password", source.password)
@@ -51,6 +57,16 @@ internal class XtreamProbe {
                         CatalogueJsonInspector.inspect(it, contentType)
                     } ?: CatalogueJsonInspector.Inspection("Empty HTTP response body")
                     val millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+                    // If transparent gzip decoding was used by OkHttp, wire byte counts
+                    // are not comparable with the decoded JSON bytes. Report both facts.
+                    val wireLength = response.networkResponse?.header("Content-Length")
+                        ?.toLongOrNull()?.takeIf { it >= 0 }
+                    val encoding = response.networkResponse?.header("Content-Encoding")
+                        ?.lowercase()?.let { if (it == "gzip") "gzip" else "other" }
+                        ?: "none"
+                    val transfer = response.networkResponse?.header("Transfer-Encoding")
+                        ?.let { if (it.equals("chunked", true)) "chunked" else "other" }
+                        ?: "none"
                     val changedOrigin = response.request.url.host != url.host ||
                         response.request.url.scheme != url.scheme ||
                         response.request.url.port != url.port
@@ -58,10 +74,13 @@ internal class XtreamProbe {
                         "redirected ${if (changedOrigin) "to different origin" else "on same origin"}"
                     } else "not redirected"
                     val info = "HTTP ${response.code}, ${millis}ms, type=$contentType, " +
-                        "$redirect, ${inspection.detail}"
+                        "$redirect, declared-wire-length=${wireLength ?: "unspecified"}" +
+                        ", encoding=$encoding, transfer=$transfer, ${inspection.detail}"
+                    retry = retryable && attempt == 1 &&
+                        (inspection.detail.contains("REJECTS") || inspection.detail.contains("exceeds"))
                     val safeHtml = inspection.html?.let { sanitise(it, source) }
                     val title = safeHtml?.let { extractTitle(it) }.orEmpty()
-                    report(Result(label, info +
+                    report(Result(label + if (retryable) " (attempt $attempt)" else "", info +
                         if (title.isNotBlank()) " · HTML title: $title" else "", safeHtml))
                 }
             } catch (e: Exception) {
@@ -75,7 +94,13 @@ internal class XtreamProbe {
                     is java.io.InterruptedIOException -> "Network timeout/cancelled"
                     else -> "Transport failure (${e.javaClass.simpleName.take(40)})"
                 }
-                report(Result(label, "$category after ${millis}ms; secrets omitted"))
+                report(Result(label + if (retryable) " (attempt $attempt)" else "",
+                    "$category after ${millis}ms; secrets omitted"))
+                retry = retryable && attempt == 1
+            }
+            if (!retry) break
+            // One immediate retry with small backoff, never a background polling loop.
+            Thread.sleep(450)
             }
         }
     }
