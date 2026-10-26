@@ -748,6 +748,16 @@ class CatalogRepository(
         seriesDao.markFavouriteBySeriesId(seriesId)
 
     /** Series episodes are fetched lazily — panels are slow and most series are never opened. */
+    /** This write is only for a verified header/manifest duration. Room emits to
+     * the existing series episodes Flow and therefore updates only the matching
+     * row. It never invokes a player or touches playback history. */
+    suspend fun saveVerifiedEpisodeDuration(episode: Episode, seconds: Int) {
+        if (seconds !in 120..43_200) return
+        withContext(Dispatchers.IO) {
+            episodeDao.setDiscoveredDurationIfMissing(episode.id, episode.sourceId, seconds)
+        }
+    }
+
     suspend fun ensureEpisodes(source: Source, seriesId: String) {
         if (source.kind != SourceKind.XTREAM) return
         // Existing episodes are already indexed in Room. Navigation to this title
