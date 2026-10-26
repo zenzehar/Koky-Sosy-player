@@ -2,6 +2,9 @@ package app.sokyiptv.data.db
 
 import androidx.room.Room
 import app.sokyiptv.data.model.Channel
+import app.sokyiptv.data.model.Episode
+import app.sokyiptv.data.model.PlaybackPosition
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -87,4 +90,29 @@ class CataloguePerformanceRegressionTest {
         assertEquals("auto-B", dao.byId(second.id)?.matchedEpgId)
         assertEquals("manual", dao.byId(first.id)?.epgOverrideId)
     }
+    @Test fun onlySameProfileSameEpisodeSavedDurationReachesSeriesList() = runBlocking {
+        val episodes = listOf(
+            Episode(id = 201L, sourceId = 9L, seriesId = "show-A", episodeId = "e1",
+                season = 1, episodeNumber = 1, title = "Episode 1", plot = null,
+                durationSeconds = null, stillUrl = null, streamUrl = "https://example.invalid/e1"),
+            Episode(id = 202L, sourceId = 9L, seriesId = "show-A", episodeId = "e2",
+                season = 1, episodeNumber = 2, title = "Episode 2", plot = null,
+                durationSeconds = null, stillUrl = null, streamUrl = "https://example.invalid/e2"),
+            Episode(id = 203L, sourceId = 9L, seriesId = "show-B", episodeId = "e3",
+                season = 1, episodeNumber = 1, title = "Other show", plot = null,
+                durationSeconds = null, stillUrl = null, streamUrl = "https://example.invalid/e3"),
+        )
+        db.episodes().upsertAll(episodes)
+        val positions = db.positions()
+        positions.upsert(PlaybackPosition(1L, "ep:201", 660_000L, 2_886_000L, 100L))
+        positions.upsert(PlaybackPosition(2L, "ep:202", 660_000L, 2_886_000L, 100L))
+        positions.upsert(PlaybackPosition(1L, "ep:203", 660_000L, 3_000_000L, 100L))
+        val showA = positions.observeEpisodeLengths(1L, 9L, "show-A").first()
+        assertEquals(1, showA.size)
+        assertEquals(201L, showA.single().episodeId)
+        assertEquals(2_886_000L, showA.single().durationMs)
+        val otherProfile = positions.observeEpisodeLengths(2L, 9L, "show-A").first()
+        assertEquals(202L, otherProfile.single().episodeId)
+    }
+
 }

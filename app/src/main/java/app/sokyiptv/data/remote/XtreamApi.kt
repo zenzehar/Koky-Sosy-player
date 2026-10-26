@@ -215,7 +215,7 @@ class XtreamApi(
                         episodeNumber = obj["episode_num"].asIntOrNull ?: 0,
                         title = obj["title"].asStringOrNull ?: "Episode",
                         plot = info?.get("plot").asStringOrNull,
-                        durationSeconds = info?.get("duration_secs").asIntOrNull,
+                        durationSeconds = XtreamEpisodeDurationParser.fromFields(info, obj),
                         stillUrl = info?.get("movie_image").asStringOrNull?.takeIf { it.isNotBlank() },
                         streamUrl = seriesStreamUrl(source, episodeId, extension),
                     )
@@ -454,3 +454,57 @@ private val JsonElement?.asLongOrNull: Long?
 
 private val JsonElement?.asDoubleOrNull: Double?
     get() = asStringOrNull?.toDoubleOrNull()
+
+/**
+ * Duration fields in Xtream's get_series_info are not consistent across panels.
+ * Parse only unambiguous seconds or clock/minutes formats; do not guess that an
+ * undocumented bare "48" means 48 minutes. No extra provider requests.
+ */
+internal object XtreamEpisodeDurationParser {
+    private const val MAX_SECONDS = 24 * 60 * 60
+
+    fun fromFields(info: JsonObject?, episode: JsonObject): Int? {
+        for (obj in listOfNotNull(info, episode)) {
+            for (field in listOf("duration_secs", "duration_seconds")) {
+                parse(obj[field].asStringOrNull)?.let { return it }
+            }
+        }
+        for (obj in listOfNotNull(info, episode)) {
+            for (field in listOf("duration", "runtime", "length")) {
+                parse(obj[field].asStringOrNull)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    fun parse(raw: String?): Int? {
+        val value = raw?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: return null
+        val seconds = when {
+            value.all { it.isDigit() } -> value.toIntOrNull()
+            ':' in value -> {
+                val clock = value.split(':')
+                if (clock.size !in 2..3 || clock.any { it.isEmpty() || !it.all(Char::isDigit) })
+                    return null
+                val parts = clock.map { it.toLongOrNull() ?: return null }
+                // M:SS or H:MM:SS; minute/second components are base 60.
+                if (parts.last() !in 0L..59L ||
+                    (parts.size == 3 && parts[1] !in 0L..59L)) return null
+                val result = if (parts.size == 3)
+                    parts[0] * 3600L + parts[1] * 60L + parts[2]
+                else parts[0] * 60L + parts[1]
+                if (result > MAX_SECONDS) return null
+                result.toInt()
+            }
+            value.endsWith(" minutes") || value.endsWith(" minute") ||
+                value.endsWith(" mins") || value.endsWith(" min") ||
+                value.endsWith("m") -> {
+                val digits = value.takeWhile { it.isDigit() }
+                if (digits.isEmpty() || value.drop(digits.length).trim() !in
+                    setOf("minutes", "minute", "mins", "min", "m")) return null
+                digits.toIntOrNull()?.takeIf { it <= 1440 }?.times(60)
+            }
+            else -> null
+        }
+        return seconds?.takeIf { it in 60..MAX_SECONDS }
+    }
+}

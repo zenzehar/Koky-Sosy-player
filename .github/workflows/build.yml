@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'perf/v0.1.11.56-gold54-isolated-catalog-epg' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.57-episode-duration-source-fallback' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'perf/v0.1.11.56-gold54-isolated-catalog-epg'
+      github.head_ref == 'fix/v0.1.11.57-episode-duration-source-fallback'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.56.apk
-          gh release create v0.1.11.56-isolated-catalogue-performance \
-            "apk/Soky_IPTV_Pro_v0.1.11.56.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.57.apk
+          gh release create v0.1.11.57-episode-duration-source-fallback \
+            "apk/Soky_IPTV_Pro_v0.1.11.57.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.56 Isolated Catalogue Performance" \
-            --notes "v0.1.11.56 PERFORMANCE TEST ONLY; isolated from user-approved v0.1.11.54 gold SHA a1820c13aeef716fecc34694c2dd10464d14f634. No changes to any video player, native VLC, seeking, buffering, surfaces, media controls, Fire TV manifest or the current cloud/LAN/NAS sync pause. Optimizations: batch Continue Watching catalogue resolution; bounded movie reset SQL candidate queries; in-place Compose VOD pagination; 5-column EPG matching projection, one transaction to apply EPG match ids, remove repeat EPG sort; avoid unused full-library recommendation scans on VOD entry; streaming 500-row live channel merge with 8-column user-choice projection. Include Room/Robolectric importer regressions and Resume key tests. All functionality remains experimental until compared on REAL Android TV and Fire TV. Not gold; no main merge. Debug-signed prerelease." --prerelease
+            --title "Soky IPTV Pro v0.1.11.57 Episode Duration Fallback" \
+            --notes "v0.1.11.57 TEST BUILD derived from v0.1.11.56 performance candidate; gold v0.1.11.54 unchanged. Episode-list runtime now parses alternative get_series_info duration formats (duration_secs, duration as HH:MM:SS or M:SS, and explicit minutes); if provider leaves a duration blank, it can display an approximate runtime from the active profile's existing saved playback for THAT exact episode only. Other unwatched episodes correctly remain unknown when provider has no runtime; never copy runtimes across episodes or seasons. The list dynamically refreshes after playback. No video decoder, seeking, native VLC polling, HTTP probes, cloud sync, Room schema, or network request changes. Added parser, label, and Room profile/episode isolation regression tests. Not accepted gold, debug-signed prerelease; verify provider examples, re-open series, Continue Watching, Back and D-pad on hardware." --prerelease
