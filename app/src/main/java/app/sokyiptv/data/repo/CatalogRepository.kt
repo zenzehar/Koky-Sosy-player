@@ -198,6 +198,29 @@ class CatalogRepository(
 
     suspend fun movie(id: Long): Movie? = movieDao.byId(id)
 
+    /** Bounded batched ID lookups for the recent-watch feed; no N+1 Room queries. */
+    suspend fun moviesByIds(ids: List<Long>): List<Movie> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) emptyList() else movieDao.byIds(ids)
+    }
+
+    suspend fun episodesByIds(ids: List<Long>): List<Episode> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) emptyList() else episodeDao.byIds(ids)
+    }
+
+    /** Restrict movie reset scans to one provider/year before matching display titles. */
+    suspend fun movieResetCandidates(sourceId: Long, year: Int?): List<Movie> =
+        withContext(Dispatchers.IO) { movieDao.resetCandidates(sourceId, year) }
+
+    /** Resolve parent show covers in batches grouped by provider (not per episode). */
+    suspend fun parentSeriesForEpisodes(episodes: Collection<Episode>): Map<Pair<Long, String>, Series> =
+        withContext(Dispatchers.IO) {
+            episodes.groupBy { it.sourceId }.flatMap { (sourceId, sameSource) ->
+                seriesDao.bySourceSeriesIds(
+                    sourceId, sameSource.map { it.seriesId }.distinct(),
+                )
+            }.associateBy { it.sourceId to it.seriesId }
+        }
+
     /**
      * The IMDb id for a film, for Stremio add-on stream lookups. Resolved through the user's TMDB
      * key (using the provider's TMDB id when present, else a title+year search). Null without a key
