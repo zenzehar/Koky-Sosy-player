@@ -25,36 +25,38 @@ if (!$OutputDirectory) {
 }
 New-Item -Path $OutputDirectory -ItemType Directory -Force | Out-Null
 
-$device = (Invoke-Adb @("shell", "getprop", "ro.product.model")).Trim()
-$android = (Invoke-Adb @("shell", "getprop", "ro.build.version.release")).Trim()
-$abi = (Invoke-Adb @("shell", "getprop", "ro.product.cpu.abi")).Trim()
+$device = (Invoke-Adb -Arguments @("shell", "getprop", "ro.product.model")).Trim()
+$android = (Invoke-Adb -Arguments @("shell", "getprop", "ro.build.version.release")).Trim()
+$abi = (Invoke-Adb -Arguments @("shell", "getprop", "ro.product.cpu.abi")).Trim()
 $activity = "$PackageName/app.sokyiptv.MainActivity"
-$installed = Invoke-Adb @("shell", "pm", "path", $PackageName)
+$installed = Invoke-Adb -Arguments @("shell", "pm", "path", $PackageName)
 if ($installed -notmatch "package:") { throw "App package not installed: $PackageName" }
 
 $measurements = @()
 for ($i=1; $i -le $Launches; $i++) {
     # Cold process start, never delete app data or clear credentials.
-    Invoke-Adb @("shell", "am", "force-stop", $PackageName) | Out-Null
+    Invoke-Adb -Arguments @("shell", "am", "force-stop", $PackageName) | Out-Null
     Start-Sleep -Milliseconds 700
-    $out = Invoke-Adb @("shell", "am", "start", "-W", "-n", $activity)
+    $out = Invoke-Adb -Arguments @("shell", "am", "start", "-W", "-n", $activity)
     $total = [regex]::Match($out, 'TotalTime:\s*(\d+)')
     $this = [regex]::Match($out, 'ThisTime:\s*(\d+)')
     if (!$total.Success) { throw "Could not parse launch time; launcher output: $out" }
+    $thisTime = $null
+    if ($this.Success) { $thisTime = [int]$this.Groups[1].Value }
     $measurements += [pscustomobject]@{
         Attempt = $i; TotalTimeMs = [int]$total.Groups[1].Value
-        ThisTimeMs = if ($this.Success) { [int]$this.Groups[1].Value } else { $null }
+        ThisTimeMs = $thisTime
     }
     Start-Sleep -Seconds 2
 }
 $measurements | Export-Csv (Join-Path $OutputDirectory "launches.csv") -NoTypeInformation -Encoding UTF8
 
 # Reset frame stats, then operate the TV manually while observing this prompt.
-Invoke-Adb @("shell", "dumpsys", "gfxinfo", $PackageName, "reset") | Out-Null
+Invoke-Adb -Arguments @("shell", "dumpsys", "gfxinfo", $PackageName, "reset") | Out-Null
 Write-Host "Browse the library, switch categories and open the guide now."
 Read-Host "Press Enter after your test interval to capture frame and memory metrics" | Out-Null
-$frames = Invoke-Adb @("shell", "dumpsys", "gfxinfo", $PackageName, "framestats")
-$memory = Invoke-Adb @("shell", "dumpsys", "meminfo", $PackageName)
+$frames = Invoke-Adb -Arguments @("shell", "dumpsys", "gfxinfo", $PackageName, "framestats")
+$memory = Invoke-Adb -Arguments @("shell", "dumpsys", "meminfo", $PackageName)
 
 # These captures contain process timings, not provider URLs, account tokens or logcat.
 Set-Content (Join-Path $OutputDirectory "gfxinfo-framestats.txt") $frames -Encoding UTF8
