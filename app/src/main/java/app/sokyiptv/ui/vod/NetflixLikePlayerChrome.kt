@@ -103,10 +103,43 @@ internal fun NetflixLikePlayerChrome(
     var seekHeldAtMs by remember { mutableLongStateOf(0L) }
     var heldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var seekFocused by remember { mutableStateOf(false) }
+    var activeTarget by remember { mutableStateOf(NetflixTarget.PLAY) }
     val displayMs = if (scrubbing) seekPreviewMs else positionMs
 
     // Do not block arrow-key focus traversal with a fullscreen clickable surface.
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()
+        .onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            val direction = when (event.key) {
+                Key.DirectionUp -> NetflixDirection.UP
+                Key.DirectionDown -> NetflixDirection.DOWN
+                Key.DirectionLeft -> NetflixDirection.LEFT
+                Key.DirectionRight -> NetflixDirection.RIGHT
+                else -> null
+            } ?: return@onPreviewKeyEvent false
+            // Timeline owns Left and Right for real +/-10s and hold-to-accelerate.
+            if (activeTarget == NetflixTarget.TIMELINE &&
+                direction in setOf(NetflixDirection.LEFT, NetflixDirection.RIGHT))
+                return@onPreviewKeyEvent false
+            val next = NetflixFocusGraph.next(activeTarget, direction, isEpisode, nextAvailable)
+            onActivity()
+            if (next != activeTarget) {
+                activeTarget = next
+                val requester = when (next) {
+                    NetflixTarget.CLOSE -> closeFocus
+                    NetflixTarget.REWIND -> backwardFocus
+                    NetflixTarget.PLAY -> playFocus
+                    NetflixTarget.FORWARD -> forwardFocus
+                    NetflixTarget.TIMELINE -> timelineFocus
+                    NetflixTarget.EPISODES -> episodesFocus
+                    NetflixTarget.TRACKS -> tracksFocus
+                    NetflixTarget.NEXT -> nextFocus
+                }
+                runCatching { requester.requestFocus() }
+            }
+            true
+        },
+    ) {
         val topGap = maxHeight * 0.080f
         val controlsBottom = maxHeight * 0.30f
         val timelineBottom = maxHeight * 0.145f
@@ -133,6 +166,7 @@ internal fun NetflixLikePlayerChrome(
             modifier = Modifier.align(Alignment.TopEnd)
                 .padding(end = 40.dp, top = topGap - 7.dp)
                 .focusRequester(closeFocus)
+                .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.CLOSE; onActivity() } }
                 .focusProperties { down = playFocus; left = playFocus },
             size = 37, onClick = onBack, onActivity = onActivity,
         )
@@ -146,6 +180,7 @@ internal fun NetflixLikePlayerChrome(
             NIcon(
                 Icons.Filled.Replay10, "Rewind 10 seconds",
                 Modifier.focusRequester(backwardFocus)
+                    .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.REWIND; onActivity() } }
                     .focusProperties {
                         right = playFocus; up = closeFocus; down = timelineFocus
                     },
@@ -156,7 +191,9 @@ internal fun NetflixLikePlayerChrome(
             NIcon(
                 if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
                 if (paused) "Play" else "Pause",
-                Modifier.focusRequester(playFocus).focusProperties {
+                Modifier.focusRequester(playFocus)
+                    .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.PLAY; onActivity() } }
+                    .focusProperties {
                     left = backwardFocus; right = forwardFocus
                     up = closeFocus; down = timelineFocus
                 },
@@ -164,7 +201,9 @@ internal fun NetflixLikePlayerChrome(
             )
             NIcon(
                 Icons.Filled.Forward10, "Forward 10 seconds",
-                Modifier.focusRequester(forwardFocus).focusProperties {
+                Modifier.focusRequester(forwardFocus)
+                    .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.FORWARD; onActivity() } }
+                    .focusProperties {
                     left = playFocus; up = closeFocus; down = timelineFocus
                 },
                 58,
@@ -186,7 +225,9 @@ internal fun NetflixLikePlayerChrome(
                         up = playFocus
                         down = if (isEpisode) episodesFocus else tracksFocus
                     }
-                    .onFocusChanged { seekFocused = it.isFocused }
+                    .onFocusChanged { seekFocused = it.isFocused
+                        if (it.isFocused) { activeTarget = NetflixTarget.TIMELINE; onActivity() }
+                    }
                     .onPreviewKeyEvent { event ->
                         val direction = when (event.key) {
                             Key.DirectionLeft -> SeekDirection.BACKWARD
@@ -256,13 +297,17 @@ internal fun NetflixLikePlayerChrome(
         ) {
             if (isEpisode) NText(
                 "Episodes", Icons.Filled.VideoLibrary,
-                Modifier.focusRequester(episodesFocus).focusProperties {
+                Modifier.focusRequester(episodesFocus)
+                    .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.EPISODES; onActivity() } }
+                    .focusProperties {
                     up = timelineFocus; right = tracksFocus
                 }, onClick = onEpisodes, onActivity = onActivity,
             )
             NText(
                 "Audio & Subtitles", Icons.Filled.Subtitles,
-                Modifier.focusRequester(tracksFocus).focusProperties {
+                Modifier.focusRequester(tracksFocus)
+                    .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.TRACKS; onActivity() } }
+                    .focusProperties {
                     up = timelineFocus
                     if (isEpisode) left = episodesFocus
                     if (isEpisode && nextAvailable) right = nextFocus
@@ -270,7 +315,9 @@ internal fun NetflixLikePlayerChrome(
             )
             if (isEpisode && nextAvailable) NText(
                 "Next Episode", Icons.Filled.SkipNext,
-                Modifier.focusRequester(nextFocus).focusProperties {
+                Modifier.focusRequester(nextFocus)
+                    .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.NEXT; onActivity() } }
+                    .focusProperties {
                     up = timelineFocus; left = tracksFocus
                 }, onClick = onNext, onActivity = onActivity,
             )
