@@ -77,9 +77,9 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.player.VlcNativeSeekCorrection
-import app.sokyiptv.player.SkipCuePolicy
-import app.sokyiptv.player.SkipCueStore
-import app.sokyiptv.player.VideoChapter
+import app.sokyiptv.player.DetectedSkip
+import app.sokyiptv.player.PassiveSkipTracker
+import app.sokyiptv.player.PassiveVideoCapture
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlin.math.max
@@ -91,6 +91,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun VlcFallbackScreen(
     streamUrl: String,
     mediaKey: String,
+    skipTracker: PassiveSkipTracker,
     title: String,
     userAgent: String,
     initialPositionMs: Long,
@@ -112,12 +113,9 @@ fun VlcFallbackScreen(
     val autoplay by preferences.seriesAutoplay.collectAsState()
     val style by preferences.playerUiStyle.collectAsState()
     val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
-    val skipStore = remember { SkipCueStore(context) }
-    var skipCues by remember(mediaKey) { mutableStateOf(skipStore.read(mediaKey)) }
-    var scannedChapters by remember(mediaKey) { mutableStateOf(false) }
+    var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
-    var cueStatus by remember(mediaKey) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     // Restore exact v0.1.9 LibVLC initialization: fixed 1400ms native cache.
     val libvlc = remember(streamUrl) {
@@ -385,20 +383,21 @@ fun VlcFallbackScreen(
         }
     }
 
-    // Named chapter metadata is the only safe automatic skip-cue source. No extra
-    // player connection or guessing based on another episode's runtime.
-    LaunchedEffect(ready, durationMs, scannedChapters) {
-        if (ready && durationMs > 0L && !scannedChapters && !leaving.get()) {
-            scannedChapters = true
-            delay(900L)
-            val chapters = runCatching {
-                player.getChapters(-1)?.map { VideoChapter(it.timeOffset, it.duration, it.name.orEmpty()) }
-                    ?: emptyList()
-            }.getOrDefault(emptyList())
-            if (chapters.isNotEmpty()) {
-                skipStore.fillFromChapters(mediaKey, SkipCuePolicy.fromChapters(chapters, durationMs))
-                skipCues = skipStore.read(mediaKey)
-            }
+    // Passive, fully automatic sampling: the already decoding native video surface.
+    // No metadata probes, no second player, no additional provider HTTP requests.
+    LaunchedEffect(videoLayout, ready, skipTracker) {
+        val layout = videoLayout ?: return@LaunchedEffect
+        if (!ready) return@LaunchedEffect
+        while (isActive && !leaving.get() && !nativeReleased.get()) {
+            delay(3_000L)
+            if (paused || suspendPlayback || !player.isPlaying || !ready || failed) continue
+            val current = runCatching { player.time.coerceAtLeast(0L) }.getOrDefault(-1L)
+            val total = runCatching { player.length.coerceAtLeast(0L) }.getOrDefault(0L)
+            if (current < 0L || (current > 480_000L &&
+                (total == 0L || current < total * 75L / 100L))) continue
+            val scene = runCatching { PassiveVideoCapture.sample(layout, current) }.getOrNull()
+                ?: continue
+            autoSkips = skipTracker.observe(scene, total)
         }
     }
 
@@ -634,27 +633,6 @@ fun VlcFallbackScreen(
                     onSeek = ::seekTo, onEpisodes = ::leaveVideo,
                     onTracks = { trackPanelVisible = true; showControls() },
                     onNext = onNextEpisodeClick,
-                    onMarkIntroStart = {
-                        skipStore.markIntroStart(mediaKey, positionMs)
-                        skipCues = skipStore.read(mediaKey)
-                        cueStatus = "Intro start saved for this episode"
-                    },
-                    onMarkIntroEnd = {
-                        skipStore.markIntroEnd(mediaKey, positionMs)
-                        skipCues = skipStore.read(mediaKey)
-                        cueStatus = if (skipCues.hasIntro()) "Intro markers saved"
-                            else "Set Intro Start first; interval must be 8s to 4m"
-                    },
-                    onMarkCredits = {
-                        skipStore.markCredits(mediaKey, positionMs, durationMs)
-                        skipCues = skipStore.read(mediaKey)
-                        cueStatus = if (skipCues.hasCredits()) "Credits marker saved"
-                            else "Credits must be near the end of a known-length video"
-                    },
-                    onClearCues = {
-                        skipStore.clear(mediaKey); skipCues = skipStore.read(mediaKey)
-                        cueStatus = "Skip markers cleared"
-                    },
                 )
             } else {
             Box(
@@ -852,21 +830,24 @@ fun VlcFallbackScreen(
             }
             }
         }
-        if (cueStatus.isNotBlank() && netflix && controlsVisible) {
-            Text(cueStatus, color = Color.White,
-                modifier = Modifier.align(Alignment.TopStart).padding(25.dp))
-        }
-        if (!ended && ready && !failed &&
-            (SkipCuePolicy.showIntro(positionMs, skipCues) ||
-             SkipCuePolicy.showCredits(positionMs, durationMs, skipCues))) {
-            val intro = SkipCuePolicy.showIntro(positionMs, skipCues)
+        // Show a skip only after content evidence exists; learned intros may need
+        // previous episodes as reference. Never guess a constant intro length.
+        val showIntro = !ended && ready && !paused && !failed &&
+            showEpisodeControls && autoSkips.introEndMs > positionMs + 3_000L &&
+            positionMs < 480_000L
+        val showCredits = !ended && ready && !paused && !failed &&
+            autoSkips.credits && durationMs > 0L && positionMs >= durationMs * 75L / 100L
+        if (showIntro || showCredits) {
             NetflixSkipPrompt(
-                label = if (intro) "Skip Intro" else if (showEpisodeControls && nextEpisodeAvailable)
-                    "Next Episode" else if (showEpisodeControls) "Skip Credits" else "Skip Credits",
+                label = when {
+                    showIntro -> "Skip Intro"
+                    showEpisodeControls && nextEpisodeAvailable -> "Next Episode"
+                    else -> "Skip Credits"
+                },
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
             ) {
-                if (intro) seekTo(skipCues.introEndMs)
+                if (showIntro) seekTo(autoSkips.introEndMs)
                 else if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
                 else leaveVideo()
             }
