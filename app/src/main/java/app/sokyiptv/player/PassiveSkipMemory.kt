@@ -44,7 +44,7 @@ class PassiveSkipMemory(context: Context) {
         val key = "series_" + id(group)
         val self = id(episodeKey)
         val old = prefs.getString(key, "").orEmpty().lineSequence().filter { it.isNotBlank() }
-            .filterNot { it.startsWith(self + ";") }.takeLast(7).toMutableList()
+            .filterNot { it.startsWith(self + ";") }.toList().takeLast(7).toMutableList()
         val filtered = samples.distinctBy { it.atMs / 2_500L }
             .sortedBy { it.atMs }.take(350)
         val content = filtered.joinToString(",") { s ->
