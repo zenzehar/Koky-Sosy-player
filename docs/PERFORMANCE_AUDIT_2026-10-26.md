@@ -1,7 +1,7 @@
 # Soky IPTV Pro: performance audit and controlled optimization campaign
 **Baseline:** user-approved gold v0.1.11.54, commit `a1820c13aeef716fecc34694c2dd10464d14f634`.
-**Working branch:** `perf/v0.1.11.55-gold54-performance-pass1`.
-**Status:** code-level optimization pass; results require real-device benchmarking. Do not merge into gold without TV acceptance.
+**Working branch:** `perf/v0.1.11.56-gold54-isolated-catalog-epg`.
+**Status:** isolated code-level optimization pass; results require real-device benchmarking. Concurrent unrelated playback experiments in another branch are excluded. Do not merge into gold without TV acceptance.
 
 ## Scope and constraints
 This repository has 163 Kotlin source files in the gold tree. Work examined Compose catalogue browsing,
