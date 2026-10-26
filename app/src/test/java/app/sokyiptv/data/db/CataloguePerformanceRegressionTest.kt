@@ -115,4 +115,24 @@ class CataloguePerformanceRegressionTest {
         assertEquals(202L, otherProfile.single().episodeId)
     }
 
+    @Test fun discoveredDurationUpdatesExactlyOneMissingEpisodeAndNeverOverwritesProvider() = runBlocking {
+        db.episodes().upsertAll(listOf(
+            Episode(id = 301L, sourceId = 9L, seriesId = "a", episodeId = "one",
+                season = 1, episodeNumber = 1, title = "One", plot = null,
+                durationSeconds = null, stillUrl = null, streamUrl = "https://example.invalid/1.mp4"),
+            Episode(id = 302L, sourceId = 9L, seriesId = "a", episodeId = "two",
+                season = 1, episodeNumber = 2, title = "Two", plot = null,
+                durationSeconds = 2920, stillUrl = null, streamUrl = "https://example.invalid/2.mp4"),
+            Episode(id = 303L, sourceId = 9L, seriesId = "b", episodeId = "three",
+                season = 1, episodeNumber = 1, title = "Three", plot = null,
+                durationSeconds = null, stillUrl = null, streamUrl = "https://example.invalid/3.mp4"),
+        ))
+        assertEquals(1, db.episodes().setDiscoveredDurationIfMissing(301L, 9L, 2886))
+        assertEquals(0, db.episodes().setDiscoveredDurationIfMissing(302L, 9L, 2886))
+        assertEquals(0, db.episodes().setDiscoveredDurationIfMissing(303L, 8L, 2886))
+        assertEquals(2886, db.episodes().byId(301L)?.durationSeconds)
+        assertEquals(2920, db.episodes().byId(302L)?.durationSeconds)
+        assertEquals(null, db.episodes().byId(303L)?.durationSeconds)
+    }
+
 }
