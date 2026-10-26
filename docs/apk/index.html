@@ -29,7 +29,7 @@
 <body>
 <div>
   <h1 id="headline">Starting your download…</h1>
-  <p id="detail">Finding the retained TV test build.</p>
+  <p id="detail">Finding the user-approved gold-standard test build.</p>
   <p><a id="fallback" href="../">Back to the install page</a></p>
 </div>
 <script>
@@ -52,7 +52,7 @@
   var repo = segments.length ? segments[0] : owner + ".github.io";
   var isSoky = owner.toLowerCase() === "zenzehar" && repo.toLowerCase() === "koky-sosy-player";
   var api = "https://api.github.com/repos/" + owner + "/" + repo +
-    (isSoky ? "/releases/tags/v0.1.11.47-v019-native-vlc-restored" : "/releases/latest");
+    (isSoky ? "/releases/tags/v0.1.11.54-continue-watching-duration-card" : "/releases/latest");
 
   function fail(message) {
     document.getElementById("headline").textContent = "No build available";
