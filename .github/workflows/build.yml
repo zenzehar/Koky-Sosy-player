@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'feature/v0.1.11.60-netflix-controls-skip-cues' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'feature/v0.1.11.61-passive-automatic-skips' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feature/v0.1.11.60-netflix-controls-skip-cues'
+      github.head_ref == 'feature/v0.1.11.61-passive-automatic-skips'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.60.apk
-          gh release create v0.1.11.60-netflix-controls-skip-cues \
-            "apk/Soky_IPTV_Pro_v0.1.11.60.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.61.apk
+          gh release create v0.1.11.61-passive-automatic-skips \
+            "apk/Soky_IPTV_Pro_v0.1.11.61.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.60 Optional Netflix-like Controls & Skip Cues" \
-            --notes "v0.1.11.60 EXPERIMENTAL Android TV/Fire TV TEST BUILD from unchanged v0.1.11.59 gold. Restore real native VLC reported buffering percentages after playback stalls without popping up hidden transport controls. Optional Netflix-like controls selectable in Settings, retaining current style. Native VLC and Media3 share layout and skip prompts; exact media/episode-specific intro/credits cues derive ONLY from named VLC media chapters or manually marked start/end/credits, NOT fixed IPTV timing. Skip Intro seeks to detected/confirmed end; credits choose Next Episode when available or Back to Title for films. D-pad focus destinations, seekbar +/-10 seconds and acceleration are present. User may manually mark intros when provider supplies no chapter metadata. Cloud/LAN/NAS sync stays paused; no extra media decoding or network probing for intro detection. Real TV playback, track handling, subtitle selection, and focus navigation MUST be validated before promoting to gold. Prerelease debug-signing, no production guarantee." --prerelease
+            --title "Soky IPTV Pro v0.1.11.61 Automatic Visual Skip Detection" \
+            --notes "v0.1.11.61 EXPERIMENTAL TV TEST BUILD, unapproved, from unchanged gold59. Restore native LibVLC reported buffering percentage for real rebuffer events without revealing hidden controls. Current/Netflix-like style toggle in Settings, D-pad control focus graph and Netflix-like title/play-pause/seek/Next Episode layout. IMPORTANT CHANGE from v60: no chapters or manual markers. Dynamic fully passive video-surface fingerprints from the stream ALREADY decoding on the device, captured at most every 3 seconds. Previously watched episodes of the SAME provider series (at least two independently observed reference episodes) provide repeated visual opening/end sequences. Predict skip prompt only after multiple confident matches, handle shortened or absent intro without inventing start/end timestamps. Movie credits use conservative near-end, sustained dark-background text-frame appearance. No second decoder, no extra IPTV HTTP connection, no provider credentials saved to signatures, sync stays paused. Android SurfaceView sampling uses PixelCopy API 26+; earlier Fire OS/API devices cannot auto-fingerprint by that method. Unchaptered first-time viewing provides no reference; automation learns and prompts only when sufficient evidence exists. Visual credits over live footage and providers reporting erroneous durations may be undetectable. No physical hardware performance/regression acceptance yet; debug-signed prerelease, NOT GOLD." --prerelease
