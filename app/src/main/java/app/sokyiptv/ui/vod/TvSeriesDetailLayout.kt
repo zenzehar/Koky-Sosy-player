@@ -124,6 +124,18 @@ internal fun TvSeriesDetailLayout(
         series?.let { viewModel.episodes(it) } ?: viewModel.noEpisodes
     }
     val episodes by episodeFlow.collectAsState(initial = emptyList())
+    val activeProfileId by preferences.activeProfileId.collectAsState()
+    // Join only this series' local episode rows with the active profile's
+    // already-saved lengths. No provider requests, full-history loads or media
+    // probes; the list updates when returning from playback.
+    val playbackLengthFlow = remember(series?.sourceId, series?.seriesId, activeProfileId) {
+        series?.let { viewModel.episodePlaybackLengths(it, activeProfileId) }
+            ?: kotlinx.coroutines.flow.flowOf(emptyList<app.sokyiptv.data.db.EpisodePlaybackLength>())
+    }
+    val knownPlaybackLengths by playbackLengthFlow.collectAsState(initial = emptyList())
+    val savedRuntimeByEpisode = remember(knownPlaybackLengths) {
+        knownPlaybackLengths.associate { it.episodeId to it.durationMs }
+    }
 
     LaunchedEffect(seriesId) {
         series = viewModel.seriesDetail(seriesId)
@@ -327,7 +339,7 @@ internal fun TvSeriesDetailLayout(
                     ) {
                         items(currentEpisodes, key = { it.id }) { ep ->
                             EpisodePreviewRow(
-                                ep, s.posterUrl,
+                                ep, s.posterUrl, savedRuntimeByEpisode[ep.id],
                                 Modifier,
                                 onPlay = {
                                     lastPlayedEpisode = ep.id
@@ -390,6 +402,7 @@ private fun TvDetailTab(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun EpisodePreviewRow(
     episode: Episode,
     fallbackArt: String?,
+    observedDurationMs: Long?,
     modifier: Modifier = Modifier,
     onPlay: () -> Unit,
     onReset: () -> Unit,
@@ -429,8 +442,9 @@ private fun EpisodePreviewRow(
                 Text("S%02dE%02d - %s".format(episode.season, episode.episodeNumber, episode.title),
                     color = Color.White, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(4.dp))
-                Text(episode.durationSeconds?.takeIf { it > 0 }?.let { "${it / 60}m" } ?: "Duration unavailable",
-                    color = Color.LightGray)
+                Text(EpisodeRuntimeLabel.fromSources(
+                    episode.durationSeconds, observedDurationMs,
+                ), color = Color.LightGray)
             }
             if (focused) IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Episode options",
