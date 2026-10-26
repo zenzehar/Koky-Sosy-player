@@ -118,11 +118,6 @@ fun VlcFallbackScreen(
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
-    val onMarkerLongPress = rememberManualMarkerLongPress(
-        enabled = paused && showEpisodeControls && !trackPanelVisible &&
-            !markerPanelVisible && !leaving.get(),
-        onLongPress = { markerPanelVisible = true; controlsVisible = true; interaction++ },
-    )
     // Restore exact v0.1.9 LibVLC initialization: fixed 1400ms native cache.
     val libvlc = remember(streamUrl) {
         LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
@@ -173,6 +168,12 @@ fun VlcFallbackScreen(
     // When visible, native Compose focus navigation uses the visible button order.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
+    val onMarkerLongPress = rememberManualMarkerLongPress(
+        enabled = paused && showEpisodeControls && !trackPanelVisible &&
+            !markerPanelVisible && !leaving.get(),
+        onLongPress = { markerPanelVisible = true; controlsVisible = true; interaction++ },
+    )
+
 
     fun showControls() { controlsVisible = true; interaction++ }
     fun leaveVideo() {
