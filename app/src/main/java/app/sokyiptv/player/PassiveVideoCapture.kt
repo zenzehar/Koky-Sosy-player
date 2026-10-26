@@ -16,16 +16,25 @@ import kotlin.coroutines.resume
 /**
  * Samples the *already decoding* SurfaceView, not the entire window. Subtitles,
  * controls and overlaid skip prompts therefore cannot poison the signature.
- * On Fire OS/API <= 25, Surface PixelCopy is unavailable: return null silently.
+ * SurfaceView PixelCopy is available from API 24 (Android 7.0). Below 24, surface
+ * sampling is unavailable unless the decoder already uses TextureView.
  */
 object PassiveVideoCapture {
-    private fun findSurface(view: View): View? = when (view) {
-        is SurfaceView -> view
-        is TextureView -> view
-        is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull {
-            findSurface(view.getChildAt(it))
+    private fun findSurface(view: View): View? {
+        // VLCVideoLayout contains both video and subtitle surfaces; never choose
+        // the subtitle surface just because it happens to appear first in traversal.
+        val candidates = mutableListOf<View>()
+        fun traverse(node: View) {
+            when (node) {
+                is SurfaceView -> if (node.isAttachedToWindow &&
+                    node.holder.surface?.isValid == true && node.width > 0 &&
+                    node.height > 0) candidates.add(node)
+                is TextureView -> if (node.isAvailable) candidates.add(node)
+                is ViewGroup -> for (i in 0 until node.childCount) traverse(node.getChildAt(i))
+            }
         }
-        else -> null
+        traverse(view)
+        return candidates.maxByOrNull { it.width.toLong() * it.height }
     }
 
     suspend fun sample(root: View, mediaTimeMs: Long): SceneSample? {
@@ -35,7 +44,7 @@ object PassiveVideoCapture {
         val ok = if (surface is TextureView) {
             if (!surface.isAvailable) false
             else runCatching { surface.getBitmap(bitmap) != null }.getOrDefault(false)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && surface is SurfaceView &&
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && surface is SurfaceView &&
             surface.holder.surface?.isValid == true && surface.isAttachedToWindow) {
             suspendCancellableCoroutine<Boolean> { continuation ->
                 runCatching {
