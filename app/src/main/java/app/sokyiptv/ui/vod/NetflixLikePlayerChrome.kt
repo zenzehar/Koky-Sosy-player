@@ -69,8 +69,7 @@ internal fun NetflixLikePlayerChrome(
     paused: Boolean, nextAvailable: Boolean, playFocus: FocusRequester,
     onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     onEpisodes: () -> Unit, onTracks: () -> Unit, onNext: () -> Unit,
-    onMarkIntroStart: () -> Unit, onMarkIntroEnd: () -> Unit,
-    onMarkCredits: () -> Unit, onClearCues: () -> Unit,
+
 ) {
     val close = remember { FocusRequester() }
     val rewind = remember { FocusRequester() }
@@ -79,8 +78,6 @@ internal fun NetflixLikePlayerChrome(
     val episodes = remember { FocusRequester() }
     val tracks = remember { FocusRequester() }
     val next = remember { FocusRequester() }
-    val cues = remember { FocusRequester() }
-    var menu by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var preview by remember { mutableLongStateOf(0L) }
     var heldAt by remember { mutableLongStateOf(0L) }
@@ -183,31 +180,14 @@ internal fun NetflixLikePlayerChrome(
                 .focusProperties {
                     up = timeline
                     if (isEpisode) left = episodes
-                    right = if (isEpisode && nextAvailable) next else cues
+                    right = if (isEpisode && nextAvailable) next else tracks
                 }, onTracks)
             if (isEpisode && nextAvailable)
                 NText("Next Episode", Modifier.focusRequester(next)
-                    .focusProperties { left = tracks; right = cues; up = timeline }, onNext)
-            NText("Skip Settings", Modifier.focusRequester(cues)
-                .focusProperties {
-                    left = if (isEpisode && nextAvailable) next else tracks
-                    up = timeline
-                }, { menu = !menu })
+                    .focusProperties { left = tracks; up = timeline }, onNext)
+
         }
-        if (menu) {
-            Column(Modifier.align(Alignment.BottomEnd)
-                .padding(end = 34.dp, bottom = 80.dp)
-                .background(Color(0xF01C1C1C), RoundedCornerShape(10.dp))
-                .padding(9.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                if (isEpisode) {
-                    NText("Mark Intro Start", onClick = { onMarkIntroStart(); menu = false })
-                    NText("Mark Intro End", onClick = { onMarkIntroEnd(); menu = false })
-                }
-                NText("Mark Credits Start", onClick = { onMarkCredits(); menu = false })
-                NText("Clear Skip Markers", onClick = { onClearCues(); menu = false })
-                NText("Close", onClick = { menu = false })
-            }
-        }
+
     }
 }
 
