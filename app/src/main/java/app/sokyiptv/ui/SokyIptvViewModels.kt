@@ -1186,7 +1186,18 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             currentCoroutineContext().ensureActive()
             if (EpisodeDurationDiscovery.playbackActive) return
             if (!attempted.add(episode.id)) continue
-            val inspection = EpisodeDurationDiscovery.inspect(episode, source.userAgent)
+            val inspection = try {
+                EpisodeDurationDiscovery.inspect(episode, source.userAgent)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                // Backgrounding or navigating to player must not mark a
+                // cancelled metadata request as permanently inspected.
+                attempted.remove(episode.id)
+                throw cancelled
+            }
+            if (EpisodeDurationDiscovery.playbackActive) {
+                attempted.remove(episode.id)
+                return
+            }
             when (inspection.status) {
                 EpisodeDurationDiscovery.Result.DISCOVERED ->
                     inspection.seconds?.let {
