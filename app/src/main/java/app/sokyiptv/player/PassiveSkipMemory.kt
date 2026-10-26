@@ -35,7 +35,7 @@ class PassiveSkipMemory(context: Context) {
                         }
                     EpisodeScenes(episode, total, samples)
                 }.getOrNull()
-            }.filterNotNull().takeLast(8).toList()
+            }.filterNotNull().toList().takeLast(8)
     }
 
     fun persist(group: String, episodeKey: String, totalMs: Long, samples: List<SceneSample>) {
