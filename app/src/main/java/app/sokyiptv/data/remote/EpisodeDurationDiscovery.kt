@@ -29,7 +29,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * to the video player. Do not expose credential-bearing URLs in any diagnostics.
  */
 internal object EpisodeDurationDiscovery {
-    enum class Result { DISCOVERED, UNAVAILABLE, UNSUPPORTED, PROVIDER_BUSY }
+    enum class Result { DISCOVERED, UNAVAILABLE, UNSUPPORTED, PROVIDER_BUSY, RANGE_UNSUPPORTED }
     data class Inspection(
         val status: Result, val seconds: Int? = null,
         val approximate: Boolean = false,
@@ -110,6 +110,10 @@ internal object EpisodeDurationDiscovery {
                     else Inspection(Result.UNAVAILABLE)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
+                } catch (_: RangeUnsupported) {
+                    // The server would send full videos when Range is requested.
+                    // Stop discovery for this series instead of hammering it.
+                    Inspection(Result.RANGE_UNSUPPORTED)
                 } catch (_: ProviderDenied) {
                     // Avoid more requests when a provider enforces connection limits
                     // or rate-limits; revisit only on a future series-screen visit.
@@ -123,6 +127,7 @@ internal object EpisodeDurationDiscovery {
         }
 
     private class ProviderDenied : IOException()
+    private class RangeUnsupported : IOException()
 
     /** Range MUST return 206; a 200 can be an entire multi-GB video, so do not
      * consume a single byte in that case. A bounded HLS manifest may use 200. */
@@ -156,6 +161,7 @@ internal object EpisodeDurationDiscovery {
             return response.use {
                 if (it.code == 429 || it.code == 401 || it.code == 403 ||
                     it.code == 503) throw ProviderDenied()
+                if (range != null && it.code in listOf(200, 416)) throw RangeUnsupported()
                 if (it.code != if (range == null) 200 else 206) return@use null
                 if (range != null && it.header("Content-Range").isNullOrBlank())
                     return@use null
