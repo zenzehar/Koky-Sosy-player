@@ -562,6 +562,19 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun byId(id: Long): Movie?
 
+    /** Single bounded lookup for a Continue Watching page (at most 300 IDs). */
+    @Query("SELECT * FROM movies WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<Long>): List<Movie>
+
+    /** Restrict a multi-quality title reset before applying the normal display-title
+     * matching in Kotlin. A 40k title catalogue must never be read for one reset. */
+    @Query("""
+        SELECT * FROM movies
+        WHERE sourceId = :sourceId
+          AND (year = :year OR (year IS NULL AND :year IS NULL))
+    """)
+    suspend fun resetCandidates(sourceId: Long, year: Int?): List<Movie>
+
     /** Stream URL is the cross-device key: the same film has the same URL on the same provider. */
     @Query("SELECT * FROM movies WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Movie?
@@ -712,6 +725,10 @@ interface EpisodeDao {
 
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun byId(id: Long): Episode?
+
+    /** Batch watched-episode lookup; avoids one Room query per visible card. */
+    @Query("SELECT * FROM episodes WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<Long>): List<Episode>
 
     @Query("""SELECT * FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId
         AND (season > :season OR (season = :season AND episodeNumber > :number))
