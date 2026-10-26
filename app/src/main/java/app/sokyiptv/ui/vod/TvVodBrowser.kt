@@ -54,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -125,8 +126,10 @@ internal fun TvVodBrowser(
     }
     var sourceMenu by remember { mutableStateOf(false) }
     var resetTarget by remember { mutableStateOf<VodViewModel.ResumeItem?>(null) }
-    var moviePage by remember(isSeries) { mutableStateOf<List<Movie>>(emptyList()) }
-    var seriesPage by remember(isSeries) { mutableStateOf<List<Series>>(emptyList()) }
+    // Append to observable lists in place: List + batch copied the entire growing
+    // catalogue on EVERY page, causing O(n²) allocation on large IPTV libraries.
+    val moviePage = remember(isSeries) { mutableStateListOf<Movie>() }
+    val seriesPage = remember(isSeries) { mutableStateListOf<Series>() }
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
     var favouriteCount by remember(isSeries, sourceId) { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
@@ -156,8 +159,8 @@ internal fun TvVodBrowser(
     // The query runs on the Room dispatcher. A keystroke cancels the old query,
     // waits briefly, then starts at page one. No full-table list is copied in Compose.
     LaunchedEffect(isSeries, sourceId, selection, titleQuery, lastUpdateRevision) {
-        moviePage = emptyList()
-        seriesPage = emptyList()
+        moviePage.clear()
+        seriesPage.clear()
         reachedEnd = false
         loading = false
         grid.scrollToItem(0)
@@ -174,12 +177,12 @@ internal fun TvVodBrowser(
                 val size = if (selection == "recent") 30 else PAGE
                 if (isSeries) {
                     val batch = catalog.seriesPage(sourceId, category, onlyFavourites, query, size, offset)
-                    seriesPage = seriesPage + batch
+                    seriesPage.addAll(batch)
                     offset += batch.size
                     reachedEnd = batch.size < size || selection == "recent"
                 } else {
                     val batch = catalog.moviePage(sourceId, category, onlyFavourites, query, size, offset)
-                    moviePage = moviePage + batch
+                    moviePage.addAll(batch)
                     offset += batch.size
                     reachedEnd = batch.size < size || selection == "recent"
                 }
