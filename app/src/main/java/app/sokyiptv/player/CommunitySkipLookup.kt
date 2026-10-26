@@ -8,7 +8,7 @@ package app.sokyiptv.player
 
 import android.content.Context
 import app.sokyiptv.data.model.Episode
-import app.sokyiptv.data.model.Series
+import app.sokyiptv.data.parser.VodTitleCleaner
 import app.sokyiptv.data.remote.TmdbClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -103,10 +103,12 @@ class CommunitySkipLookup(http: OkHttpClient) {
     }
 
     private fun findByExactTitle(title: String, year: Int?): String? {
-        val normalized = simplify(title)
+        val cleaned = VodTitleCleaner.clean(title)
+            .replace(Regex("\\s*\\((?:19|20)\\d{2}\\)\\s*$"), "").trim()
+        val normalized = simplify(cleaned)
         if (normalized.length !in 3..75) return null
         val results = get("https://api.skipdb.tv/api/titles/search",
-            mapOf("q" to title.trim())) ?: return null
+            mapOf("q" to cleaned)) ?: return null
         val all = mutableListOf<JSONObject>()
         for (key in listOf("local", "results")) {
             val array: JSONArray = results.optJSONArray(key) ?: continue
