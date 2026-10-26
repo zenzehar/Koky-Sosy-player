@@ -42,6 +42,7 @@ object PlaybackDiagnostics {
         "VLC_END", "VLC_EXIT", "VLC_RETRY",
         "VLC_TO_MEDIA3", "VLC_EXTERNAL", "MEDIA3_START", "MEDIA3_ERROR",
         "MEDIA3_STATE", "MEDIA3_EXIT", "UI_BACK", "REPORT", "CRASH",
+        "SKIP_FRAME_OK", "SKIP_FRAME_MISS", "SKIP_INTRO_FOUND", "SKIP_CREDITS_FOUND",
     )
 
     fun install(context: Context) {
