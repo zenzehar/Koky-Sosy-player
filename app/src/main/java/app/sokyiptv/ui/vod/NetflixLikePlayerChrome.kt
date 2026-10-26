@@ -420,14 +420,29 @@ internal fun NetflixTrackOptions(
     subtitles: List<Pair<String, () -> Unit>>,
     onClose: () -> Unit,
 ) {
+    // Modal focus is independent of player transport; opening tracks should
+    // never leave D-pad focus on an obscured playback control.
+    val firstOption = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        withFrameNanos { }
+        runCatching { firstOption.requestFocus() }
+    }
     Column(Modifier.background(Color(0xED111111), RoundedCornerShape(9.dp))
         .padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Text("Audio & Subtitles", color = Color.White, fontWeight = FontWeight.SemiBold)
         Text("Audio", color = Color.White.copy(alpha = .70f))
-        audio.forEach { (label, action) -> NText(label, onClick = action) }
+        audio.forEachIndexed { index, (label, action) ->
+            NText(label, modifier = if (index == 0) Modifier.focusRequester(firstOption)
+                else Modifier, onClick = action)
+        }
         Text("Subtitles", color = Color.White.copy(alpha = .70f))
-        subtitles.forEach { (label, action) -> NText(label, onClick = action) }
-        NText("Done", onClick = onClose)
+        subtitles.forEachIndexed { index, (label, action) ->
+            NText(label, modifier = if (audio.isEmpty() && index == 0)
+                Modifier.focusRequester(firstOption) else Modifier, onClick = action)
+        }
+        NText("Done", modifier = if (audio.isEmpty() && subtitles.isEmpty())
+            Modifier.focusRequester(firstOption) else Modifier, onClick = onClose)
     }
 }
 
