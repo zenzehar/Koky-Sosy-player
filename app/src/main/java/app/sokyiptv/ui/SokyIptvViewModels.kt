@@ -6,6 +6,7 @@
 package app.sokyiptv.ui
 
 import app.sokyiptv.data.remote.EpisodeDurationDiscovery
+import app.sokyiptv.data.remote.EpisodeRuntimeHints
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
@@ -1172,20 +1173,32 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         loadedEpisodes: List<app.sokyiptv.data.model.Episode>,
         attempted: MutableSet<Long>,
         preferredSeason: Int,
+        onStatus: (String) -> Unit = {},
     ) {
         val source = graph.sourceRepository.byId(series.sourceId) ?: return
         if (source.kind != SourceKind.XTREAM) return
         val pending = loadedEpisodes
             .asSequence()
-            .filter { it.id > 0L && (it.durationSeconds == null || it.durationSeconds <= 0) }
+            .filter { it.id > 0L && (it.durationSeconds == null || it.durationSeconds <= 0) &&
+                EpisodeRuntimeHints.lookupMillis(getApplication(), it) == null }
             .sortedWith(compareBy<app.sokyiptv.data.model.Episode> {
                 if (it.season == preferredSeason) 0 else 1
             }.thenBy { it.season }.thenBy { it.episodeNumber })
             .toList()
+        if (pending.isEmpty()) {
+            onStatus("All known durations are already saved")
+            return
+        }
+        var scanned = 0
+        var found = 0
+        var unsupported = 0
+        onStatus("Checking episode durations: 0/${pending.size}")
         for (episode in pending) {
             currentCoroutineContext().ensureActive()
             if (EpisodeDurationDiscovery.playbackActive) return
             if (!attempted.add(episode.id)) continue
+            onStatus("Checking S${episode.season}E${episode.episodeNumber} · " +
+                "$scanned/${pending.size} checked · $found found")
             val inspection = try {
                 EpisodeDurationDiscovery.inspect(episode, source.userAgent)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -1201,15 +1214,29 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             when (inspection.status) {
                 EpisodeDurationDiscovery.Result.DISCOVERED ->
                     inspection.seconds?.let {
-                        graph.catalogRepository.saveVerifiedEpisodeDuration(episode, it)
+                        if (inspection.approximate) {
+                            EpisodeRuntimeHints.save(getApplication(), episode, it)
+                        } else {
+                            graph.catalogRepository.saveVerifiedEpisodeDuration(episode, it)
+                        }
+                        found++
                     }
-                EpisodeDurationDiscovery.Result.PROVIDER_BUSY -> return
+                EpisodeDurationDiscovery.Result.PROVIDER_BUSY -> {
+                    onStatus("Provider limited duration checks · $scanned checked, $found found")
+                    return
+                }
+                EpisodeDurationDiscovery.Result.UNSUPPORTED -> unsupported++
                 EpisodeDurationDiscovery.Result.UNAVAILABLE -> Unit
             }
+            scanned++
+            onStatus("Durations: $scanned/${pending.size} checked · " +
+                "$found found · $unsupported unsupported")
             // One episode at a time with an idle gap. Providers often limit
             // concurrent sessions; never compete with native video playback.
             delay(4_000L)
         }
+        onStatus("Duration scan finished · $found found · " +
+            "$unsupported unsupported · ${scanned - found - unsupported} unavailable")
     }
 
 
