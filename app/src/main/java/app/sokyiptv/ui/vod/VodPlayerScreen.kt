@@ -596,10 +596,9 @@ fun VodPlayerScreen(
         withFrameNanos { }
         if (controlsVisible) {
             runCatching {
-                if (vodPanel != VodPanel.NONE && netflix) {
-                    // NetflixTrackOptions owns focus while its modal is present.
-                } else if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
-                else if (netflix) {
+                if (vodPanel != VodPanel.NONE) {
+                    // Independent dialog owns focus in both player styles.
+                } else if (netflix) {
                     if (focusSeekOnReveal) timelineFocus.requestFocus()
                     else barFocus.requestFocus()
                     focusSeekOnReveal = false
@@ -1110,28 +1109,14 @@ private fun TrackPanel(
         }
     }
 
-    Column(
-        Modifier
-            .widthIn(max = 420.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.Black.copy(alpha = 0.92f))
-            .padding(16.dp),
-    ) {
-        Text(
-            if (panel == VodPanel.SUBTITLES) stringResource(R.string.player_subtitles) else stringResource(R.string.player_audio),
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.7f),
-        )
-        Spacer(Modifier.height(8.dp))
-        Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
-            if (options.isEmpty()) {
-                Text(stringResource(R.string.player_none_available), color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(8.dp))
-            }
-            options.forEachIndexed { index, (label, selected, onClick) ->
-                TrackRow(label, selected, onClick, if (index == 0) firstFocus else null)
-            }
-        }
-    }
+    TvChoiceDialog(
+        heading = if (panel == VodPanel.SUBTITLES) "Subtitles" else "Audio Tracks",
+        details = "Use D-pad Up and Down to select a sound or subtitle track.",
+        items = options.map { (label, selected, action) ->
+            ((if (selected) "[Selected] " else "") + label) to action
+        } + listOf("Done" to onDone),
+        onClose = onDone,
+    )
 }
 
 @Composable
