@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'feature/v0.1.11.61-passive-automatic-skips' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.62-netflix-focus-auto-skip' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feature/v0.1.11.61-passive-automatic-skips'
+      github.head_ref == 'fix/v0.1.11.62-netflix-focus-auto-skip'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.61.apk
-          gh release create v0.1.11.61-passive-automatic-skips \
-            "apk/Soky_IPTV_Pro_v0.1.11.61.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.62.apk
+          gh release create v0.1.11.62-netflix-focus-auto-skip \
+            "apk/Soky_IPTV_Pro_v0.1.11.62.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.61 Automatic Visual Skip Detection" \
-            --notes "v0.1.11.61 EXPERIMENTAL TV TEST BUILD, unapproved, from unchanged gold59. Restore native LibVLC reported buffering percentage for real rebuffer events without revealing hidden controls. Current/Netflix-like style toggle in Settings, D-pad control focus graph and Netflix-like title/play-pause/seek/Next Episode layout. IMPORTANT CHANGE from v60: no chapters or manual markers. Dynamic fully passive video-surface fingerprints from the stream ALREADY decoding on the device, captured at most every 3 seconds. Previously watched episodes of the SAME provider series (at least two independently observed reference episodes) provide repeated visual opening/end sequences. Predict skip prompt only after multiple confident matches, handle shortened or absent intro without inventing start/end timestamps. Movie credits use conservative near-end, sustained dark-background text-frame appearance. No second decoder, no extra IPTV HTTP connection, no provider credentials saved to signatures, sync stays paused. Android SurfaceView sampling uses PixelCopy API 26+; earlier Fire OS/API devices cannot auto-fingerprint by that method. Unchaptered first-time viewing provides no reference; automation learns and prompts only when sufficient evidence exists. Visual credits over live footage and providers reporting erroneous durations may be undetectable. No physical hardware performance/regression acceptance yet; debug-signed prerelease, NOT GOLD." --prerelease
+            --title "Soky IPTV Pro v0.1.11.62 Focus and Dynamic Skip Stabilization" \
+            --notes "v0.1.11.62 EXPERIMENTAL Android TV/Fire TV test build from unchanged gold v0.1.11.59. Netflix-like overlay is frameless in the unfocused state and now has a deterministic bidirectional focus graph; all arrow directions work without requiring Left to escape a root focus trap. Reactivated controls mount without an AnimatedVisibility focus transition; parent awaits two composition frames before requesting focus, while original current-style animations and VLC stream/seek engine remain unchanged. Intro matching collects video-only fingerprints more frequently during the first minutes. Episode fingerprints preserve both opening and latest ending footage; previously the bounded first 350 frames discarded later credits. Dark scrolling credits are no longer prematurely discarded. Privacy-safe SKIP_FRAME_OK, SKIP_FRAME_MISS, SKIP_INTRO_FOUND and SKIP_CREDITS_FOUND events make actual capture failures visible in diagnostics. No chapters, user-provided markers, extra IPTV streams or cloud sync. Dynamic matching may still fail without learned references or on incompatible/secure surfaces. NOT GOLD. Hardware testing remains required to approve." --prerelease
