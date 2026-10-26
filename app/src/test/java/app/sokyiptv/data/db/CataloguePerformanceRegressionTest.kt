@@ -16,7 +16,9 @@ import org.robolectric.annotation.Config
 
 /** Real Room DAO regression tests: no migration, no provider connection required. */
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE, sdk = [28])
+// Use a plain test Application: the production app's startup schedules
+// WorkManager jobs, unrelated to Room DAO assertions and not configured here.
+@Config(application = android.app.Application::class, manifest = Config.NONE, sdk = [28])
 class CataloguePerformanceRegressionTest {
     private lateinit var db: SokyIptvDatabase
 
