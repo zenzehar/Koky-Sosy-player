@@ -1,136 +1,191 @@
-/* GPL-3.0-or-later. Fully passive, per-series VIDEO fingerprint matching.
- * No stream requests, extra decoders, chapters or manually supplied skip times.
- */
+/* GPL-3.0-or-later. Local visual fingerprint sequence matching, no network, no chapters. */
 package app.sokyiptv.player
 
-/** Captured from the video surface already playing on the device. */
+import kotlin.math.abs
+
 data class SceneSample(val atMs: Long, val hash: Long, val creditsLike: Boolean)
-
 data class EpisodeScenes(val episodeId: String, val totalMs: Long, val samples: List<SceneSample>)
-
 data class RepeatedClip(val startMs: Long, val endMs: Long, val reference: List<SceneSample>)
-
 data class DetectedSkip(val introEndMs: Long = -1L, val credits: Boolean = false)
 
 /**
- * Recognition requires independent examples. A first-ever episode or a movie has
- * no trusted reference for its opening; we must not invent one. Generic visual
- * credits recognition is conservatively limited to the end of a film.
+ * Frames from independent episode decoders cannot be sampled at precisely equal
+ * points in time. Comparing exact sample timestamps or exact dHashes (as v61/v62
+ * did) discards genuine opening sequences. This algorithm votes on relative
+ * temporal offsets and then verifies a moving, monotonically ordered sequence.
+ *
+ * It makes NO claim to identify the end of an opening from a single episode.
+ * Two independent previous recordings are needed to infer a repeatable boundary.
  */
 object PassiveSkipDetector {
-    fun distance(a: Long, b: Long): Int = java.lang.Long.bitCount(a xor b)
-    private const val STEP_MS = 3_000L
-    private const val EARLY_LIMIT = 480_000L
+    private const val EARLY_MS = 480_000L
     private const val MAX_CLIP_MS = 240_000L
+    private const val MAX_ALIGNMENT_MS = 180_000L
+    private const val OFFSET_BIN_MS = 5_000L
+    private const val MAX_TIME_JITTER_MS = 5_000L
+    private const val MAX_FRAME_DISTANCE = 19
+    private const val MAX_GAP_MS = 15_000L
+    fun distance(a: Long, b: Long): Int = java.lang.Long.bitCount(a xor b)
+
+    private data class PairHit(val a: SceneSample, val b: SceneSample, val distance: Int) {
+        val offset: Long get() = b.atMs - a.atMs
+    }
 
     fun template(history: List<EpisodeScenes>, credits: Boolean = false): RepeatedClip? {
-        val valid = history.filter { it.samples.size >= 10 }.takeLast(8)
+        val valid = history.filter { episode ->
+            episode.samples.count { allowed(it, episode.totalMs, credits) } >= 8
+        }.takeLast(8)
+        if (valid.size < 2) return null
         var best: RepeatedClip? = null
-        var longest = 0L
-        for (i in valid.indices) for (j in i + 1 until valid.size) {
+        var bestScore = -1L
+        for (i in valid.indices) for (j in (i + 1) until valid.size) {
             val a = valid[i]
             val b = valid[j]
             val left = a.samples.filter { allowed(it, a.totalMs, credits) }
+                .sortedBy { it.atMs }
             val right = b.samples.filter { allowed(it, b.totalMs, credits) }
-            if (left.isEmpty() || right.isEmpty()) continue
-            // Candidate matches binned by temporal offset. Different episodes
-            // may truncate the opening so equality of raw timestamps is unsafe.
-            val aligned = mutableMapOf<Int, MutableList<Pair<SceneSample, SceneSample>>>()
-            left.forEach { one ->
-                right.forEach { two ->
-                    val relativeA = if (credits) a.totalMs - one.atMs else one.atMs
-                    val relativeB = if (credits) b.totalMs - two.atMs else two.atMs
-                    val offset = relativeB - relativeA
-                    if (kotlin.math.abs(offset) <= 180_000L &&
-                        distance(one.hash, two.hash) <= 10) {
-                        val bucket = (offset / 9_000L).toInt()
-                        aligned.getOrPut(bucket) { mutableListOf() }.add(one to two)
-                    }
-                }
+                .sortedBy { it.atMs }
+            // Candidate offsets need a rough 5s bin only for *discovery*.
+            // Verification below permits sampling jitter across bin boundaries.
+            val votes = HashMap<Long, Int>()
+            for (x in left) for (y in right) {
+                val from = if (credits) a.totalMs - x.atMs else x.atMs
+                val to = if (credits) b.totalMs - y.atMs else y.atMs
+                val delta = to - from
+                if (abs(delta) > MAX_ALIGNMENT_MS ||
+                    distance(x.hash, y.hash) > MAX_FRAME_DISTANCE) continue
+                val bucket = Math.floorDiv(delta, OFFSET_BIN_MS)
+                votes[bucket] = (votes[bucket] ?: 0) + 1
             }
-            for (pairs in aligned.values) {
-                val sorted = pairs.sortedBy { it.second.atMs }
-                var run = mutableListOf<Pair<SceneSample, SceneSample>>()
-                fun offerRun() {
-                    val distinct = run.distinctBy { it.second.atMs }
-                    if (distinct.size < 8) return
-                    val span = distinct.last().second.atMs - distinct.first().second.atMs
-                    if (span < 24_000L || span > MAX_CLIP_MS) return
-                    val from = distinct.first().second.atMs
-                    val until = distinct.last().second.atMs
-                    val reference = right.filter { it.atMs in from..until }
-                    // Ignore dark/near-identical static cards and isolated matches;
-                    // a template needs movement and multiple distinct signatures.
-                    if (reference.map { it.hash }.distinct().size < 7) return
-                    if (span > longest) {
-                        longest = span
-                        best = RepeatedClip(from, until, reference)
+            // Check the strongest candidate offsets, not just the single maximum.
+            val buckets = votes.entries.sortedByDescending { it.value }.take(12)
+            for (bucket in buckets) {
+                val delta = bucket.key * OFFSET_BIN_MS + OFFSET_BIN_MS / 2L
+                val aligned = mutableListOf<PairHit>()
+                // Greedily match each reference frame to at most one frame from
+                // the other episode, moving time forward on BOTH timelines.
+                var lastLeftAt = -1L
+                for (rightFrame in right) {
+                    val expectedLeftTime = if (credits)
+                        a.totalMs - (b.totalMs - rightFrame.atMs - delta)
+                        else rightFrame.atMs - delta
+                    val candidate = left.asSequence()
+                        .filter {
+                            it.atMs > lastLeftAt &&
+                                abs(it.atMs - expectedLeftTime) <= MAX_TIME_JITTER_MS
+                        }
+                        .map { PairHit(it, rightFrame, distance(it.hash, rightFrame.hash)) }
+                        .filter { it.distance <= MAX_FRAME_DISTANCE }
+                        .minByOrNull { it.distance * 200 + abs(it.a.atMs - expectedLeftTime) / 100 }
+                    if (candidate != null) {
+                        aligned.add(candidate)
+                        lastLeftAt = candidate.a.atMs
                     }
                 }
-                for (pair in sorted) {
-                    val previous = run.lastOrNull()?.second?.atMs
-                    if (previous != null && pair.second.atMs - previous > 15_000L) {
-                        offerRun()
+                // The strongest temporal run is the proposed common sequence.
+                var run = mutableListOf<PairHit>()
+                fun considerRun() {
+                    if (run.size < 7) return
+                    val span = run.last().b.atMs - run.first().b.atMs
+                    if (span < 18_000L || span > MAX_CLIP_MS) return
+                    if (run.map { it.b.hash }.distinct().size < 6 ||
+                        run.map { it.a.hash }.distinct().size < 6) return
+                    val start = run.first().b.atMs
+                    val end = run.last().b.atMs
+                    val reference = right.filter { it.atMs in start..end }
+                    val score = span + run.size * 1_500L
+                    if (score > bestScore) {
+                        bestScore = score
+                        best = RepeatedClip(start, end, reference)
+                    }
+                }
+                for (hit in aligned) {
+                    val previous = run.lastOrNull()
+                    if (previous != null &&
+                        (hit.b.atMs - previous.b.atMs > MAX_GAP_MS ||
+                            hit.a.atMs - previous.a.atMs > MAX_GAP_MS)) {
+                        considerRun()
                         run = mutableListOf()
                     }
-                    if (run.none { it.second.atMs == pair.second.atMs }) run.add(pair)
+                    run.add(hit)
                 }
-                offerRun()
+                considerRun()
             }
         }
         return best
     }
 
     private fun allowed(sample: SceneSample, totalMs: Long, credits: Boolean): Boolean {
-        if (credits) return totalMs > 0L && sample.atMs > totalMs * 75 / 100 &&
-            totalMs - sample.atMs <= 900_000L
-        return sample.atMs <= EARLY_LIMIT
+        if (!credits) return sample.atMs >= 0L && sample.atMs <= EARLY_MS
+        return totalMs > 0L && sample.atMs >= totalMs * 75L / 100L &&
+            (totalMs - sample.atMs) in 0L..900_000L
     }
 
+    /** Estimate the current episode's end of its common opening from live evidence. */
     fun detectIntro(
-        current: List<SceneSample>, template: RepeatedClip?, nowMs: Long, totalMs: Long,
+        current: List<SceneSample>, template: RepeatedClip?,
+        nowMs: Long, totalMs: Long,
     ): Long {
         val clip = template ?: return -1L
-        if (nowMs > EARLY_LIMIT || current.size < 3) return -1L
-        val recent = current.takeLast(12).filter { it.atMs <= EARLY_LIMIT }
-        val anchors = mutableListOf<Pair<SceneSample, SceneSample>>()
-        recent.forEach { own ->
-            clip.reference.forEach { ref ->
-                if (distance(own.hash, ref.hash) <= 10) anchors.add(own to ref)
-            }
+        if (nowMs > EARLY_MS || clip.reference.size < 7) return -1L
+        val recent = current.filter { it.atMs <= EARLY_MS }.takeLast(22)
+        if (recent.size < 4) return -1L
+        val anchors = mutableMapOf<Long, MutableList<PairHit>>()
+        for (frame in recent) for (ref in clip.reference) {
+            val d = distance(frame.hash, ref.hash)
+            if (d > MAX_FRAME_DISTANCE) continue
+            val delta = frame.atMs - ref.atMs
+            val bin = Math.floorDiv(delta, OFFSET_BIN_MS)
+            anchors.getOrPut(bin) { mutableListOf() }.add(PairHit(ref, frame, d))
         }
-        if (anchors.size < 3) return -1L
-        val offsets = anchors.groupBy { ((it.first.atMs - it.second.atMs) / 9_000L).toInt() }
-        val match = offsets.values.maxByOrNull { it.map { p -> p.first.atMs }.distinct().size }
-            ?.distinctBy { it.first.atMs }?.sortedBy { it.first.atMs } ?: return -1L
-        if (match.size < 3 || match.last().first.atMs - match.first().first.atMs < 6_000L) return -1L
-        val lastMatch = match.last()
-        val target = nowMs + (clip.endMs - lastMatch.second.atMs)
-        return if (target > nowMs + 8_000L && target <= nowMs + MAX_CLIP_MS &&
-            (totalMs <= 0L || target < totalMs - 30_000L)) target else -1L
+        // Allow adjacent buckets: unrelated similar frames have no sustained
+        // consistent offset over multiple DIFFERENT video frames.
+        val orderedBuckets = anchors.keys.sortedByDescending { anchors[it]?.size ?: 0 }.take(10)
+        for (bin in orderedBuckets) {
+            val matches = ((anchors[bin - 1] ?: emptyList()) +
+                (anchors[bin] ?: emptyList()) + (anchors[bin + 1] ?: emptyList()))
+                .sortedWith(compareBy<PairHit> { it.b.atMs }.thenBy { it.distance })
+            val sequence = mutableListOf<PairHit>()
+            var lastRef = -1L
+            var lastOwn = -1L
+            val centre = bin * OFFSET_BIN_MS
+            for (pair in matches) {
+                if (abs((pair.b.atMs - pair.a.atMs) - centre) > 7_500L ||
+                    pair.a.atMs <= lastRef || pair.b.atMs <= lastOwn) continue
+                sequence.add(pair)
+                lastRef = pair.a.atMs
+                lastOwn = pair.b.atMs
+            }
+            if (sequence.size < 4 ||
+                sequence.last().b.atMs - sequence.first().b.atMs < 7_000L ||
+                sequence.map { it.a.hash }.distinct().size < 4) continue
+            val currentOffset = sequence.map { it.b.atMs - it.a.atMs }
+                .sorted()[sequence.size / 2]
+            val target = clip.endMs + currentOffset
+            // Never seek without a believable end, even when an opening looks familiar.
+            if (target >= nowMs + 8_000L && target <= nowMs + MAX_CLIP_MS &&
+                (totalMs <= 0L || target < totalMs - 30_000L)) return target
+        }
+        return -1L
     }
 
     fun detectRepeatedCredits(
         current: List<SceneSample>, clip: RepeatedClip?, nowMs: Long, totalMs: Long,
     ): Boolean {
-        if (clip == null || totalMs <= 0L || nowMs < totalMs * 75 / 100) return false
-        val recent = current.takeLast(9)
+        if (clip == null || totalMs <= 0L || nowMs < totalMs * 75L / 100L) return false
+        val recent = current.filter { it.atMs >= totalMs * 75L / 100L }.takeLast(12)
+        if (recent.size < 5) return false
         val hits = recent.count { own ->
-            clip.reference.any { ref -> distance(own.hash, ref.hash) <= 10 }
+            clip.reference.any { ref -> distance(own.hash, ref.hash) <= MAX_FRAME_DISTANCE }
         }
-        return hits >= 4 && recent.size >= 4
+        return hits >= 5 && recent.map { it.hash }.distinct().size >= 4
     }
 
-    /** Generic fallback for movie credits over a mostly-dark scrolling text card.
-     * Conservative by design; credits over live-action footage may not be recognised.
-     */
-    fun detectVisualCredits(
-        samples: List<SceneSample>, nowMs: Long, totalMs: Long,
-    ): Boolean {
-        if (totalMs <= 0 || nowMs < totalMs * 80 / 100 ||
+    fun detectVisualCredits(samples: List<SceneSample>, nowMs: Long, totalMs: Long): Boolean {
+        if (totalMs <= 0L || nowMs < totalMs * 80L / 100L ||
             totalMs - nowMs > 900_000L) return false
-        val recent = samples.takeLast(5)
+        val recent = samples.filter { it.atMs >= nowMs - 23_000L }.takeLast(7)
         return recent.size >= 5 && recent.count { it.creditsLike } >= 4 &&
-            recent.last().atMs - recent.first().atMs <= 24_000L
+            recent.last().atMs - recent.first().atMs <= 23_000L
     }
 }
