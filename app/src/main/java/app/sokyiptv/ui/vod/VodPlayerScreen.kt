@@ -106,6 +106,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.sokyiptv.R
+import app.sokyiptv.core.AppSettings
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.core.SleepTimer
 import app.sokyiptv.core.findActivity
