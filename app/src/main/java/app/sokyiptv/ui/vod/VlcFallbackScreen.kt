@@ -134,6 +134,7 @@ fun VlcFallbackScreen(
     // Re-enable v39 selected-target, one-retry seek correction. The v47 renderer did not call it.
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
+    val seekFrameCache = remember(mediaKey) { SeekFramePreviewCache() }
     var surfaceRebindPending by remember(streamUrl) { mutableStateOf(false) }
     var nativePlaybackActive by remember(streamUrl) { mutableStateOf(false) }
     var healthSnapshot by remember(streamUrl) {
@@ -392,6 +393,24 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Optional Netflix seek-preview images come exclusively from the existing
+    // decoded video surface, only once every 15 seconds. No second decoder or
+    // IPTV HTTP request is ever started. Failed captures are silent.
+    LaunchedEffect(netflix, videoLayout, ready) {
+        val layout = videoLayout ?: return@LaunchedEffect
+        if (!netflix || !ready) return@LaunchedEffect
+        delay(2_500L)
+        while (isActive && !leaving.get() && !nativeReleased.get()) {
+            if (!paused && !failed && !ended && player.isPlaying &&
+                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING) {
+                runCatching {
+                    seekFrameCache.record(layout, player.time.coerceAtLeast(0L))
+                }
+            }
+            delay(15_000L)
+        }
+    }
+
     // Preserve modern screensaver pause API, without newer decoder rebind or seek recovery.
     LaunchedEffect(suspendPlayback) {
         if (suspendPlayback) {
@@ -635,6 +654,7 @@ fun VlcFallbackScreen(
                     onSeek = ::seekTo, onEpisodes = ::leaveVideo,
                     onTracks = { trackPanelVisible = true; showControls() },
                     onNext = onNextEpisodeClick,
+                    previewFrames = seekFrameCache,
                 )
             } else {
             Box(
