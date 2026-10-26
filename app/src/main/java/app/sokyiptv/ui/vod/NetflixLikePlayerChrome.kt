@@ -3,6 +3,7 @@ package app.sokyiptv.ui.vod
 
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -54,6 +55,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -66,6 +70,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.unit.sp
 import app.sokyiptv.player.ManualSeriesSkips
 import app.sokyiptv.player.SkipMark
@@ -93,6 +99,8 @@ internal fun NetflixLikePlayerChrome(
     playFocus: FocusRequester,
     timelineFocus: FocusRequester,
     tracksFocus: FocusRequester,
+    thumbnailAt: (Long) -> ImageBitmap? = { null },
+    onSeekingChanged: (Boolean) -> Unit = {},
     onActivity: () -> Unit,
     onBack: () -> Unit,
     onToggle: () -> Unit,
@@ -112,8 +120,32 @@ internal fun NetflixLikePlayerChrome(
     var seekHeldAtMs by remember { mutableLongStateOf(0L) }
     var heldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var seekFocused by remember { mutableStateOf(false) }
+    var buttonSeekPreviewMs by remember { mutableLongStateOf(-1L) }
     var activeTarget by remember { mutableStateOf(NetflixTarget.PLAY) }
     val displayMs = if (scrubbing) seekPreviewMs else positionMs
+
+    // TV remotes do not always send repeated D-pad DOWN events while held.
+    // Progress based on monotonic elapsed time, without issuing ANY player seek
+    // until the user releases the key.
+    LaunchedEffect(heldDirection, seekHeldAtMs, durationMs) {
+        val dir = heldDirection ?: return@LaunchedEffect
+        if (durationMs <= 0L) return@LaunchedEffect
+        while (isActive) {
+            delay(65L)
+            val held = SystemClock.uptimeMillis() - seekHeldAtMs
+            if (held >= TvSeekPolicy.HOLD_THRESHOLD_MS) {
+                val prediction = TvSeekPolicy.heldPreview(seekOriginMs, held, dir, durationMs)
+                seekPreviewMs = if (dir == SeekDirection.FORWARD)
+                    max(seekPreviewMs, prediction) else min(seekPreviewMs, prediction)
+            }
+        }
+    }
+    LaunchedEffect(buttonSeekPreviewMs) {
+        if (buttonSeekPreviewMs >= 0L) {
+            delay(1_450L)
+            buttonSeekPreviewMs = -1L
+        }
+    }
 
     // Do not block arrow-key focus traversal with a fullscreen clickable surface.
     BoxWithConstraints(Modifier.fillMaxSize()
@@ -194,7 +226,11 @@ internal fun NetflixLikePlayerChrome(
                         right = playFocus; up = closeFocus; down = timelineFocus
                     },
                 58,
-                onClick = { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.BACKWARD)) },
+                onClick = {
+                    val target = TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.BACKWARD)
+                    buttonSeekPreviewMs = target
+                    onSeek(target)
+                },
                 onActivity = onActivity,
             )
             NIcon(
@@ -217,7 +253,11 @@ internal fun NetflixLikePlayerChrome(
                     left = playFocus; up = closeFocus; down = timelineFocus
                 },
                 58,
-                onClick = { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)) },
+                onClick = {
+                    val target = TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)
+                    buttonSeekPreviewMs = target
+                    onSeek(target)
+                },
                 onActivity = onActivity,
             )
         }
@@ -235,42 +275,52 @@ internal fun NetflixLikePlayerChrome(
                         up = playFocus
                         down = if (isEpisode) episodesFocus else tracksFocus
                     }
-                    .onFocusChanged { seekFocused = it.isFocused
+                    .onFocusChanged {
+                        seekFocused = it.isFocused
                         if (it.isFocused) { activeTarget = NetflixTarget.TIMELINE; onActivity() }
+                        else if (heldDirection != null) {
+                            heldDirection = null
+                            scrubbing = false
+                            onSeekingChanged(false)
+                        }
                     }
                     .onPreviewKeyEvent { event ->
                         val direction = when (event.key) {
                             Key.DirectionLeft -> SeekDirection.BACKWARD
                             Key.DirectionRight -> SeekDirection.FORWARD
                             else -> null
-                        }
-                        if (direction == null) return@onPreviewKeyEvent false
+                        } ?: return@onPreviewKeyEvent false
                         onActivity()
-                        if (event.type == KeyEventType.KeyDown) {
-                            if (durationMs <= 0L) return@onPreviewKeyEvent true
-                            if (!scrubbing || heldDirection != direction) {
-                                seekOriginMs = if (scrubbing) seekPreviewMs else positionMs
-                                seekHeldAtMs = SystemClock.uptimeMillis()
-                                heldDirection = direction
-                                seekPreviewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
-                                scrubbing = true
-                            } else {
-                                val held = SystemClock.uptimeMillis() - seekHeldAtMs
-                                seekPreviewMs = if (held > TvSeekPolicy.HOLD_THRESHOLD_MS) {
-                                    val target = TvSeekPolicy.heldPreview(
-                                        seekOriginMs, held, direction, durationMs,
-                                    )
-                                    if (direction == SeekDirection.FORWARD) max(seekPreviewMs, target)
-                                    else min(seekPreviewMs, target)
-                                } else seekPreviewMs
+                        when (event.type) {
+                            KeyEventType.KeyDown -> {
+                                if (durationMs <= 0L) return@onPreviewKeyEvent true
+                                if (event.nativeKeyEvent.repeatCount == 0 ||
+                                    heldDirection != direction) {
+                                    seekOriginMs = if (scrubbing) seekPreviewMs else positionMs
+                                    seekHeldAtMs = SystemClock.uptimeMillis()
+                                    heldDirection = direction
+                                    seekPreviewMs = TvSeekPolicy.tap(
+                                        seekOriginMs, durationMs, direction)
+                                    scrubbing = true
+                                    onSeekingChanged(true)
+                                }
+                                // Held-key acceleration is updated by LaunchedEffect.
+                                true
                             }
-                            true
-                        } else if (event.type == KeyEventType.KeyUp) {
-                            if (scrubbing && durationMs > 0L) onSeek(seekPreviewMs)
-                            scrubbing = false
-                            heldDirection = null
-                            true
-                        } else false
+                            KeyEventType.KeyUp -> {
+                                val target = seekPreviewMs
+                                val shouldCommit = scrubbing && heldDirection == direction
+                                heldDirection = null
+                                scrubbing = false
+                                onSeekingChanged(false)
+                                if (shouldCommit && durationMs > 0L) {
+                                    buttonSeekPreviewMs = target
+                                    onSeek(target)
+                                }
+                                true
+                            }
+                            else -> false
+                        }
                     }
                     .semantics {
                         contentDescription = "Timeline. Left and right seek ten seconds; hold to accelerate."
@@ -299,6 +349,62 @@ internal fun NetflixLikePlayerChrome(
             }
             Text(if (durationMs > 0L) nClock(durationMs) else "--:--",
                 color = netflixWhite, fontSize = 18.sp)
+        }
+        // Netflix-style trickplay card follows the playhead, not the centre of
+        // the screen. A snapshot is shown only for a time-matching decoded frame.
+        // Without provider-supplied storyboards, unseen positions have no image.
+        val previewOn = seekFocused || scrubbing || buttonSeekPreviewMs >= 0L
+        if (previewOn && durationMs > 0L) {
+            val previewAt = when {
+                scrubbing -> seekPreviewMs
+                buttonSeekPreviewMs >= 0L -> buttonSeekPreviewMs
+                else -> positionMs
+            }.coerceIn(0L, durationMs)
+            val fraction = (previewAt.toDouble() / durationMs).toFloat()
+                .coerceIn(0f, 1f)
+            val bubbleWidth = 204.dp
+            val travel = (maxWidth - 47.dp - 53.dp - 111.dp).coerceAtLeast(0.dp)
+            val start = (58.dp + travel * fraction - bubbleWidth / 2f)
+                .coerceIn(8.dp, (maxWidth - bubbleWidth - 8.dp).coerceAtLeast(8.dp))
+            val frame = thumbnailAt(previewAt)
+            Column(
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .padding(start = start, bottom = timelineBottom + 47.dp)
+                    .width(bubbleWidth),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Box(
+                    Modifier.fillMaxWidth().height(115.dp)
+                        .background(Color(0xE5101010), RoundedCornerShape(5.dp))
+                        .border(1.dp, Color.White.copy(alpha = .62f), RoundedCornerShape(5.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (frame != null) {
+                        Image(
+                            bitmap = frame,
+                            contentDescription = "Actual previously decoded frame near " +
+                                nClock(previewAt),
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Text("Preview unavailable", color = Color.White.copy(alpha = .6f),
+                            fontSize = 12.sp)
+                    }
+                }
+                Row(
+                    Modifier.background(Color(0xDD101010), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(nClock(previewAt), color = Color.White, fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold)
+                    Text("-" + nClock(durationMs - previewAt),
+                        color = Color.White.copy(alpha = .70f), fontSize = 14.sp)
+                }
+            }
         }
         Row(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = linksBottom),
