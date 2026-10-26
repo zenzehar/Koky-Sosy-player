@@ -78,9 +78,7 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.player.VlcNativeSeekCorrection
-import app.sokyiptv.player.DetectedSkip
-import app.sokyiptv.player.PassiveSkipTracker
-import app.sokyiptv.player.PassiveVideoCapture
+import app.sokyiptv.player.ManualSeriesSkips
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlin.math.max
@@ -92,7 +90,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun VlcFallbackScreen(
     streamUrl: String,
     mediaKey: String,
-    skipTracker: PassiveSkipTracker,
+    manualSkips: ManualSeriesSkips,
+    onSkipsChanged: (ManualSeriesSkips) -> Unit,
     title: String,
     userAgent: String,
     initialPositionMs: Long,
@@ -114,15 +113,16 @@ fun VlcFallbackScreen(
     val autoplay by preferences.seriesAutoplay.collectAsState()
     val style by preferences.playerUiStyle.collectAsState()
     val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
-    var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
-    var skipSampleMisses by remember(mediaKey) { mutableIntStateOf(0) }
-    var skipSampleLogged by remember(mediaKey) { mutableStateOf(false) }
-    var skipIntroLogged by remember(mediaKey) { mutableStateOf(false) }
-    var skipCreditsLogged by remember(mediaKey) { mutableStateOf(false) }
+    var markerPanelVisible by remember(mediaKey) { mutableStateOf(false) }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
+    val onMarkerLongPress = rememberManualMarkerLongPress(
+        enabled = paused && showEpisodeControls && !trackPanelVisible &&
+            !markerPanelVisible && !leaving.get(),
+        onLongPress = { markerPanelVisible = true; controlsVisible = true; interaction++ },
+    )
     // Restore exact v0.1.9 LibVLC initialization: fixed 1400ms native cache.
     val libvlc = remember(streamUrl) {
         LibVLC(context.applicationContext, arrayListOf("--network-caching=1400", "--no-video-title-show"))
@@ -390,46 +390,6 @@ fun VlcFallbackScreen(
         }
     }
 
-    // Passive, fully automatic sampling: the already decoding native video surface.
-    // No metadata probes, no second player, no additional provider HTTP requests.
-    LaunchedEffect(videoLayout, ready, skipTracker) {
-        val layout = videoLayout ?: return@LaunchedEffect
-        if (!ready) return@LaunchedEffect
-        while (isActive && !leaving.get() && !nativeReleased.get()) {
-            // More frequent video-frame evidence during likely short openings.
-            delay(if (positionMs < 180_000L) 1_500L else 3_000L)
-            if (paused || suspendPlayback || !player.isPlaying || !ready || failed) continue
-            val current = runCatching { player.time.coerceAtLeast(0L) }.getOrDefault(-1L)
-            val total = runCatching { player.length.coerceAtLeast(0L) }.getOrDefault(0L)
-            if (current < 0L || (current > 480_000L &&
-                (total == 0L || current < total * 75L / 100L))) continue
-            val scene = runCatching { PassiveVideoCapture.sample(layout, current) }.getOrNull()
-            if (scene == null) {
-                skipSampleMisses++
-                if (skipSampleMisses == 8) PlaybackDiagnostics.event(
-                    context, "SKIP_FRAME_MISS", android.os.Build.VERSION.SDK_INT,
-                    persistNow = true)
-                continue
-            }
-            if (!skipSampleLogged) {
-                skipSampleLogged = true
-                PlaybackDiagnostics.event(context, "SKIP_FRAME_OK",
-                    skipTracker.referenceEpisodes, persistNow = true)
-            }
-            autoSkips = skipTracker.observe(scene, total)
-            if (autoSkips.introEndMs > 0L && !skipIntroLogged) {
-                skipIntroLogged = true
-                PlaybackDiagnostics.event(context, "SKIP_INTRO_FOUND",
-                    (autoSkips.introEndMs / 1000L).toInt(), persistNow = true)
-            }
-            if (autoSkips.credits && !skipCreditsLogged) {
-                skipCreditsLogged = true
-                PlaybackDiagnostics.event(context, "SKIP_CREDITS_FOUND",
-                    (current / 1000L).toInt(), persistNow = true)
-            }
-        }
-    }
-
     // Preserve modern screensaver pause API, without newer decoder rebind or seek recovery.
     LaunchedEffect(suspendPlayback) {
         if (suspendPlayback) {
@@ -458,7 +418,7 @@ fun VlcFallbackScreen(
 
     LaunchedEffect(controlsVisible, interaction, nativePlaybackActive, paused, scrubbing, failed, ended) {
         if (controlsVisible && nativePlaybackActive && !paused && !scrubbing && !failed && !ended &&
-            !trackPanelVisible) {
+            !trackPanelVisible && !markerPanelVisible) {
             delay(5_000)
             controlsVisible = false
         }
@@ -485,6 +445,7 @@ fun VlcFallbackScreen(
     BackHandler {
         when {
             leaving.get() -> Unit
+            markerPanelVisible -> markerPanelVisible = false
             trackPanelVisible -> {
                 trackPanelVisible = false
                 showControls()
@@ -506,6 +467,7 @@ fun VlcFallbackScreen(
             .focusRequester(rootFocus)
             .onFocusChanged { rootOwnsFocus = it.isFocused }
             .onPreviewKeyEvent { event ->
+                if (onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 if (leaving.get()) return@onPreviewKeyEvent true
                 val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 if (TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode)) {
@@ -868,19 +830,18 @@ fun VlcFallbackScreen(
             }
             }
         }
-        // Show a skip only after content evidence exists; learned intros may need
-        // previous episodes as reference. Never guess a constant intro length.
+        // No detection, no chapters, no guesses. Missing markers produce no UI.
         val showIntro = !ended && ready && !paused && !failed &&
-            showEpisodeControls && autoSkips.introEndMs > positionMs + 3_000L &&
-            positionMs < 480_000L
+            showEpisodeControls && manualSkips.showIntro(positionMs)
         val showCredits = !ended && ready && !paused && !failed &&
-            !creditsDismissed && autoSkips.credits && durationMs > 0L && positionMs >= durationMs * 75L / 100L
+            showEpisodeControls && !creditsDismissed &&
+            manualSkips.showCredits(positionMs)
         if (showIntro) {
             NetflixSkipPrompt(
                 label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
-            ) { seekTo(autoSkips.introEndMs) }
+            ) { seekTo(manualSkips.introEndMs) }
         } else if (showCredits && netflix) {
             NetflixCreditsPrompt(
                 isEpisode = showEpisodeControls, nextAvailable = nextEpisodeAvailable,
@@ -919,11 +880,33 @@ fun VlcFallbackScreen(
                     }
                 } ?: emptyList()
             }.getOrDefault(emptyList())
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)),
-                contentAlignment = Alignment.Center) {
-                NetflixTrackOptions(audio, subs) { trackPanelVisible = false }
-            }
+            NetflixTrackOptions(audio, subs) { trackPanelVisible = false }
         }
+    }
+    if (markerPanelVisible && showEpisodeControls && !leaving.get()) {
+        ManualSeriesSkipDialog(
+            atMs = positionMs, marks = manualSkips,
+            onMark = { mark ->
+                val now = runCatching { player.time.coerceAtLeast(0L) }
+                    .getOrDefault(positionMs)
+                onSkipsChanged(manualSkips.mark(mark, now))
+                markerPanelVisible = false
+                showControls()
+            },
+            onClearIntro = {
+                onSkipsChanged(manualSkips.clearIntro())
+                markerPanelVisible = false
+            },
+            onClearCredits = {
+                onSkipsChanged(manualSkips.clearCredits())
+                markerPanelVisible = false
+            },
+            onClearAll = {
+                onSkipsChanged(ManualSeriesSkips())
+                markerPanelVisible = false
+            },
+            onClose = { markerPanelVisible = false },
+        )
     }
     if (diagnosticsState) {
         PlaybackDiagnosticsDialog(
