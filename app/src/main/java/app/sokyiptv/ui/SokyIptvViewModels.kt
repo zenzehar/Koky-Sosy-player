@@ -5,6 +5,8 @@
  */
 package app.sokyiptv.ui
 
+import app.sokyiptv.player.ResumeProgressPresentation
+
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -772,7 +774,10 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val episodeLabel: String? = null,
         val positionMs: Long = 0L,
         val durationMs: Long = 0L,
-    )
+    ) {
+        val progressLabel: String
+            get() = ResumeProgressPresentation.Summary(durationMs, progress).label(positionMs)
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val continueWatching: StateFlow<List<ResumeItem>> =
@@ -797,29 +802,34 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         val parts = pos.mediaKey.split(":", limit = 2)
         if (parts.size != 2) return null
         val id = parts[1].toLongOrNull() ?: return null
-        val progress = if (pos.durationMillis > 0L)
-            (pos.positionMillis.toFloat() / pos.durationMillis).coerceIn(0f, 1f) else 0f
         return when (parts[0]) {
             "movie" -> graph.catalogRepository.movie(id)?.let {
+                val presentation = ResumeProgressPresentation.resolve(
+                    pos.positionMillis, pos.durationMillis, it.durationSeconds,
+                )
                 ResumeItem(
-                    pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl, progress,
+                    pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl,
+                    presentation.fraction,
                     logicalKey = "movie:${it.sourceId}:${it.displayTitle.trim().lowercase()}:${it.year ?: 0}",
                     finished = pos.isFinished, sourceId = it.sourceId,
-                    positionMs = pos.positionMillis, durationMs = pos.durationMillis,
+                    positionMs = pos.positionMillis, durationMs = presentation.durationMs,
                 )
             }
             "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
                 val parent = graph.catalogRepository.seriesByProviderId(episode.sourceId, episode.seriesId)
+                val presentation = ResumeProgressPresentation.resolve(
+                    pos.positionMillis, pos.durationMillis, episode.durationSeconds,
+                )
                 ResumeItem(
                     pos.mediaKey,
                     parent?.displayTitle ?: episode.title.ifBlank { "Season ${episode.season}" },
                     parent?.posterUrl ?: episode.stillUrl,
-                    episode.streamUrl, progress,
+                    episode.streamUrl, presentation.fraction,
                     logicalKey = "series:${episode.sourceId}:${episode.seriesId}",
                     finished = pos.isFinished, sourceId = episode.sourceId,
                     seriesProviderId = episode.seriesId,
                     episodeLabel = "S%02dE%02d".format(episode.season, episode.episodeNumber),
-                    positionMs = pos.positionMillis, durationMs = pos.durationMillis,
+                    positionMs = pos.positionMillis, durationMs = presentation.durationMs,
                 )
             }
             else -> null
