@@ -54,7 +54,12 @@ internal object EpisodeDurationDiscovery {
     }
 
     fun playbackExited() {
-        playing.updateAndGet { (it - 1).coerceAtLeast(0) }
+        // AtomicInteger.updateAndGet() is not present on every older Fire OS
+        // runtime. A plain CAS loop works down to our minSdk 23.
+        while (true) {
+            val now = playing.get()
+            if (now <= 0 || playing.compareAndSet(now, now - 1)) return
+        }
     }
 
     suspend fun inspect(episode: Episode, userAgent: String): Inspection =
