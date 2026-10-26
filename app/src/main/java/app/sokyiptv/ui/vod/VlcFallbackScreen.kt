@@ -485,6 +485,10 @@ fun VlcFallbackScreen(
     BackHandler {
         when {
             leaving.get() -> Unit
+            trackPanelVisible -> {
+                trackPanelVisible = false
+                showControls()
+            }
             scrubbing -> {
                 // Back cancels a preview, it does not exit the playing episode.
                 scrubbing = false
