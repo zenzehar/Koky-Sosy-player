@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -864,10 +865,31 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         graph.playbackPositions.deleteKeys(profileId, keys.ifEmpty { listOf("movie:$movieId") })
     }
 
+    /** Backfill pre-v59 saved runtimes before deleting watch history. */
+    private suspend fun retainSeriesDurations(sourceId: Long, seriesId: String, profileId: Long) {
+        val saved = graph.playbackPositions
+            .observeEpisodeLengths(profileId, sourceId, seriesId).first()
+        for (length in saved) {
+            val episode = graph.catalogRepository.episode(length.episodeId) ?: continue
+            EpisodeRuntimeHints.save(
+                getApplication(), episode, (length.durationMs / 1_000L).toInt(),
+            )
+        }
+    }
+
+    private suspend fun retainEpisodeDuration(episodeId: Long, profileId: Long) {
+        val saved = graph.playbackPositions.get(profileId, "ep:${episodeId}") ?: return
+        val seconds = (saved.durationMillis / 1_000L).toInt()
+        if (seconds !in 120..43_200) return
+        val episode = graph.catalogRepository.episode(episodeId) ?: return
+        EpisodeRuntimeHints.save(getApplication(), episode, seconds)
+    }
+
     fun resetResumeItem(item: ResumeItem) {
         viewModelScope.launch {
             val profileId = settings.activeProfileId.value
             if (item.seriesProviderId != null) {
+                retainSeriesDurations(item.sourceId, item.seriesProviderId, profileId)
                 graph.playbackPositions.deleteSeries(profileId, item.sourceId, item.seriesProviderId)
             } else {
                 val id = item.mediaKey.removePrefix("movie:").toLongOrNull()
@@ -878,9 +900,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetEpisodeProgress(episodeId: Long) {
         viewModelScope.launch {
-            graph.playbackPositions.deleteKeys(
-                settings.activeProfileId.value, listOf("ep:${episodeId}")
-            )
+            val profileId = settings.activeProfileId.value
+            retainEpisodeDuration(episodeId, profileId)
+            graph.playbackPositions.deleteKeys(profileId, listOf("ep:${episodeId}"))
         }
     }
 
@@ -890,7 +912,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetSeriesProgress(series: Series) {
         viewModelScope.launch {
-            graph.playbackPositions.deleteSeries(settings.activeProfileId.value, series.sourceId, series.seriesId)
+            val profileId = settings.activeProfileId.value
+            retainSeriesDurations(series.sourceId, series.seriesId, profileId)
+            graph.playbackPositions.deleteSeries(profileId, series.sourceId, series.seriesId)
         }
     }
 
