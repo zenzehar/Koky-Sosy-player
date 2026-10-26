@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.62-netflix-focus-auto-skip' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.63-skip-recognition' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.62-netflix-focus-auto-skip'
+      github.head_ref == 'fix/v0.1.11.63-skip-recognition'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.62.apk
-          gh release create v0.1.11.62-netflix-focus-auto-skip \
-            "apk/Soky_IPTV_Pro_v0.1.11.62.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.63.apk
+          gh release create v0.1.11.63-skip-recognition \
+            "apk/Soky_IPTV_Pro_v0.1.11.63.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.62 Focus and Dynamic Skip Stabilization" \
-            --notes "v0.1.11.62 EXPERIMENTAL Android TV/Fire TV test build from unchanged gold v0.1.11.59. Netflix-like overlay is frameless in the unfocused state and now has a deterministic bidirectional focus graph; all arrow directions work without requiring Left to escape a root focus trap. Reactivated controls mount without an AnimatedVisibility focus transition; parent awaits two composition frames before requesting focus, while original current-style animations and VLC stream/seek engine remain unchanged. Intro matching collects video-only fingerprints more frequently during the first minutes. Episode fingerprints preserve both opening and latest ending footage; previously the bounded first 350 frames discarded later credits. Dark scrolling credits are no longer prematurely discarded. Privacy-safe SKIP_FRAME_OK, SKIP_FRAME_MISS, SKIP_INTRO_FOUND and SKIP_CREDITS_FOUND events make actual capture failures visible in diagnostics. No chapters, user-provided markers, extra IPTV streams or cloud sync. Dynamic matching may still fail without learned references or on incompatible/secure surfaces. NOT GOLD. Hardware testing remains required to approve." --prerelease
+            --title "Soky IPTV Pro v0.1.11.63 Automatic Skip Capture and Recognition Fix" \
+            --notes "v0.1.11.63 EXPERIMENTAL, unchanged approved gold v0.1.11.59. Fixed a definite bug where SurfaceView frame copying was incorrectly disabled on Android 7.0/7.1 (API 24 and 25), notably affecting older Fire OS devices: Android PixelCopy supports SurfaceView from API24. Prefer valid video surface and avoid subtitle-only surfaces. Rebuilt opening/credits matcher to tolerate independently sampled temporal jitter and varying codec perceptual hashes with sustained monotonic sequence verification. Reduced CPU/allocations in recognition search, kept episodes and provider scoped, maintained no extra IPTV streams/decoders/manual markers/chapters. Added real-world clock jitter, hash drift, variable outro durations regression tests. Intro skip prediction still requires two prior matching episodes learned locally and can fail with unsupported/protected surfaces. VLC playing/seeking engine, cloud sync exclusion and protected gold remain unchanged. NOT GOLD until tested on actual Android TV/Fire TV." --prerelease
