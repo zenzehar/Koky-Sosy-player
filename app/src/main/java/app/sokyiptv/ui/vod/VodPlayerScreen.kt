@@ -5,6 +5,8 @@
  */
 package app.sokyiptv.ui.vod
 
+import app.sokyiptv.data.remote.EpisodeDurationDiscovery
+
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.content.BroadcastReceiver
@@ -142,6 +144,12 @@ fun VodPlayerScreen(
     onNextEpisode: (app.sokyiptv.data.model.Episode) -> Unit = {},
 ) {
     val context = LocalContext.current
+    // Duration previews must never contend with an actual movie/episode stream.
+    // Entry cancels their single in-flight metadata HTTP request immediately.
+    DisposableEffect(mediaKey) {
+        EpisodeDurationDiscovery.playbackEntered()
+        onDispose { EpisodeDurationDiscovery.playbackExited() }
+    }
     val view = LocalView.current
     val graph = remember { ServiceLocator.get(context) }
     // v53: cloud and LAN sync are temporarily disabled. Resume data continues
