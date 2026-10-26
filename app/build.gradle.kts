@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 73
-        versionName = "0.1.11.53-back-crash-firetv-sync-paused"
+        versionCode = 74
+        versionName = "0.1.11.54-continue-watching-duration-card"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
