@@ -311,6 +311,7 @@ fun VodPlayerScreen(
     val netflixTracksFocus = remember { FocusRequester() }
     var media3VideoView by remember(mediaKey) { mutableStateOf<PlayerView?>(null) }
     val rootFocus = remember { FocusRequester() }
+    var rootOwnsFocus by remember { mutableStateOf(false) }
     val autoplayFocus = remember { FocusRequester() }
     val timelineFocus = remember { FocusRequester() }
     var timelineFocused by remember { mutableStateOf(false) }
@@ -598,7 +599,7 @@ fun VodPlayerScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, vodPanel, netflix) {
+    LaunchedEffect(controlsVisible, vodPanel, netflix, focusSeekOnReveal) {
         if (controlsVisible) {
             delay(40)
             runCatching {
@@ -710,7 +711,15 @@ fun VodPlayerScreen(
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
                     event.type == KeyEventType.KeyDown && controlsVisible && netflix -> {
                         interaction++
-                        false // Netflix overlay has its own 2-D focus destinations.
+                        if (rootOwnsFocus && event.key in setOf(
+                                Key.DirectionLeft, Key.DirectionRight,
+                                Key.DirectionUp, Key.DirectionDown,
+                            )) {
+                            val target = if (event.key == Key.DirectionLeft ||
+                                event.key == Key.DirectionRight) timelineFocus else barFocus
+                            runCatching { target.requestFocus() }
+                            true
+                        } else false
                     }
                     event.type == KeyEventType.KeyDown && controlsVisible &&
                         (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
@@ -735,6 +744,7 @@ fun VodPlayerScreen(
                 }
             }
             .focusRequester(rootFocus)
+            .onFocusChanged { rootOwnsFocus = it.isFocused }
             .focusable()
             .pointerInput(Unit) {
                 detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
