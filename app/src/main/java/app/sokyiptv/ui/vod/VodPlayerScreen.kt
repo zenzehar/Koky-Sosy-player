@@ -263,6 +263,11 @@ fun VodPlayerScreen(
             season = data.season, episode = data.episodeNumber,
             durationMs = estimatedDuration,
         )
+        val segments = (if (communitySkips.intro != null) 1 else 0) +
+            (if (communitySkips.credits != null) 2 else 0)
+        PlaybackDiagnostics.event(context,
+            if (segments > 0) "SKIP_COMMUNITY_FOUND" else "SKIP_COMMUNITY_MISS",
+            segments, persistNow = true)
     }
     var paused by remember { mutableStateOf(false) }
     var media3Diagnostic by remember { mutableStateOf<String?>(null) }
