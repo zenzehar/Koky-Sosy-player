@@ -169,6 +169,10 @@ fun VodPlayerScreen(
         PassiveSkipTracker(context, seriesGroup, mediaKey)
     }
     var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
+    var skipCaptureMisses by remember(mediaKey) { mutableIntStateOf(0) }
+    var skipCaptureLogged by remember(mediaKey) { mutableStateOf(false) }
+    var skipIntroLogged by remember(mediaKey) { mutableStateOf(false) }
+    var skipCreditsLogged by remember(mediaKey) { mutableStateOf(false) }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     DisposableEffect(skipTracker) {
         onDispose { skipTracker.finish() }
@@ -576,14 +580,35 @@ fun VodPlayerScreen(
         if (usingVlc) return@LaunchedEffect
         val videoView = media3VideoView ?: return@LaunchedEffect
         while (isActive && !usingVlc) {
-            delay(3_000L)
+            delay(if (positionMs < 180_000L) 1_500L else 3_000L)
             if (paused || !controller.player.isPlaying || awaitingSeekPlayback) continue
             val pos = controller.player.currentPosition.coerceAtLeast(0L)
             val length = controller.player.duration.takeIf { it > 0L } ?: 0L
             if (pos > 480_000L && (length == 0L || pos < length * 75L / 100L)) continue
             val scene = runCatching { PassiveVideoCapture.sample(videoView, pos) }.getOrNull()
-                ?: continue
+            if (scene == null) {
+                skipCaptureMisses++
+                if (skipCaptureMisses == 8) PlaybackDiagnostics.event(
+                    context, "SKIP_FRAME_MISS", android.os.Build.VERSION.SDK_INT,
+                    persistNow = true)
+                continue
+            }
+            if (!skipCaptureLogged) {
+                skipCaptureLogged = true
+                PlaybackDiagnostics.event(context, "SKIP_FRAME_OK",
+                    skipTracker.referenceEpisodes, persistNow = true)
+            }
             autoSkips = skipTracker.observe(scene, length)
+            if (autoSkips.introEndMs > 0L && !skipIntroLogged) {
+                skipIntroLogged = true
+                PlaybackDiagnostics.event(context, "SKIP_INTRO_FOUND",
+                    (autoSkips.introEndMs / 1000L).toInt(), persistNow = true)
+            }
+            if (autoSkips.credits && !skipCreditsLogged) {
+                skipCreditsLogged = true
+                PlaybackDiagnostics.event(context, "SKIP_CREDITS_FOUND",
+                    (pos / 1000L).toInt(), persistNow = true)
+            }
         }
     }
 
