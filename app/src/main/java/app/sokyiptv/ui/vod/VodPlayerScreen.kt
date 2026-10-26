@@ -72,6 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -599,9 +600,12 @@ fun VodPlayerScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, vodPanel, netflix, focusSeekOnReveal) {
+    // One reliable focus handoff after controls have entered the Compose focus tree.
+    // Never re-request focus on navigation events: that would steal it from D-pad moves.
+    LaunchedEffect(controlsVisible, vodPanel, netflix) {
+        withFrameNanos { }
+        withFrameNanos { }
         if (controlsVisible) {
-            delay(40)
             runCatching {
                 if (vodPanel != VodPanel.NONE && !netflix) panelFocus.requestFocus()
                 else if (netflix) {
@@ -617,9 +621,7 @@ fun VodPlayerScreen(
                     focusLevel = CinematicFocusLevel.CONTROLS
                 }
             }
-        } else {
-            runCatching { rootFocus.requestFocus() }
-        }
+        } else runCatching { rootFocus.requestFocus() }
     }
 
     BackHandler(enabled = !usingVlc) {
@@ -804,13 +806,10 @@ fun VodPlayerScreen(
             else -> Unit
         }
 
-        AnimatedVisibility(
-            visible = controlsVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            if (netflix) {
+        // Netflix controls must be mounted synchronously, without AnimatedVisibility's
+        // entering/exiting nodes temporarily invalidating FocusRequesters.
+        if (netflix) {
+            if (controlsVisible) {
                 Box(Modifier.fillMaxSize()) {
                     NetflixLikePlayerChrome(
                         title = title, isEpisode = mediaKey.startsWith("ep:"),
@@ -859,7 +858,15 @@ fun VodPlayerScreen(
                         }
                     }
                 }
-            } else {
+            }
+        } else {
+            // Retain the approved cinematic/current-style transitions untouched.
+            AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.fillMaxSize(),
+            ) {
             Box(
                 Modifier.fillMaxSize()
                     .windowInsetsPadding(
