@@ -311,7 +311,6 @@ fun VodPlayerScreen(
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val netflixTracksFocus = remember { FocusRequester() }
-    var media3VideoView by remember(mediaKey) { mutableStateOf<PlayerView?>(null) }
     val rootFocus = remember { FocusRequester() }
     var rootOwnsFocus by remember { mutableStateOf(false) }
     val autoplayFocus = remember { FocusRequester() }
@@ -751,7 +750,6 @@ fun VodPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    media3VideoView = this
                     player = controller.player
                     useController = false
                     subtitleView?.setUserDefaultStyle()
@@ -764,7 +762,6 @@ fun VodPlayerScreen(
             },
             // Drop Media3's view reference before the native/decoder teardown.
             onRelease = { playerView ->
-                if (media3VideoView === playerView) media3VideoView = null
                 playerView.player = null
             },
         )
