@@ -198,7 +198,7 @@
       <code class="url" id="short-url">…</code>
       <button class="copy" id="copy-btn" type="button">Copy</button>
     </div>
-    <p class="meta">For this project the link is pinned to v0.1.11.54, the user-approved gold-standard Android TV test build; newer experiments are not selected automatically.</p>
+    <p class="meta">For this project the link is pinned to v0.1.11.59, the user-approved gold-standard Android TV test build; newer experiments are not selected automatically.</p>
   </div>
 
   <h2>What you get</h2>
@@ -260,7 +260,7 @@
       <ul>
         <li>Xtream login, or an M3U playlist with XMLTV guide</li>
         <li>Set up from your phone by scanning a code, or on the TV</li>
-        <li>Free sync between your own devices — favourites, history, even recordings — over your wifi or Tailscale, with no server</li>
+        <li>Device-to-device history sync is temporarily paused in this gold build; local Continue Watching remains available</li>
         <li>Multiple profiles</li>
       </ul>
     </div>
@@ -276,7 +276,7 @@
   <div class="gallery">
     <figure><img src="screenshots/02-recordings.png" alt="Recordings and reminders" loading="lazy"><figcaption>Recordings &amp; reminders</figcaption></figure>
     <figure><img src="screenshots/04-movies.png" alt="Movies with Continue Watching" loading="lazy"><figcaption>Movies &amp; series, with resume</figcaption></figure>
-    <figure><img src="screenshots/03-cloud-sync.png" alt="Sync between your own devices" loading="lazy"><figcaption>Free sync between your devices</figcaption></figure>
+    <figure><img src="screenshots/03-cloud-sync.png" alt="Sync between your own devices" loading="lazy"><figcaption>Sync feature (temporarily paused)</figcaption></figure>
     <figure><img src="screenshots/05-settings.png" alt="OpenTV settings" loading="lazy"><figcaption>Settings</figcaption></figure>
     <figure><img src="screenshots/06-about.png" alt="About OpenTV" loading="lazy"><figcaption>About</figcaption></figure>
   </div>
@@ -341,7 +341,7 @@
     <p>Faster and less fiddly if you already use it:</p>
     <ul>
       <li>Enable <span class="path">Developer options → USB debugging</span> on the box.</li>
-      <li>On your computer: <kbd>adb connect &lt;box-ip&gt;:5555</kbd> then <kbd>adb install Soky_IPTV_Pro_v0.1.11.54.apk</kbd></li>
+      <li>On your computer: <kbd>adb connect &lt;box-ip&gt;:5555</kbd> then <kbd>adb install Soky_IPTV_Pro_v0.1.11.59.apk</kbd></li>
     </ul>
   </section>
 
@@ -490,7 +490,7 @@
 
   var isSoky = target.owner.toLowerCase() === "zenzehar" && target.repo.toLowerCase() === "koky-sosy-player";
   var api = "https://api.github.com/repos/" + target.owner + "/" + target.repo +
-    (isSoky ? "/releases/tags/v0.1.11.54-continue-watching-duration-card" : "/releases/latest");
+    (isSoky ? "/releases/tags/v0.1.11.59-duration-persistence-ts-mkv-scan" : "/releases/latest");
 
   fetch(api, { headers: { Accept: "application/vnd.github+json" } })
     .then(function (response) {
