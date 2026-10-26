@@ -3,12 +3,15 @@
 ## Supported downloads
 
 Soky IPTV Pro is experimental software. The current user-approved **development gold standard** is
-[v0.1.11.54](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.54-continue-watching-duration-card), pinned to
-[`milestone/v0.1.11.54-soky-iptv-pro-golden`](https://github.com/zenzehar/Koky-Sosy-player/tree/milestone/v0.1.11.54-soky-iptv-pro-golden) at commit
-`a1820c13aeef716fecc34694c2dd10464d14f634`.
-It passed CI but is **debug signed**, not a production-security certification or physical-TV acceptance.
-The previous approved v0.1.11.12 milestone remains archived. Google Drive, LAN and NAS
-watch-history synchronization are temporarily disabled in this baseline; local watch history is preserved.
+[v0.1.11.59](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.59-duration-persistence-ts-mkv-scan), pinned to
+[`milestone/v0.1.11.59-soky-iptv-pro-golden`](https://github.com/zenzehar/Koky-Sosy-player/tree/milestone/v0.1.11.59-soky-iptv-pro-golden) at commit
+`3ca3c0ae5d08143fdbe19b351a6f5168d64243b5`.
+CI passed, but the APK remains **debug signed**, not a production-security certification or
+comprehensive physical-TV acceptance. Older golden milestones v0.1.11.54 and v0.1.11.12
+are preserved for rollback. Google Drive, LAN and NAS watch-history synchronization are
+**temporarily paused**; local Continue Watching and duration-hint storage remain active.
+Automated per-episode metadata checks send bounded HTTP requests to configured IPTV providers
+only while the series screen is foreground-resumed; provider range limitations may prevent discovery.
 
 No diagnostics, test login or emulator-only APK should be treated as an approved public distribution.
 Do not automatically select the newest release tag for public download links.
