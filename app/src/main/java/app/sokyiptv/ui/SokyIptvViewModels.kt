@@ -1151,6 +1151,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     fun episodes(series: Series) =
         graph.catalogRepository.observeEpisodes(series.sourceId, series.seriesId)
 
+    /** Saved playback lengths only for this episode's profile and parent series.
+     * Reuses the existing Room history; neither native player nor provider is probed. */
+    fun episodePlaybackLengths(series: Series, profileId: Long) =
+        graph.playbackPositions.observeEpisodeLengths(profileId, series.sourceId, series.seriesId)
+
     /** For the series detail screen: look the series up by row id. */
     fun seriesById(id: Long): kotlinx.coroutines.flow.Flow<Series?> =
         kotlinx.coroutines.flow.flow { emit(graph.catalogRepository.series(id)) }
