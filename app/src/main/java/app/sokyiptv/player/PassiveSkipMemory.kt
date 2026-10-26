@@ -45,8 +45,12 @@ class PassiveSkipMemory(context: Context) {
         val self = id(episodeKey)
         val old = prefs.getString(key, "").orEmpty().lineSequence().filter { it.isNotBlank() }
             .filterNot { it.startsWith(self + ";") }.toList().takeLast(7).toMutableList()
-        val filtered = samples.distinctBy { it.atMs / 2_500L }
-            .sortedBy { it.atMs }.take(350)
+        val deduplicated = samples.distinctBy { it.atMs / 1_200L }.sortedBy { it.atMs }
+        // Preserve independently bounded opening AND credits windows. take(350)
+        // on a sorted sequence previously discarded late credits entirely.
+        val filtered = (deduplicated.filter { it.atMs <= 480_000L }.take(210) +
+            deduplicated.filter { it.atMs > 480_000L }.takeLast(140))
+            .sortedBy { it.atMs }
         val content = filtered.joinToString(",") { s ->
             s.atMs.toString() + ":" + s.hash.toULong().toString(16) + ":" +
                 if (s.creditsLike) "1" else "0"
