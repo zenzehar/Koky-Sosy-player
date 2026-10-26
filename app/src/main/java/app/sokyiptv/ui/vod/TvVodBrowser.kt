@@ -445,6 +445,10 @@ private fun ResumePoster(
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    // The value displayed must be derived from the exact saved resume timestamp.
+    // A missing provider total means "unknown duration", never 0 minutes watched.
+    val verifiedProgress = ResumeCardTime.fraction(item.positionMs, item.durationMs)
+    val resumeText = ResumeCardTime.format(item.positionMs, item.durationMs)
     Column(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
@@ -470,7 +474,7 @@ private fun ResumePoster(
                         overflow = TextOverflow.Ellipsis)
                     item.episodeLabel?.let { Text(it, color = Color(0xFF9EE9FF),
                         fontSize = 13.sp, fontWeight = FontWeight.Bold) }
-                    Text("${(item.progress * 100).toInt()}% · ${item.positionMs / 60_000}m / ${item.durationMs / 60_000}m",
+                    Text(resumeText,
                         color = Color.White.copy(alpha = .88f),
                         fontSize = 10.sp, maxLines = 1)
                 }
@@ -481,8 +485,11 @@ private fun ResumePoster(
                 DropdownMenuItem(text = { Text("Reset progress") }, onClick = { menuOpen = false; onReset() })
             }
         }
-        Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
-            Box(Modifier.fillMaxWidth(item.progress).height(4.dp).background(teal))
+        // Unknown total? Do not draw a misleading empty 0% progress bar.
+        verifiedProgress?.let { fraction ->
+            Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
+                Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(teal))
+            }
         }
     }
 }
