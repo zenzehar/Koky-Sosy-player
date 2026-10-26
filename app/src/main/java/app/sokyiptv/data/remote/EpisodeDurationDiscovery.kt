@@ -82,9 +82,21 @@ internal object EpisodeDurationDiscovery {
                     val found = when (extension) {
                         "m3u8" -> requestBytes(url.toString(), userAgent, range = null)
                             ?.let { BoundedVODDurationParser.hlsVodSeconds(it) to false }
-                        "mkv" -> requestBytes(
-                            url.toString(), userAgent, range = "bytes=0-131071",
-                        )?.let { MatroskaDurationReader.seconds(it) to false }
+                        "mkv" -> {
+                            val front = requestBytes(url.toString(), userAgent, "bytes=0-131071")
+                            val exact = front?.let(MatroskaDurationReader::seconds)
+                            if (exact != null) exact to false
+                            else {
+                                // Some IPTV servers mislabel transport streams
+                                // as .mkv. A PCR estimate requires the tail too.
+                                val tail = if (front != null && !playbackActive)
+                                    requestBytes(url.toString(), userAgent, "bytes=-262144")
+                                    else null
+                                if (front != null && tail != null)
+                                    TransportStreamDurationReader.approximateSeconds(front, tail) to true
+                                else null
+                            }
+                        }
                         "ts" -> {
                             val front = requestBytes(url.toString(), userAgent, "bytes=0-131071")
                             val back = if (front != null && !playbackActive)
@@ -96,12 +108,19 @@ internal object EpisodeDurationDiscovery {
                         }
                         else -> {
                             val front = requestBytes(url.toString(), userAgent, "bytes=0-131071")
-                            val time = front?.let(BoundedVODDurationParser::mp4Seconds)
-                                ?: if (!playbackActive) {
+                            val headTime = front?.let(BoundedVODDurationParser::mp4Seconds)
+                                ?: front?.let(MatroskaDurationReader::seconds)
+                            if (headTime != null) headTime to false
+                            else {
+                                val tail = if (front != null && !playbackActive)
                                     requestBytes(url.toString(), userAgent, "bytes=-262144")
-                                        ?.let(BoundedVODDurationParser::mp4Seconds)
-                                } else null
-                            time to false
+                                    else null
+                                val exact = tail?.let(BoundedVODDurationParser::mp4Seconds)
+                                if (exact != null) exact to false
+                                else if (front != null && tail != null)
+                                    TransportStreamDurationReader.approximateSeconds(front, tail) to true
+                                else null
+                            }
                         }
                     }
                     val seconds = found?.first
