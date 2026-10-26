@@ -20,12 +20,16 @@ class PassiveSkipTracker(
     // Compose, LibVLC callbacks, screen navigation or hardware remote focus.
     @Volatile private var intro: RepeatedClip? = null
     @Volatile private var outro: RepeatedClip? = null
+    @Volatile var referenceEpisodes: Int = 0
+        private set
+    val capturedFrames: Int get() = observations.size
 
     suspend fun prepare() {
         val key = groupKey ?: return
         val examples = withContext(Dispatchers.IO) {
             memory.history(key, episodeKey)
         }
+        referenceEpisodes = examples.count { it.samples.isNotEmpty() }
         val pair = withContext(Dispatchers.Default) {
             PassiveSkipDetector.template(examples) to
                 PassiveSkipDetector.template(examples, credits = true)
@@ -33,6 +37,8 @@ class PassiveSkipTracker(
         intro = pair.first
         outro = pair.second
     }
+    // Keep beginning AND latest ending; a first-in first-out cap otherwise
+    // stops gathering credits just before the episode finishes.
     private val observations = ArrayList<SceneSample>(350)
     private var lastAt = -1L
     private var highestDurationMs = 0L
@@ -42,11 +48,23 @@ class PassiveSkipTracker(
 
     fun observe(frame: SceneSample, totalMs: Long): DetectedSkip {
         if (saved) return DetectedSkip(rememberedIntroEnd, detectedCredits)
-        if (frame.atMs <= lastAt + 1_500L && lastAt >= 0L)
+        if (lastAt >= 0L && frame.atMs < lastAt - 5_000L) lastAt = -1L
+        if (frame.atMs <= lastAt + 900L && lastAt >= 0L)
             return DetectedSkip(rememberedIntroEnd, detectedCredits)
         if (totalMs > 0L) highestDurationMs = totalMs
         lastAt = frame.atMs
-        if (observations.size < 350) observations.add(frame)
+        // Sampled at higher frequency for dynamic scene alignment, but persist
+        // only bounded beginning and rolling-end data. No video bitmaps are stored.
+        if (frame.atMs <= 480_000L) {
+            val earlyCount = observations.count { it.atMs <= 480_000L }
+            if (earlyCount < 210 && observations.none {
+                    kotlin.math.abs(it.atMs - frame.atMs) < 1_200L
+                }) observations.add(frame)
+        } else if (totalMs > 0 && frame.atMs >= totalMs * 75 / 100) {
+            val lateIndices = observations.indices.filter { observations[it].atMs > 480_000L }
+            if (lateIndices.size >= 140) observations.removeAt(lateIndices.first())
+            observations.add(frame)
+        }
         val early = frame.atMs <= 480_000L
         if (early && groupKey != null && rememberedIntroEnd < 0L) {
             val target = PassiveSkipDetector.detectIntro(
