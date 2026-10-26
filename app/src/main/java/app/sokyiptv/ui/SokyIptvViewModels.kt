@@ -1227,6 +1227,10 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                     onStatus("Provider limited duration checks · $scanned checked, $found found")
                     return
                 }
+                EpisodeDurationDiscovery.Result.RANGE_UNSUPPORTED -> {
+                    onStatus("Provider does not allow small video ranges · scan stopped")
+                    return
+                }
                 EpisodeDurationDiscovery.Result.UNSUPPORTED -> unsupported++
                 EpisodeDurationDiscovery.Result.UNAVAILABLE -> Unit
             }
