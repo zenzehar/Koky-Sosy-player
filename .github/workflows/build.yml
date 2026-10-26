@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.62-netflix-focus-auto-skip' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'feature/v0.1.11.64-manual-series-skips' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.62-netflix-focus-auto-skip'
+      github.head_ref == 'feature/v0.1.11.64-manual-series-skips'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.62.apk
-          gh release create v0.1.11.62-netflix-focus-auto-skip \
-            "apk/Soky_IPTV_Pro_v0.1.11.62.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.64.apk
+          gh release create v0.1.11.64-manual-series-skips \
+            "apk/Soky_IPTV_Pro_v0.1.11.64.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.62 Focus and Dynamic Skip Stabilization" \
-            --notes "v0.1.11.62 EXPERIMENTAL Android TV/Fire TV test build from unchanged gold v0.1.11.59. Netflix-like overlay is frameless in the unfocused state and now has a deterministic bidirectional focus graph; all arrow directions work without requiring Left to escape a root focus trap. Reactivated controls mount without an AnimatedVisibility focus transition; parent awaits two composition frames before requesting focus, while original current-style animations and VLC stream/seek engine remain unchanged. Intro matching collects video-only fingerprints more frequently during the first minutes. Episode fingerprints preserve both opening and latest ending footage; previously the bounded first 350 frames discarded later credits. Dark scrolling credits are no longer prematurely discarded. Privacy-safe SKIP_FRAME_OK, SKIP_FRAME_MISS, SKIP_INTRO_FOUND and SKIP_CREDITS_FOUND events make actual capture failures visible in diagnostics. No chapters, user-provided markers, extra IPTV streams or cloud sync. Dynamic matching may still fail without learned references or on incompatible/secure surfaces. NOT GOLD. Hardware testing remains required to approve." --prerelease
+            --title "Soky IPTV Pro v0.1.11.64 Manual Series Skip Markers" \
+            --notes "v0.1.11.64 EXPERIMENTAL Android TV/Fire TV build. Manual series-wide intro and credits timing marks replace failed automatic detection completely. Pause an episode, hold OK/Select for 700ms, then mark intro START/END or credits START/END at two positions. Prompts appear only when complete valid ranges exist, across the same provider and series, never auto-seek, and can be cleared independently or entirely. No extra IPTV streams, fingerprints, chapter data, AI or public skip servers. Track menu rebuilt as independent scrollable Dialog with explicit remote focus and arrow traversal; Back closes the menu. Centre Play/Pause icon now 84 percent transparent when unfocused, fully bright when focused. Native VLC-first playback and approved gold v0.1.11.59 remain untouched. Debug signed, unapproved, physical TV acceptance required." --prerelease
