@@ -5,6 +5,9 @@
  */
 package app.sokyiptv.ui.vod
 
+import app.sokyiptv.player.DetectedSkip
+import app.sokyiptv.player.PassiveSkipTracker
+import app.sokyiptv.player.PassiveVideoCapture
 import app.sokyiptv.data.remote.EpisodeDurationDiscovery
 import app.sokyiptv.data.remote.EpisodeRuntimeHints
 
@@ -104,6 +107,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import app.sokyiptv.R
+import app.sokyiptv.core.AppSettings
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.core.SleepTimer
 import app.sokyiptv.core.findActivity
@@ -157,6 +161,19 @@ fun VodPlayerScreen(
     // to be captured locally in Room; no cloud gate/network work on video exit.
     val settings = remember { graph.settings }
     val autoplay by settings.seriesAutoplay.collectAsState()
+    val uiStyle by settings.playerUiStyle.collectAsState()
+    val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
+    var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
+    val skipTracker = remember(mediaKey, seriesGroup) {
+        PassiveSkipTracker(context, seriesGroup, mediaKey)
+    }
+    var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
+    DisposableEffect(skipTracker) {
+        onDispose { skipTracker.finish() }
+    }
+    LaunchedEffect(skipTracker) {
+        skipTracker.prepare()
+    }
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
@@ -206,6 +223,8 @@ fun VodPlayerScreen(
     LaunchedEffect(mediaKey) {
         val id = mediaKey.takeIf { it.startsWith("ep:") }
             ?.removePrefix("ep:")?.toLongOrNull()
+        seriesGroup = id?.let { graph.catalogRepository.episode(it) }
+            ?.let { episode -> "${episode.sourceId}:${episode.seriesId}" }
         previousEpisode = id?.let { graph.catalogRepository.previousEpisode(it) }
         followingEpisode = id?.let { graph.catalogRepository.nextEpisode(it) }
     }
@@ -288,6 +307,7 @@ fun VodPlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
+    var media3VideoView by remember(mediaKey) { mutableStateOf<PlayerView?>(null) }
     val rootFocus = remember { FocusRequester() }
     val autoplayFocus = remember { FocusRequester() }
     val timelineFocus = remember { FocusRequester() }
@@ -311,6 +331,21 @@ fun VodPlayerScreen(
         }
         controller.player.playWhenReady = play
         paused = !play
+        reveal()
+    }
+
+    fun seekAt(targetMs: Long) {
+        if (!growingRec && !controller.player.isCurrentMediaItemSeekable) return
+        val ceiling = if (growingRec) controller.player.bufferedPosition.coerceAtLeast(0L)
+            else durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
+        val target = targetMs.coerceIn(0L, ceiling)
+        val now = android.os.SystemClock.elapsedRealtime()
+        postSeekGate.requested(now)
+        awaitingSeekPlayback = true
+        controller.player.seekTo(target)
+        positionMs = media3SeekClock.requested(target, now)
+        scrubValue = target.toFloat()
+        scrubbing = false
         reveal()
     }
 
@@ -532,6 +567,22 @@ fun VodPlayerScreen(
         }
     }
 
+    // Sample the actual video surface passively (never open a second IPTV stream).
+    LaunchedEffect(media3VideoView, skipTracker, usingVlc) {
+        if (usingVlc) return@LaunchedEffect
+        val videoView = media3VideoView ?: return@LaunchedEffect
+        while (isActive && !usingVlc) {
+            delay(3_000L)
+            if (paused || !controller.player.isPlaying || awaitingSeekPlayback) continue
+            val pos = controller.player.currentPosition.coerceAtLeast(0L)
+            val length = controller.player.duration.takeIf { it > 0L } ?: 0L
+            if (pos > 480_000L && (length == 0L || pos < length * 75L / 100L)) continue
+            val scene = runCatching { PassiveVideoCapture.sample(videoView, pos) }.getOrNull()
+                ?: continue
+            autoSkips = skipTracker.observe(scene, length)
+        }
+    }
+
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
@@ -550,7 +601,9 @@ fun VodPlayerScreen(
             delay(40)
             runCatching {
                 if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
-                else if (focusSeekOnReveal) {
+                else if (netflix) {
+                    barFocus.requestFocus()
+                } else if (focusSeekOnReveal) {
                     timelineFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.SEEK
                     focusSeekOnReveal = false
@@ -577,6 +630,8 @@ fun VodPlayerScreen(
     if (usingVlc && resumeLoaded) {
         VlcFallbackScreen(
             streamUrl = streamUrl,
+            mediaKey = mediaKey,
+            skipTracker = skipTracker,
             title = title,
             userAgent = userAgent,
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
@@ -649,6 +704,10 @@ fun VodPlayerScreen(
                         true
                     }
                     event.type == KeyEventType.KeyDown && !controlsVisible -> { reveal(); true }
+                    event.type == KeyEventType.KeyDown && controlsVisible && netflix -> {
+                        interaction++
+                        false // Netflix overlay has its own 2-D focus destinations.
+                    }
                     event.type == KeyEventType.KeyDown && controlsVisible &&
                         (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
                         val next = moveCinematicFocus(
@@ -681,6 +740,7 @@ fun VodPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
+                    media3VideoView = this
                     player = controller.player
                     useController = false
                     subtitleView?.setUserDefaultStyle()
@@ -692,7 +752,10 @@ fun VodPlayerScreen(
                 }
             },
             // Drop Media3's view reference before the native/decoder teardown.
-            onRelease = { playerView -> playerView.player = null },
+            onRelease = { playerView ->
+                if (media3VideoView === playerView) media3VideoView = null
+                playerView.player = null
+            },
         )
 
         when (val current = state) {
@@ -733,6 +796,54 @@ fun VodPlayerScreen(
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
         ) {
+            if (netflix) {
+                Box(Modifier.fillMaxSize()) {
+                    NetflixLikePlayerChrome(
+                        title = title, isEpisode = mediaKey.startsWith("ep:"),
+                        positionMs = positionMs, durationMs = durationMs, paused = paused,
+                        nextAvailable = followingEpisode != null, playFocus = barFocus,
+                        onBack = onBack,
+                        onToggle = {
+                            paused = !paused
+                            controller.player.playWhenReady = !paused
+                            reveal()
+                        },
+                        onSeek = ::seekAt, onEpisodes = onBack,
+                        onTracks = { vodPanel = VodPanel.AUDIO; reveal() },
+                        onNext = {
+                            followingEpisode?.let { target ->
+                                scope.launch { savePosition(); onNextEpisode(target) }
+                            }
+                        },
+                    )
+                    if (vodPanel != VodPanel.NONE) {
+                        val aud: List<Pair<String, () -> Unit>> = tracks.groups
+                            .filter { it.type == C.TRACK_TYPE_AUDIO }
+                            .flatMap { g ->
+                                (0 until g.length).filter { g.isTrackSupported(it) }.map { i ->
+                                    val f = g.getTrackFormat(i)
+                                    vodTrackLabel(f.label, f.language, i) to {
+                                        controller.selectTrack(g, i); vodPanel = VodPanel.NONE
+                                    }
+                                }
+                            }
+                        val sub: List<Pair<String, () -> Unit>> =
+                            listOf("Off" to { controller.disableText(); vodPanel = VodPanel.NONE }) +
+                            tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }.flatMap { g ->
+                                (0 until g.length).filter { g.isTrackSupported(it) }.map { i ->
+                                    val f = g.getTrackFormat(i)
+                                    vodTrackLabel(f.label, f.language, i) to {
+                                        controller.selectTrack(g, i); vodPanel = VodPanel.NONE
+                                    }
+                                }
+                            }
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)),
+                            contentAlignment = Alignment.Center) {
+                            NetflixTrackOptions(aud, sub) { vodPanel = VodPanel.NONE }
+                        }
+                    }
+                }
+            } else {
             Box(
                 Modifier.fillMaxSize()
                     .windowInsetsPadding(
@@ -857,6 +968,30 @@ fun VodPlayerScreen(
                         onDone = { vodPanel = VodPanel.NONE; interaction++ },
                     )
                 }
+            }
+            }
+        }
+        val introSkip = mediaKey.startsWith("ep:") &&
+            autoSkips.introEndMs > positionMs + 3_000L && positionMs <= 480_000L
+        val creditsSkip = autoSkips.credits && durationMs > 0L &&
+            positionMs >= durationMs * 75L / 100L
+        if (state !is PlayerController.State.Error && !paused &&
+            (introSkip || creditsSkip)) {
+            NetflixSkipPrompt(
+                label = when {
+                    introSkip -> "Skip Intro"
+                    mediaKey.startsWith("ep:") && followingEpisode != null -> "Next Episode"
+                    else -> "Skip Credits"
+                },
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+            ) {
+                if (introSkip) seekAt(autoSkips.introEndMs)
+                else if (mediaKey.startsWith("ep:") && followingEpisode != null) {
+                    followingEpisode?.let { target ->
+                        scope.launch { savePosition(); onNextEpisode(target) }
+                    }
+                } else onBack()
             }
         }
         media3Diagnostic?.let { report ->
