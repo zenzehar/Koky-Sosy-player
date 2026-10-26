@@ -1,6 +1,7 @@
-/* GPL-3.0-or-later. Optional Netflix-like TV controls; existing player remains intact. */
+/* GPL-3.0-or-later. Netflix-inspired frameless VOD chrome with explicit TV focus. */
 package app.sokyiptv.ui.vod
 
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,9 +26,13 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,185 +65,316 @@ import app.sokyiptv.player.TvSeekPolicy
 import kotlin.math.max
 import kotlin.math.min
 
-private val red = Color(0xFFE50914)
-private val white = Color(0xFFF5F5F5)
+private val netflixRed = Color(0xFFE50914)
+private val netflixWhite = Color.White
 
-/** No placeholder casting buttons: only controls with real actions are focusable. */
+/**
+ * Mirrors the reference's positions and scale, not its inaccessible buttons.
+ * All click targets are frameless when unfocused, with an obvious white focus cue.
+ * Supplied focus requesters are the SAME targets requested by the parent renderer.
+ */
 @Composable
 internal fun NetflixLikePlayerChrome(
-    title: String, isEpisode: Boolean, positionMs: Long, durationMs: Long,
-    paused: Boolean, nextAvailable: Boolean, playFocus: FocusRequester,
-    onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit,
-    onEpisodes: () -> Unit, onTracks: () -> Unit, onNext: () -> Unit,
-
+    title: String,
+    isEpisode: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    paused: Boolean,
+    nextAvailable: Boolean,
+    playFocus: FocusRequester,
+    timelineFocus: FocusRequester,
+    tracksFocus: FocusRequester,
+    onActivity: () -> Unit,
+    onBack: () -> Unit,
+    onToggle: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onEpisodes: () -> Unit,
+    onTracks: () -> Unit,
+    onNext: () -> Unit,
 ) {
-    val close = remember { FocusRequester() }
-    val rewind = remember { FocusRequester() }
-    val forward = remember { FocusRequester() }
-    val timeline = remember { FocusRequester() }
-    val episodes = remember { FocusRequester() }
-    val tracks = remember { FocusRequester() }
-    val next = remember { FocusRequester() }
+    val closeFocus = remember { FocusRequester() }
+    val backwardFocus = remember { FocusRequester() }
+    val forwardFocus = remember { FocusRequester() }
+    val episodesFocus = remember { FocusRequester() }
+    val nextFocus = remember { FocusRequester() }
     var scrubbing by remember { mutableStateOf(false) }
-    var preview by remember { mutableLongStateOf(0L) }
-    var heldAt by remember { mutableLongStateOf(0L) }
-    var startAt by remember { mutableLongStateOf(0L) }
-    val seekDisplay = if (scrubbing) preview else positionMs
-    Box(Modifier.fillMaxSize().background(
-        Brush.verticalGradient(0f to Color.Black.copy(alpha = .57f),
-            .26f to Color.Transparent, .62f to Color.Transparent,
-            1f to Color.Black.copy(alpha = .94f))
-    )) {
-        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            fontSize = 20.sp, color = white,
-            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(.62f)
-                .padding(top = 38.dp))
-        NIcon(Icons.Default.Close, "Close", Modifier.align(Alignment.TopEnd)
-            .padding(end = 35.dp, top = 25.dp).focusRequester(close)
-            .focusProperties { down = playFocus; left = playFocus }, 40, onBack)
-        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(115.dp)) {
-            NIcon(Icons.Default.Replay10, "Rewind 10 seconds",
-                Modifier.focusRequester(rewind).focusProperties {
-                    right = playFocus; up = close; down = timeline },
-                66, { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.BACKWARD)) })
-            NIcon(if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
+    var seekPreviewMs by remember { mutableLongStateOf(0L) }
+    var seekOriginMs by remember { mutableLongStateOf(0L) }
+    var seekHeldAtMs by remember { mutableLongStateOf(0L) }
+    var heldDirection by remember { mutableStateOf<SeekDirection?>(null) }
+    var seekFocused by remember { mutableStateOf(false) }
+    val displayMs = if (scrubbing) seekPreviewMs else positionMs
+
+    // Do not block arrow-key focus traversal with a fullscreen clickable surface.
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val topGap = maxHeight * 0.080f
+        val controlsBottom = maxHeight * 0.30f
+        val timelineBottom = maxHeight * 0.145f
+        val linksBottom = maxHeight * 0.040f
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = .30f),
+                    .23f to Color.Transparent,
+                    .65f to Color.Transparent,
+                    1f to Color.Black.copy(alpha = .56f),
+                ),
+            ),
+        )
+        Text(
+            text = title,
+            modifier = Modifier.align(Alignment.TopCenter)
+                .fillMaxWidth(.70f).padding(top = topGap),
+            fontSize = 21.sp, color = netflixWhite, maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        NIcon(
+            icon = Icons.Filled.Close, label = "Close",
+            modifier = Modifier.align(Alignment.TopEnd)
+                .padding(end = 40.dp, top = topGap - 7.dp)
+                .focusRequester(closeFocus)
+                .focusProperties { down = playFocus; left = playFocus },
+            size = 37, onClick = onBack, onActivity = onActivity,
+        )
+
+        Row(
+            modifier = Modifier.align(Alignment.Center)
+                .padding(bottom = maxHeight * .05f),
+            horizontalArrangement = Arrangement.spacedBy(maxWidth * .175f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NIcon(
+                Icons.Filled.Replay10, "Rewind 10 seconds",
+                Modifier.focusRequester(backwardFocus)
+                    .focusProperties {
+                        right = playFocus; up = closeFocus; down = timelineFocus
+                    },
+                58,
+                onClick = { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.BACKWARD)) },
+                onActivity = onActivity,
+            )
+            NIcon(
+                if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
                 if (paused) "Play" else "Pause",
                 Modifier.focusRequester(playFocus).focusProperties {
-                    left = rewind; right = forward; up = close; down = timeline
-                }, 82, onToggle)
-            NIcon(Icons.Default.Forward10, "Forward 10 seconds",
-                Modifier.focusRequester(forward).focusProperties {
-                    left = playFocus; up = close; down = timeline },
-                66, { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)) })
+                    left = backwardFocus; right = forwardFocus
+                    up = closeFocus; down = timelineFocus
+                },
+                73, onClick = onToggle, onActivity = onActivity,
+            )
+            NIcon(
+                Icons.Filled.Forward10, "Forward 10 seconds",
+                Modifier.focusRequester(forwardFocus).focusProperties {
+                    left = playFocus; up = closeFocus; down = timelineFocus
+                },
+                58,
+                onClick = { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)) },
+                onActivity = onActivity,
+            )
         }
-        Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-            .padding(start = 52.dp, end = 43.dp, bottom = 95.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).height(40.dp)
-                .focusRequester(timeline)
-                .focusProperties {
-                    up = playFocus
-                    down = if (isEpisode) episodes else tracks
-                }
-                .onPreviewKeyEvent { e ->
-                    val dir = when (e.key) {
-                        Key.DirectionRight -> SeekDirection.FORWARD
-                        Key.DirectionLeft -> SeekDirection.BACKWARD
-                        else -> null
+
+        Row(
+            modifier = Modifier.align(Alignment.BottomCenter)
+                .fillMaxWidth().padding(start = 47.dp, end = 53.dp, bottom = timelineBottom),
+            horizontalArrangement = Arrangement.spacedBy(17.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier.weight(1f).height(42.dp)
+                    .focusRequester(timelineFocus)
+                    .focusProperties {
+                        up = playFocus
+                        down = if (isEpisode) episodesFocus else tracksFocus
                     }
-                    if (dir == null) return@onPreviewKeyEvent false
-                    if (e.type == KeyEventType.KeyDown && durationMs > 0L) {
-                        if (!scrubbing) {
-                            startAt = positionMs
-                            heldAt = android.os.SystemClock.uptimeMillis()
-                            preview = TvSeekPolicy.tap(positionMs, durationMs, dir)
-                            scrubbing = true
-                        } else {
-                            val elapsed = android.os.SystemClock.uptimeMillis() - heldAt
-                            if (elapsed >= TvSeekPolicy.HOLD_THRESHOLD_MS) {
-                                val value = TvSeekPolicy.heldPreview(startAt, elapsed, dir, durationMs)
-                                preview = if (dir == SeekDirection.FORWARD) max(preview, value)
-                                    else min(preview, value)
-                            }
+                    .onFocusChanged { seekFocused = it.isFocused }
+                    .onPreviewKeyEvent { event ->
+                        val direction = when (event.key) {
+                            Key.DirectionLeft -> SeekDirection.BACKWARD
+                            Key.DirectionRight -> SeekDirection.FORWARD
+                            else -> null
                         }
-                    } else if (e.type == KeyEventType.KeyUp && scrubbing) {
-                        onSeek(preview)
-                        scrubbing = false
+                        if (direction == null) return@onPreviewKeyEvent false
+                        onActivity()
+                        if (event.type == KeyEventType.KeyDown) {
+                            if (durationMs <= 0L) return@onPreviewKeyEvent true
+                            if (!scrubbing || heldDirection != direction) {
+                                seekOriginMs = if (scrubbing) seekPreviewMs else positionMs
+                                seekHeldAtMs = SystemClock.uptimeMillis()
+                                heldDirection = direction
+                                seekPreviewMs = TvSeekPolicy.tap(seekOriginMs, durationMs, direction)
+                                scrubbing = true
+                            } else {
+                                val held = SystemClock.uptimeMillis() - seekHeldAtMs
+                                seekPreviewMs = if (held > TvSeekPolicy.HOLD_THRESHOLD_MS) {
+                                    val target = TvSeekPolicy.heldPreview(
+                                        seekOriginMs, held, direction, durationMs,
+                                    )
+                                    if (direction == SeekDirection.FORWARD) max(seekPreviewMs, target)
+                                    else min(seekPreviewMs, target)
+                                } else seekPreviewMs
+                            }
+                            true
+                        } else if (event.type == KeyEventType.KeyUp) {
+                            if (scrubbing && durationMs > 0L) onSeek(seekPreviewMs)
+                            scrubbing = false
+                            heldDirection = null
+                            true
+                        } else false
                     }
-                    true
-                }.semantics {
-                    contentDescription = "Timeline. Left/right seek 10 seconds; hold to accelerate."
-                }.focusable(), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.fillMaxWidth().height(22.dp)) {
-                    val a = 9.dp.toPx()
-                    val b = size.width - a
-                    val y = size.height / 2f
-                    drawLine(Color(0xFF606060), Offset(a, y), Offset(b, y),
-                        3.dp.toPx(), cap = StrokeCap.Round)
+                    .semantics {
+                        contentDescription = "Timeline. Left and right seek ten seconds; hold to accelerate."
+                    }
+                    .focusable(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Canvas(Modifier.fillMaxWidth().height(23.dp)) {
+                    val left = 11.dp.toPx()
+                    val right = size.width - left
+                    val middle = size.height / 2f
+                    drawLine(Color(0xFF646464), Offset(left, middle),
+                        Offset(right, middle), 3.dp.toPx(), cap = StrokeCap.Round)
                     val fraction = if (durationMs > 0L)
-                        (seekDisplay.toDouble() / durationMs).toFloat().coerceIn(0f, 1f)
-                        else 0f
-                    val x = a + (b - a) * fraction
-                    drawLine(red, Offset(a, y), Offset(x, y), 4.dp.toPx(),
-                        cap = StrokeCap.Round)
-                    drawCircle(red, 10.dp.toPx(), Offset(x, y))
+                        (displayMs.toDouble() / durationMs).toFloat().coerceIn(0f, 1f) else 0f
+                    val playhead = left + (right-left) * fraction
+                    drawLine(netflixRed, Offset(left, middle), Offset(playhead, middle),
+                        4.dp.toPx(), cap = StrokeCap.Round)
+                    drawCircle(netflixRed,
+                        (if (seekFocused) 11 else 9).dp.toPx(),
+                        Offset(playhead, middle))
+                    if (seekFocused) drawCircle(netflixWhite,
+                        12.dp.toPx(), Offset(playhead, middle),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
                 }
             }
-            Spacer(Modifier.width(15.dp))
             Text(if (durationMs > 0L) nClock(durationMs) else "--:--",
-                color = white, fontSize = 17.sp)
+                color = netflixWhite, fontSize = 18.sp)
         }
-        Text(nClock(seekDisplay), color = white, fontSize = 14.sp,
-            modifier = Modifier.align(Alignment.BottomStart)
-                .padding(start = 52.dp, bottom = 137.dp))
-        Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 27.dp),
+        Row(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = linksBottom),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            if (isEpisode) NText("Episodes", Modifier.focusRequester(episodes)
-                .focusProperties { up = timeline; right = tracks }, onEpisodes)
-            NText("Audio & Subtitles", Modifier.focusRequester(tracks)
-                .focusProperties {
-                    up = timeline
-                    if (isEpisode) left = episodes
-                    right = if (isEpisode && nextAvailable) next else tracks
-                }, onTracks)
-            if (isEpisode && nextAvailable)
-                NText("Next Episode", Modifier.focusRequester(next)
-                    .focusProperties { left = tracks; up = timeline }, onNext)
-
+            horizontalArrangement = Arrangement.spacedBy(15.dp),
+        ) {
+            if (isEpisode) NText(
+                "Episodes", Icons.Filled.VideoLibrary,
+                Modifier.focusRequester(episodesFocus).focusProperties {
+                    up = timelineFocus; right = tracksFocus
+                }, onClick = onEpisodes, onActivity = onActivity,
+            )
+            NText(
+                "Audio & Subtitles", Icons.Filled.Subtitles,
+                Modifier.focusRequester(tracksFocus).focusProperties {
+                    up = timelineFocus
+                    if (isEpisode) left = episodesFocus
+                    if (isEpisode && nextAvailable) right = nextFocus
+                }, onClick = onTracks, onActivity = onActivity,
+            )
+            if (isEpisode && nextAvailable) NText(
+                "Next Episode", Icons.Filled.SkipNext,
+                Modifier.focusRequester(nextFocus).focusProperties {
+                    up = timelineFocus; left = tracksFocus
+                }, onClick = onNext, onActivity = onActivity,
+            )
         }
+    }
+}
 
+/** Frameless unless focused; white emphasis belongs only on the credits prompt. */
+@Composable
+private fun NIcon(
+    icon: ImageVector, label: String, modifier: Modifier = Modifier,
+    size: Int, onClick: () -> Unit, onActivity: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier.onFocusChanged { focused = it.isFocused }
+            .background(
+                if (focused) netflixWhite.copy(alpha = .17f) else Color.Transparent,
+                RoundedCornerShape(8.dp),
+            )
+            .clickable { onActivity(); onClick() }
+            .padding(5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, label, tint = netflixWhite, modifier = Modifier.size(size.dp))
     }
 }
 
 @Composable
-internal fun NetflixSkipPrompt(label: String, modifier: Modifier = Modifier,
-    onClick: () -> Unit) {
-    NText(label, modifier, onClick, emphasized = true)
+private fun NText(
+    label: String, icon: ImageVector? = null, modifier: Modifier = Modifier,
+    onClick: () -> Unit, onActivity: () -> Unit = {}, emphasized: Boolean = false,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(3.dp)
+    val light = focused || emphasized
+    Row(
+        modifier.onFocusChanged { focused = it.isFocused }
+            .background(if (light) Color.White else Color.Transparent, shape)
+            .clickable { onActivity(); onClick() }
+            .padding(horizontal = 13.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        if (icon != null) Icon(icon, null, tint = if (light) Color.Black else netflixWhite,
+            modifier = Modifier.size(22.dp))
+        Text(label, color = if (light) Color.Black else netflixWhite,
+            fontSize = 16.sp, fontWeight = FontWeight.Medium)
+    }
 }
+
+@Composable
+internal fun NetflixSkipPrompt(
+    label: String, modifier: Modifier = Modifier, onClick: () -> Unit,
+) {
+    NText(label, modifier = modifier
+        .background(Color(0xC11D1D1D), RoundedCornerShape(4.dp)),
+        onClick = onClick, emphasized = true)
+}
+
+/** Exact two-action credits composition; focus stays reachable without a modal trap. */
+@Composable
+internal fun NetflixCreditsPrompt(
+    isEpisode: Boolean,
+    nextAvailable: Boolean,
+    onContinue: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        NText("Watch Credits", modifier = Modifier
+            .background(Color(0xC2505050), RoundedCornerShape(4.dp)),
+            onClick = onContinue)
+        NText(
+            if (isEpisode && nextAvailable) "Next Episode" else "Back to Title",
+            icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
+            modifier = Modifier.background(Color.White, RoundedCornerShape(4.dp)),
+            onClick = onSkip, emphasized = true,
+        )
+    }
+}
+
 @Composable
 internal fun NetflixTrackOptions(
     audio: List<Pair<String, () -> Unit>>,
     subtitles: List<Pair<String, () -> Unit>>,
     onClose: () -> Unit,
 ) {
-    Column(Modifier.background(Color(0xF4141414), RoundedCornerShape(12.dp))
-        .padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Audio & Subtitles", color = white, fontWeight = FontWeight.Bold)
-        Text("Audio", color = white.copy(alpha = .7f))
+    Column(Modifier.background(Color(0xED111111), RoundedCornerShape(9.dp))
+        .padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Text("Audio & Subtitles", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text("Audio", color = Color.White.copy(alpha = .70f))
         audio.forEach { (label, action) -> NText(label, onClick = action) }
-        Text("Subtitles", color = white.copy(alpha = .7f))
+        Text("Subtitles", color = Color.White.copy(alpha = .70f))
         subtitles.forEach { (label, action) -> NText(label, onClick = action) }
         NText("Done", onClick = onClose)
     }
 }
 
-@Composable
-private fun NIcon(icon: ImageVector, label: String, modifier: Modifier = Modifier,
-    size: Int = 36, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Box(modifier.onFocusChanged { focused = it.isFocused }
-        .border(if (focused) 2.dp else 0.dp, white, RoundedCornerShape(10.dp))
-        .clickable(onClick = onClick).padding(6.dp), contentAlignment = Alignment.Center) {
-        Icon(icon, label, tint = white, modifier = Modifier.size(size.dp))
-    }
-}
-@Composable
-private fun NText(label: String, modifier: Modifier = Modifier, onClick: () -> Unit,
-    emphasized: Boolean = false) {
-    var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(5.dp)
-    Box(modifier.onFocusChanged { focused = it.isFocused }
-        .background(if (focused || emphasized) white else Color(0xAE242424), shape)
-        .border(if (focused) 2.dp else 0.dp, white, shape)
-        .clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 9.dp)) {
-        Text(label, color = if (focused || emphasized) Color.Black else white,
-            fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
 private fun nClock(ms: Long): String {
-    val s = ms.coerceAtLeast(0L) / 1000L
-    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60)
-        else "%d:%02d".format(s / 60, s % 60)
+    val sec = ms.coerceAtLeast(0L) / 1000L
+    val h = sec / 3600L
+    val m = (sec % 3600L) / 60L
+    val s = sec % 60L
+    return if (h > 0L) "%d:%02d:%02d".format(h,m,s) else "%d:%02d".format(m,s)
 }
