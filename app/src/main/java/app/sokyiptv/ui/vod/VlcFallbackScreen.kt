@@ -77,6 +77,9 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.player.VlcNativeSeekCorrection
+import app.sokyiptv.player.SkipCuePolicy
+import app.sokyiptv.player.SkipCueStore
+import app.sokyiptv.player.VideoChapter
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlin.math.max
@@ -87,6 +90,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Composable
 fun VlcFallbackScreen(
     streamUrl: String,
+    mediaKey: String,
     title: String,
     userAgent: String,
     initialPositionMs: Long,
@@ -106,6 +110,14 @@ fun VlcFallbackScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val preferences = remember { AppSettings.get(context) }
     val autoplay by preferences.seriesAutoplay.collectAsState()
+    val style by preferences.playerUiStyle.collectAsState()
+    val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
+    val skipStore = remember { SkipCueStore(context) }
+    var skipCues by remember(mediaKey) { mutableStateOf(skipStore.read(mediaKey)) }
+    var scannedChapters by remember(mediaKey) { mutableStateOf(false) }
+    var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
+    var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
+    var cueStatus by remember(mediaKey) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     // Restore exact v0.1.9 LibVLC initialization: fixed 1400ms native cache.
     val libvlc = remember(streamUrl) {
@@ -148,6 +160,7 @@ fun VlcFallbackScreen(
     var interaction by remember { mutableIntStateOf(0) }
     val rootFocus = remember { FocusRequester() }
     val pauseFocus = remember { FocusRequester() }
+    val trackFocus = remember { FocusRequester() }
     val autoplayFocus = remember { FocusRequester() }
     var autoplayFocused by remember { mutableStateOf(false) }
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
@@ -226,6 +239,7 @@ fun VlcFallbackScreen(
                 MediaPlayer.Event.Buffering -> {
                     val percentage = event.getBuffering()
                     scope.launch {
+                        bufferEventPercent = percentage.toInt().coerceIn(0, 100)
                         if (leaving.get() || nativeReleased.get()) return@launch
                         diagHealth.onBuffering(
                             percentage, android.os.SystemClock.elapsedRealtime(),
@@ -371,6 +385,23 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Named chapter metadata is the only safe automatic skip-cue source. No extra
+    // player connection or guessing based on another episode's runtime.
+    LaunchedEffect(ready, durationMs, scannedChapters) {
+        if (ready && durationMs > 0L && !scannedChapters && !leaving.get()) {
+            scannedChapters = true
+            delay(900L)
+            val chapters = runCatching {
+                player.getChapters(-1)?.map { VideoChapter(it.timeOffset, it.duration, it.name.orEmpty()) }
+                    ?: emptyList()
+            }.getOrDefault(emptyList())
+            if (chapters.isNotEmpty()) {
+                skipStore.fillFromChapters(mediaKey, SkipCuePolicy.fromChapters(chapters, durationMs))
+                skipCues = skipStore.read(mediaKey)
+            }
+        }
+    }
+
     // Preserve modern screensaver pause API, without newer decoder rebind or seek recovery.
     LaunchedEffect(suspendPlayback) {
         if (suspendPlayback) {
@@ -465,7 +496,12 @@ fun VlcFallbackScreen(
                     // Consume the matching KeyUp as well to prevent duplicate actions.
                     true
                 } else if (event.type != KeyEventType.KeyDown) false
-                else if (controlsVisible) {
+                else if (controlsVisible && netflix) {
+                    // Netflix-like layout owns explicit per-button 2-D focus routing.
+                    // Do not run the legacy three-level focus interceptor here.
+                    if (event.key != Key.Back && event.key != Key.Escape) interaction++
+                    false
+                } else if (controlsVisible) {
                     // Exactly 3 deterministic ordered levels, one press per move.
                     // Never rely on stale Compose focus-change callbacks to choose
                     // the next row. Native seek left/right/hold handlers remain intact.
@@ -554,7 +590,24 @@ fun VlcFallbackScreen(
             },
         )
         if (!ready && !failed && !ended) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                if (bufferEventPercent in 0..99) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Loading $bufferEventPercent%", color = Color.White)
+                }
+            }
+        }
+        // This is LibVLC's REPORTED input-buffer percentage, not a fabricated
+        // whole-file download percentage. Never reveal hidden transport controls.
+        if (ready && !paused && !ended && !failed &&
+            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING) {
+            Column(Modifier.align(Alignment.Center).padding(top = 190.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(7.dp))
+                Text("Buffering ${healthSnapshot.bufferPercent}%", color = Color.White)
+            }
         }
         if (failed) {
             Column(
@@ -570,9 +623,40 @@ fun VlcFallbackScreen(
                 TvVlcButton("Back to title", onClick = onBack)
             }
         }
-        // Keep buffering/stall state internal. The initial opening spinner remains,
-        // but no buffering percentage or false-stalled overlay covers playing video.
+        // Display the selected overlay without changing the native playback lifecycle.
         if (controlsVisible) {
+            if (netflix) {
+                NetflixLikePlayerChrome(
+                    title = title, isEpisode = showEpisodeControls,
+                    positionMs = positionMs, durationMs = durationMs, paused = paused,
+                    nextAvailable = nextEpisodeAvailable, playFocus = pauseFocus,
+                    onBack = ::leaveVideo, onToggle = ::togglePlayback,
+                    onSeek = ::seekTo, onEpisodes = ::leaveVideo,
+                    onTracks = { trackPanelVisible = true; showControls() },
+                    onNext = onNextEpisodeClick,
+                    onMarkIntroStart = {
+                        skipStore.markIntroStart(mediaKey, positionMs)
+                        skipCues = skipStore.read(mediaKey)
+                        cueStatus = "Intro start saved for this episode"
+                    },
+                    onMarkIntroEnd = {
+                        skipStore.markIntroEnd(mediaKey, positionMs)
+                        skipCues = skipStore.read(mediaKey)
+                        cueStatus = if (skipCues.hasIntro()) "Intro markers saved"
+                            else "Set Intro Start first; interval must be 8s to 4m"
+                    },
+                    onMarkCredits = {
+                        skipStore.markCredits(mediaKey, positionMs, durationMs)
+                        skipCues = skipStore.read(mediaKey)
+                        cueStatus = if (skipCues.hasCredits()) "Credits marker saved"
+                            else "Credits must be near the end of a known-length video"
+                    },
+                    onClearCues = {
+                        skipStore.clear(mediaKey); skipCues = skipStore.read(mediaKey)
+                        cueStatus = "Skip markers cleared"
+                    },
+                )
+            } else {
             Box(
                 Modifier.fillMaxSize()
                     .windowInsetsPadding(
@@ -765,6 +849,48 @@ fun VlcFallbackScreen(
                         modifier = Modifier.align(Alignment.Center),
                     )
                 }
+            }
+            }
+        }
+        if (cueStatus.isNotBlank() && netflix && controlsVisible) {
+            Text(cueStatus, color = Color.White,
+                modifier = Modifier.align(Alignment.TopStart).padding(25.dp))
+        }
+        if (!ended && ready && !failed &&
+            (SkipCuePolicy.showIntro(positionMs, skipCues) ||
+             SkipCuePolicy.showCredits(positionMs, durationMs, skipCues))) {
+            val intro = SkipCuePolicy.showIntro(positionMs, skipCues)
+            NetflixSkipPrompt(
+                label = if (intro) "Skip Intro" else if (showEpisodeControls && nextEpisodeAvailable)
+                    "Next Episode" else if (showEpisodeControls) "Skip Credits" else "Skip Credits",
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+            ) {
+                if (intro) seekTo(skipCues.introEndMs)
+                else if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
+                else leaveVideo()
+            }
+        }
+        if (trackPanelVisible && !leaving.get() && !nativeReleased.get()) {
+            val audio = runCatching {
+                player.audioTracks?.map { tr ->
+                    tr.name.orEmpty().ifBlank { "Audio track" } to {
+                        runCatching { player.setAudioTrack(tr.id) }
+                        trackPanelVisible = false
+                    }
+                } ?: emptyList()
+            }.getOrDefault(emptyList())
+            val subs = runCatching {
+                player.spuTracks?.map { tr ->
+                    tr.name.orEmpty().ifBlank { "Subtitles" } to {
+                        runCatching { player.setSpuTrack(tr.id) }
+                        trackPanelVisible = false
+                    }
+                } ?: emptyList()
+            }.getOrDefault(emptyList())
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)),
+                contentAlignment = Alignment.Center) {
+                NetflixTrackOptions(audio, subs) { trackPanelVisible = false }
             }
         }
     }
