@@ -158,6 +158,7 @@ fun VlcFallbackScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
     val rootFocus = remember { FocusRequester() }
+    var rootOwnsFocus by remember { mutableStateOf(false) }
     val pauseFocus = remember { FocusRequester() }
     val trackFocus = remember { FocusRequester() }
     val autoplayFocus = remember { FocusRequester() }
@@ -434,7 +435,7 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
-    LaunchedEffect(controlsVisible, ready, netflix) {
+    LaunchedEffect(controlsVisible, ready, netflix, focusSeekOnReveal) {
         delay(55)
         runCatching {
             if (controlsVisible && ready) {
@@ -479,6 +480,7 @@ fun VlcFallbackScreen(
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFocus)
+            .onFocusChanged { rootOwnsFocus = it.isFocused }
             .onPreviewKeyEvent { event ->
                 if (leaving.get()) return@onPreviewKeyEvent true
                 val hardwareKeyCode = event.nativeKeyEvent.keyCode
@@ -497,10 +499,19 @@ fun VlcFallbackScreen(
                     true
                 } else if (event.type != KeyEventType.KeyDown) false
                 else if (controlsVisible && netflix) {
-                    // Netflix-like layout owns explicit per-button 2-D focus routing.
-                    // Do not run the legacy three-level focus interceptor here.
+                    // Explicit recovery if the full-screen player root retained focus
+                    // after the Netflix controls were composed. Without this, Left
+                    // accidentally becomes the only key that escapes a focus trap.
                     if (event.key != Key.Back && event.key != Key.Escape) interaction++
-                    false
+                    if (rootOwnsFocus && event.key in setOf(
+                            Key.DirectionLeft, Key.DirectionRight,
+                            Key.DirectionUp, Key.DirectionDown,
+                        )) {
+                        val target = if (event.key == Key.DirectionLeft ||
+                            event.key == Key.DirectionRight) seekFocus else pauseFocus
+                        runCatching { target.requestFocus() }
+                        true
+                    } else false
                 } else if (controlsVisible) {
                     // Exactly 3 deterministic ordered levels, one press per move.
                     // Never rely on stale Compose focus-change callbacks to choose
