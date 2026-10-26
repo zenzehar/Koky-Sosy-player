@@ -5,6 +5,9 @@
  */
 package app.sokyiptv.ui.vod
 
+import app.sokyiptv.player.CommunitySkipLookup
+import app.sokyiptv.player.CommunitySkipResult
+import app.sokyiptv.data.remote.TmdbClient
 import app.sokyiptv.player.DetectedSkip
 import app.sokyiptv.player.PassiveSkipTracker
 import app.sokyiptv.player.PassiveVideoCapture
@@ -126,6 +129,7 @@ import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -170,6 +174,7 @@ fun VodPlayerScreen(
         PassiveSkipTracker(context, seriesGroup, mediaKey)
     }
     var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
+    var communitySkips by remember(mediaKey) { mutableStateOf(CommunitySkipResult()) }
     var skipCaptureMisses by remember(mediaKey) { mutableIntStateOf(0) }
     var skipCaptureLogged by remember(mediaKey) { mutableStateOf(false) }
     var skipIntroLogged by remember(mediaKey) { mutableStateOf(false) }
@@ -234,6 +239,30 @@ fun VodPlayerScreen(
             ?.let { episode -> "${episode.sourceId}:${episode.seriesId}" }
         previousEpisode = id?.let { graph.catalogRepository.previousEpisode(it) }
         followingEpisode = id?.let { graph.catalogRepository.nextEpisode(it) }
+    }
+    // SponsorBlock-style first-episode lookup. Community markers load by exact
+    // show/season/episode identity. Nothing is ever looked up using the IPTV URL.
+    LaunchedEffect(mediaKey) {
+        val id = mediaKey.takeIf { it.startsWith("ep:") }
+            ?.removePrefix("ep:")?.toLongOrNull() ?: return@LaunchedEffect
+        val data = graph.catalogRepository.episode(id) ?: return@LaunchedEffect
+        val parent = graph.catalogRepository.seriesByProviderId(data.sourceId, data.seriesId)
+            ?: return@LaunchedEffect
+        val imdb = withContext(Dispatchers.IO) {
+            runCatching {
+                TmdbClient(graph.httpClient, settings).imdbId(
+                    title = parent.name, year = parent.year,
+                    isMovie = false, tmdbId = parent.tmdbId,
+                )
+            }.getOrNull()
+        }
+        val estimatedDuration = data.durationSeconds?.takeIf { it in 600..18_000 }
+            ?.times(1_000L) ?: 0L
+        communitySkips = CommunitySkipLookup(graph.httpClient).findForEpisode(
+            imdbId = imdb, seriesName = parent.name, seriesYear = parent.year,
+            season = data.season, episode = data.episodeNumber,
+            durationMs = estimatedDuration,
+        )
     }
     var paused by remember { mutableStateOf(false) }
     var media3Diagnostic by remember { mutableStateOf<String?>(null) }
@@ -667,6 +696,7 @@ fun VodPlayerScreen(
             streamUrl = streamUrl,
             mediaKey = mediaKey,
             skipTracker = skipTracker,
+            communitySkips = communitySkips,
             title = title,
             userAgent = userAgent,
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
@@ -1022,16 +1052,24 @@ fun VodPlayerScreen(
             }
             }
         }
+        val knownIntro = communitySkips.intro
+        val knownCredits = communitySkips.credits
+        val trustedIntro = knownIntro != null &&
+            positionMs >= knownIntro.startMs - 3_000L &&
+            positionMs < knownIntro.endMs - 4_000L
+        val introTarget = if (trustedIntro) knownIntro!!.endMs else autoSkips.introEndMs
         val introSkip = mediaKey.startsWith("ep:") &&
-            autoSkips.introEndMs > positionMs + 3_000L && positionMs <= 480_000L
-        val creditsSkip = autoSkips.credits && durationMs > 0L &&
-            positionMs >= durationMs * 75L / 100L
+            introTarget > positionMs + 3_000L && positionMs <= 480_000L
+        val creditsSkip = (knownCredits != null &&
+            positionMs >= knownCredits.startMs && positionMs < knownCredits.endMs) ||
+            (autoSkips.credits && durationMs > 0L &&
+                positionMs >= durationMs * 75L / 100L)
         if (state !is PlayerController.State.Error && !paused && introSkip) {
             NetflixSkipPrompt(
                 label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
-            ) { seekAt(autoSkips.introEndMs) }
+            ) { seekAt(introTarget) }
         } else if (state !is PlayerController.State.Error && !paused &&
             creditsSkip && !creditsDismissed) {
             val nextAction: () -> Unit = {
