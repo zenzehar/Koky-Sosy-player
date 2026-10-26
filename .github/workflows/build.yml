@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.53-v51-back-crash-firetv-sync-paused' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.54-continue-watching-duration-card' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.53-v51-back-crash-firetv-sync-paused'
+      github.head_ref == 'fix/v0.1.11.54-continue-watching-duration-card'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.53.apk
-          gh release create v0.1.11.53-back-crash-firetv-sync-paused \
-            "apk/Soky_IPTV_Pro_v0.1.11.53.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.54.apk
+          gh release create v0.1.11.54-continue-watching-duration-card \
+            "apk/Soky_IPTV_Pro_v0.1.11.54.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.53 Back Stability and Fire TV" \
-            --notes "v0.1.11.53 TEST BUILD versionCode 73. Base: v0.1.11.51, not the experimental v52 adaptive cache build. Prioritize frequent Back-from-video crashes: one-shot guarded navigation, native VLC release ONLY on AndroidView.onRelease, suppress callbacks and polling after disposal. Buffering cancels the existing five-second controls hide timer without forcing hidden controls visible. Remove buffering percent, cache indicators and premature stall overlays. Delay transient startup error UI for seven seconds, cancel when stream recovers. Restore stable 1400ms VLC native cache (no v52 statistical monitoring, predictive cache tuning or extra network probes). Retain translucent elapsed/total pill. Add explicit launcher activity icon and 16:9 banner for Fire TV, also keep Android TV LEANBACK and regular Android launcher entries. TEMPORARILY DISABLE Google Drive automatic/manual sync and LAN/NAS history sync; stored history, pairing and Google credentials remain; local Room Continue Watching works. Draft PR, no golden/main merge. User must test repeated Back, initial provider VOD load, Firestick visibility, 15-minute playback and local resume. Device QA pending, debug signed." --prerelease
+            --title "Soky IPTV Pro v0.1.11.54 Continue Watching Timestamp" \
+            --notes "v0.1.11.54 TEST BUILD versionCode 74. Built directly from v53 (Back stabilization, Fire TV launcher manifest, temporarily disabled sync, no v52 buffering indicators). Fix Continue Watching display: show the EXACT Room saved resume position as mm:ss or h:mm:ss. If provider/player total duration is unknown, display Resume at 29:00 rather than false 0% or 0m total, and hide the empty 0% progress bar. If a credible total duration exists show elapsed/total plus calculated percent. No changes to progress writes, Room schema, seek, playback, cloud sync status or episode selection. Tests cover unknown and contradictory durations. Real TV test still required; debug signed prerelease, not golden or production." --prerelease
