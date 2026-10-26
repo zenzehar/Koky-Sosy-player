@@ -325,7 +325,8 @@ fun VodPlayerScreen(
     val postSeekGate = remember(controller) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(controller) { mutableStateOf(false) }
     val onMarkerLongPress = rememberManualMarkerLongPress(
-        enabled = !usingVlc && paused && mediaKey.startsWith("ep:") &&
+        enabled = !usingVlc && paused && !seriesGroup.isNullOrBlank() &&
+            mediaKey.startsWith("ep:") &&
             !markerDialogVisible && vodPanel == VodPanel.NONE,
         onLongPress = { markerDialogVisible = true; controlsVisible = true; interaction++ },
     )
@@ -630,6 +631,7 @@ fun VodPlayerScreen(
             streamUrl = streamUrl,
             mediaKey = mediaKey,
             manualSkips = manualSkips,
+            markersAvailable = !seriesGroup.isNullOrBlank(),
             onSkipsChanged = ::storeManualSkips,
             title = title,
             userAgent = userAgent,
@@ -1023,7 +1025,8 @@ fun VodPlayerScreen(
             )
         }
     }
-    if (!usingVlc && markerDialogVisible && mediaKey.startsWith("ep:")) {
+    if (!usingVlc && markerDialogVisible && !seriesGroup.isNullOrBlank() &&
+        mediaKey.startsWith("ep:")) {
         ManualSeriesSkipDialog(
             atMs = positionMs,
             marks = manualSkips,
