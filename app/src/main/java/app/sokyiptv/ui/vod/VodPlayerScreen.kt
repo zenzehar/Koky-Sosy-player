@@ -311,6 +311,8 @@ fun VodPlayerScreen(
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val netflixTracksFocus = remember { FocusRequester() }
+    val seekFrameCache = remember(mediaKey) { SeekFramePreviewCache() }
+    var media3SeekPreviewView by remember(mediaKey) { mutableStateOf<PlayerView?>(null) }
     val rootFocus = remember { FocusRequester() }
     var rootOwnsFocus by remember { mutableStateOf(false) }
     val autoplayFocus = remember { FocusRequester() }
@@ -577,6 +579,23 @@ fun VodPlayerScreen(
         }
     }
 
+    // Sample only video frames that the active Media3 player ALREADY decoded,
+    // at low frequency; no new media items, streams, seek calls or decoder.
+    LaunchedEffect(netflix, usingVlc, media3SeekPreviewView) {
+        if (!netflix || usingVlc) return@LaunchedEffect
+        val videoView = media3SeekPreviewView ?: return@LaunchedEffect
+        delay(2_500L)
+        while (isActive && !usingVlc) {
+            if (!paused && controller.player.isPlaying && !awaitingSeekPlayback) {
+                runCatching {
+                    seekFrameCache.record(videoView,
+                        controller.player.currentPosition.coerceAtLeast(0L))
+                }
+            }
+            delay(15_000L)
+        }
+    }
+
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
@@ -751,6 +770,7 @@ fun VodPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
+                    media3SeekPreviewView = this
                     player = controller.player
                     useController = false
                     subtitleView?.setUserDefaultStyle()
@@ -763,6 +783,7 @@ fun VodPlayerScreen(
             },
             // Drop Media3's view reference before the native/decoder teardown.
             onRelease = { playerView ->
+                if (media3SeekPreviewView === playerView) media3SeekPreviewView = null
                 playerView.player = null
             },
         )
@@ -823,6 +844,7 @@ fun VodPlayerScreen(
                                 scope.launch { savePosition(); onNextEpisode(target) }
                             }
                         },
+                        previewFrames = seekFrameCache,
                     )
                     if (vodPanel != VodPanel.NONE) {
                         val aud: List<Pair<String, () -> Unit>> = tracks.groups
