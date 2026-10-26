@@ -153,7 +153,7 @@ class CommunitySkipLookup(http: OkHttpClient) {
             o.optLong("end_ms", -1L), confidence, "IntroDB", outro, duration)
     }
 
-    private fun checkSegment(
+    internal fun checkSegment(
         start: Long, end: Long, confidence: Double, source: String,
         outro: Boolean, duration: Long,
     ): CommunitySegment? {
