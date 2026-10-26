@@ -115,6 +115,10 @@ fun VlcFallbackScreen(
     val style by preferences.playerUiStyle.collectAsState()
     val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
+    var skipSampleMisses by remember(mediaKey) { mutableIntStateOf(0) }
+    var skipSampleLogged by remember(mediaKey) { mutableStateOf(false) }
+    var skipIntroLogged by remember(mediaKey) { mutableStateOf(false) }
+    var skipCreditsLogged by remember(mediaKey) { mutableStateOf(false) }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
@@ -392,15 +396,37 @@ fun VlcFallbackScreen(
         val layout = videoLayout ?: return@LaunchedEffect
         if (!ready) return@LaunchedEffect
         while (isActive && !leaving.get() && !nativeReleased.get()) {
-            delay(3_000L)
+            // More frequent video-frame evidence during likely short openings.
+            delay(if (positionMs < 180_000L) 1_500L else 3_000L)
             if (paused || suspendPlayback || !player.isPlaying || !ready || failed) continue
             val current = runCatching { player.time.coerceAtLeast(0L) }.getOrDefault(-1L)
             val total = runCatching { player.length.coerceAtLeast(0L) }.getOrDefault(0L)
             if (current < 0L || (current > 480_000L &&
                 (total == 0L || current < total * 75L / 100L))) continue
             val scene = runCatching { PassiveVideoCapture.sample(layout, current) }.getOrNull()
-                ?: continue
+            if (scene == null) {
+                skipSampleMisses++
+                if (skipSampleMisses == 8) PlaybackDiagnostics.event(
+                    context, "SKIP_FRAME_MISS", android.os.Build.VERSION.SDK_INT,
+                    persistNow = true)
+                continue
+            }
+            if (!skipSampleLogged) {
+                skipSampleLogged = true
+                PlaybackDiagnostics.event(context, "SKIP_FRAME_OK",
+                    skipTracker.referenceEpisodes, persistNow = true)
+            }
             autoSkips = skipTracker.observe(scene, total)
+            if (autoSkips.introEndMs > 0L && !skipIntroLogged) {
+                skipIntroLogged = true
+                PlaybackDiagnostics.event(context, "SKIP_INTRO_FOUND",
+                    (autoSkips.introEndMs / 1000L).toInt(), persistNow = true)
+            }
+            if (autoSkips.credits && !skipCreditsLogged) {
+                skipCreditsLogged = true
+                PlaybackDiagnostics.event(context, "SKIP_CREDITS_FOUND",
+                    (current / 1000L).toInt(), persistNow = true)
+            }
         }
     }
 
