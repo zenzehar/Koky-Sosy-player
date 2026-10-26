@@ -207,7 +207,7 @@ internal fun NetflixLikePlayerChrome(
                     up = closeFocus; down = timelineFocus
                 },
                 73, onClick = onToggle, onActivity = onActivity,
-                opacityUnfocused = .16f,
+                opacityUnfocused = .12f,
             )
             NIcon(
                 Icons.Filled.Forward10, "Forward 10 seconds",
@@ -346,7 +346,8 @@ private fun NIcon(
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
             .background(
-                if (focused) netflixWhite.copy(alpha = .17f) else Color.Transparent,
+                if (focused) netflixWhite.copy(alpha = if (opacityUnfocused < 1f) .06f else .17f)
+                else Color.Transparent,
                 RoundedCornerShape(8.dp),
             )
             .clickable { onActivity(); onClick() }
@@ -354,7 +355,7 @@ private fun NIcon(
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, label, tint = netflixWhite.copy(alpha =
-            if (focused) 1f else opacityUnfocused), modifier = Modifier.size(size.dp))
+            opacityUnfocused), modifier = Modifier.size(size.dp))
     }
 }
 
