@@ -310,6 +310,7 @@ fun VodPlayerScreen(
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var netflixSeeking by remember(mediaKey) { mutableStateOf(false) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val netflixTracksFocus = remember { FocusRequester() }
@@ -607,10 +608,10 @@ fun VodPlayerScreen(
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
-    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, vodPanel, awaitingSeekPlayback) {
+    LaunchedEffect(controlsVisible, interaction, state, paused, scrubbing, netflixSeeking, vodPanel, awaitingSeekPlayback) {
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
-        if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE &&
+        if (controlsVisible && !paused && !scrubbing && !netflixSeeking && vodPanel == VodPanel.NONE &&
             !markerDialogVisible && activelyPlaying && !awaitingSeekPlayback) {
             delay(5_000)
             controlsVisible = false
@@ -839,6 +840,7 @@ fun VodPlayerScreen(
                         nextAvailable = followingEpisode != null, playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
                         thumbnailAt = seekFrames::thumbnail,
+                        onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },
                         onBack = onBack,
                         onToggle = {
