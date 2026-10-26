@@ -1053,8 +1053,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000  // 12 hours
 
     fun ensureVodLoaded() {
-        // Browsing VOD uses Room only. Startup and explicit Update own network fetches.
-        loadHomeFeeds()
+        // The current TV browser directly pages Room. It subscribes to recent and
+        // resume flows independently, so loading every movie and series here only
+        // allocates large lists and ranks invisible genre feeds on each entrance.
+        // Keep [loadHomeFeeds] available for a screen that explicitly needs those
+        // optional shelves; don't start that full-catalogue scan by opening VOD.
     }
 
     /**
@@ -1082,7 +1085,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             val last = settings.vodSyncedAtMillis
             val fresh = last > 0 && now - last < VOD_TTL_MILLIS
             if (haveCatalogue && fresh) {
-                loadHomeFeeds()
+                // The paged browser and its Room flows are already current.
                 return
             }
         }
@@ -1099,8 +1102,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         // Stamp the cache only when the fetch actually succeeded, so a failed sync retries on the
         // next open instead of being remembered as "fresh" and leaving the user with no catalogue.
         if (synced) settings.vodSyncedAtMillis = now
-        // The catalogue may have grown — recompute the computed home rows off the fresh data.
-        loadHomeFeeds()
+        // Paginated browse and reactive shelves update directly from Room.
+        // Expensive whole-catalogue rankings remain opt-in, never part of refresh.
     }
 
     // ---- VOD search (shared by the unified search screen) --------------------------------------
