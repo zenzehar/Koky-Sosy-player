@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -373,7 +374,13 @@ private fun NText(
 internal fun NetflixSkipPrompt(
     label: String, modifier: Modifier = Modifier, onClick: () -> Unit,
 ) {
+    val promptFocus = remember { FocusRequester() }
+    LaunchedEffect(label) {
+        withFrameNanos { }
+        runCatching { promptFocus.requestFocus() }
+    }
     NText(label, modifier = modifier
+        .focusRequester(promptFocus)
         .background(Color(0xC11D1D1D), RoundedCornerShape(4.dp)),
         onClick = onClick, emphasized = true)
 }
@@ -387,6 +394,11 @@ internal fun NetflixCreditsPrompt(
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val actionFocus = remember { FocusRequester() }
+    LaunchedEffect(nextAvailable, isEpisode) {
+        withFrameNanos { }
+        runCatching { actionFocus.requestFocus() }
+    }
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         NText("Watch Credits", modifier = Modifier
@@ -395,7 +407,8 @@ internal fun NetflixCreditsPrompt(
         NText(
             if (isEpisode && nextAvailable) "Next Episode" else "Back to Title",
             icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
-            modifier = Modifier.background(Color.White, RoundedCornerShape(4.dp)),
+            modifier = Modifier.focusRequester(actionFocus)
+                .background(Color.White, RoundedCornerShape(4.dp)),
             onClick = onSkip, emphasized = true,
         )
     }
