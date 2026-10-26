@@ -51,7 +51,11 @@ class VlcPlaybackHealth {
             !started -> State.STARTING
             isBuffering && nowMillis - bufferingSinceMs >= 750L -> State.BUFFERING
             isBuffering -> State.PLAYING // Ignore momentary event bursts to avoid UI flicker.
-            nativePlaying && nowMillis - lastAdvancedAtMs >= 7_000L -> State.STALLED
+            // Native playback can report !isPlaying while a stream is stuck before
+            // its first usable frame. A prolonged non-advancing clock is still a
+            // stalled playback state, even when no Buffering event was emitted.
+            // Report it as a neutral stall, not as a presumed network failure.
+            nowMillis - lastAdvancedAtMs >= 7_000L -> State.STALLED
             else -> State.PLAYING
         }
         return Snapshot(state, interruptions, percent)
