@@ -91,6 +91,7 @@ fun VlcFallbackScreen(
     streamUrl: String,
     mediaKey: String,
     manualSkips: ManualSeriesSkips,
+    markersAvailable: Boolean,
     onSkipsChanged: (ManualSeriesSkips) -> Unit,
     title: String,
     userAgent: String,
@@ -169,7 +170,7 @@ fun VlcFallbackScreen(
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
     val onMarkerLongPress = rememberManualMarkerLongPress(
-        enabled = paused && showEpisodeControls && !trackPanelVisible &&
+        enabled = paused && showEpisodeControls && markersAvailable && !trackPanelVisible &&
             !markerPanelVisible && !leaving.get(),
         onLongPress = { markerPanelVisible = true; controlsVisible = true; interaction++ },
     )
@@ -884,7 +885,7 @@ fun VlcFallbackScreen(
             NetflixTrackOptions(audio, subs) { trackPanelVisible = false }
         }
     }
-    if (markerPanelVisible && showEpisodeControls && !leaving.get()) {
+    if (markerPanelVisible && markersAvailable && showEpisodeControls && !leaving.get()) {
         ManualSeriesSkipDialog(
             atMs = positionMs, marks = manualSkips,
             onMark = { mark ->
