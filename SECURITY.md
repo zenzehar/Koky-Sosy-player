@@ -2,10 +2,13 @@
 
 ## Supported downloads
 
-Soky IPTV Pro is experimental software. The retained Android TV test reference is
-[v0.1.11.47](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.47-v019-native-vlc-restored).
-It is CI-built but is **not** a production-security certification or a physical-TV acceptance result.
-The approved historical golden milestone is v0.1.11.12.
+Soky IPTV Pro is experimental software. The current user-approved **development gold standard** is
+[v0.1.11.54](https://github.com/zenzehar/Koky-Sosy-player/releases/tag/v0.1.11.54-continue-watching-duration-card), pinned to
+[`milestone/v0.1.11.54-soky-iptv-pro-golden`](https://github.com/zenzehar/Koky-Sosy-player/tree/milestone/v0.1.11.54-soky-iptv-pro-golden) at commit
+`a1820c13aeef716fecc34694c2dd10464d14f634`.
+It passed CI but is **debug signed**, not a production-security certification or physical-TV acceptance.
+The previous approved v0.1.11.12 milestone remains archived. Google Drive, LAN and NAS
+watch-history synchronization are temporarily disabled in this baseline; local watch history is preserved.
 
 No diagnostics, test login or emulator-only APK should be treated as an approved public distribution.
 Do not automatically select the newest release tag for public download links.
