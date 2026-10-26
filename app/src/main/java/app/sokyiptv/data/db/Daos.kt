@@ -280,13 +280,18 @@ interface ChannelDao {
     @Query("UPDATE channels SET epgOverrideId = :epgId WHERE id = :id")
     suspend fun setEpgOverride(id: Long, epgId: String?)
 
-    /** Matching only needs five columns; don't load 40k stream URLs, titles,
-     * logos and other Channel fields into memory just to join EPG identifiers. */
+    /** The full records are also needed by channel-name normalisation and other
+     * catalogue tools. Keep the historical API and its full Channel projection. */
+    @Query("SELECT * FROM channels")
+    suspend fun allForMatching(): List<Channel>
+
+    /** Only the EPG matcher uses this lightweight projection. Do not expose it
+     * through the general allForMatching() API. */
     @Query("""
         SELECT id, groupKey, matchedEpgId, epgOverrideId, epgChannelId
         FROM channels
     """)
-    suspend fun allForMatching(): List<ChannelMatchCandidate>
+    suspend fun epgMatchCandidates(): List<ChannelMatchCandidate>
 
     @Upsert
     suspend fun upsertAll(channels: List<Channel>)
