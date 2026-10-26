@@ -788,6 +788,17 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Episode?
 
+    /** Store only verified metadata for THIS episode, never override provider
+     * metadata or alter player progress/seek/completion state. */
+    @Query("""
+        UPDATE episodes SET durationSeconds = :seconds
+        WHERE id = :episodeId AND sourceId = :sourceId
+          AND (durationSeconds IS NULL OR durationSeconds <= 0)
+    """)
+    suspend fun setDiscoveredDurationIfMissing(
+        episodeId: Long, sourceId: Long, seconds: Int,
+    ): Int
+
     @Upsert
     suspend fun upsertAll(episodes: List<Episode>)
 

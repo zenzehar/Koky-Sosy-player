@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.57-episode-duration-source-fallback' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.58-serial-episode-duration-discovery' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.57-episode-duration-source-fallback'
+      github.head_ref == 'fix/v0.1.11.58-serial-episode-duration-discovery'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.57.apk
-          gh release create v0.1.11.57-episode-duration-source-fallback \
-            "apk/Soky_IPTV_Pro_v0.1.11.57.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.58.apk
+          gh release create v0.1.11.58-serial-episode-duration-discovery \
+            "apk/Soky_IPTV_Pro_v0.1.11.58.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.57 Episode Duration Fallback" \
-            --notes "v0.1.11.57 TEST BUILD derived from v0.1.11.56 performance candidate; gold v0.1.11.54 unchanged. Episode-list runtime now parses alternative get_series_info duration formats (duration_secs, duration as HH:MM:SS or M:SS, and explicit minutes); if provider leaves a duration blank, it can display an approximate runtime from the active profile's existing saved playback for THAT exact episode only. Other unwatched episodes correctly remain unknown when provider has no runtime; never copy runtimes across episodes or seasons. The list dynamically refreshes after playback. No video decoder, seeking, native VLC polling, HTTP probes, cloud sync, Room schema, or network request changes. Added parser, label, and Room profile/episode isolation regression tests. Not accepted gold, debug-signed prerelease; verify provider examples, re-open series, Continue Watching, Back and D-pad on hardware." --prerelease
+            --title "Soky IPTV Pro v0.1.11.58 Serial Episode Duration Discovery" \
+            --notes "v0.1.11.58 EXPERIMENTAL TEST: based on v0.1.11.57 with v56 optimisations, gold v54 unchanged. Missing episode durations in the currently open series are discovered gradually one at a time using small capped HTTP range reads of MP4/M4V/MOV headers or complete HLS VOD media playlists, where supported. No second VLC player, no decoding, no full media download, no provider-wide scanning. Each request bounded to 256 KiB and eight seconds, at most two range reads per MP4 plus four seconds idle between episodes. Scan runs only while the series page is foreground resumed and cancels network I/O when video playback starts. Stops on provider rate/authorization limits. Verified lengths persisted only for exact episode and never override existing provider data or affect resume, seeking, completion or cloud sync. Unsupported streams without bounded verifiable header remain Duration unavailable; not a guarantee for every provider/container. Added parser and Room isolation tests. Physical Android TV and Firestick testing required, not a gold release. Debug signed." --prerelease

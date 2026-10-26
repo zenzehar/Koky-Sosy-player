@@ -5,6 +5,11 @@
  */
 package app.sokyiptv.ui
 
+import app.sokyiptv.data.remote.EpisodeDurationDiscovery
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+
 import app.sokyiptv.player.ResumeProgressPresentation
 
 import android.app.Application
@@ -1155,6 +1160,58 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
      * Reuses the existing Room history; neither native player nor provider is probed. */
     fun episodePlaybackLengths(series: Series, profileId: Long) =
         graph.playbackPositions.observeEpisodeLengths(profileId, series.sourceId, series.seriesId)
+
+    /**
+     * Best-effort, paced background metadata discovery while the series UI is
+     * visible. This never opens a player, downloads a video or scans every
+     * series globally. The caller's lifecycle cancels it when the screen closes.
+     * The attempted-ID set lasts for this visit, avoiding network retry storms.
+     */
+    suspend fun fillUnknownEpisodeDurations(
+        series: Series,
+        loadedEpisodes: List<app.sokyiptv.data.model.Episode>,
+        attempted: MutableSet<Long>,
+        preferredSeason: Int,
+    ) {
+        val source = graph.sourceRepository.byId(series.sourceId) ?: return
+        if (source.kind != SourceKind.XTREAM) return
+        val pending = loadedEpisodes
+            .asSequence()
+            .filter { it.id > 0L && (it.durationSeconds == null || it.durationSeconds <= 0) }
+            .sortedWith(compareBy<app.sokyiptv.data.model.Episode> {
+                if (it.season == preferredSeason) 0 else 1
+            }.thenBy { it.season }.thenBy { it.episodeNumber })
+            .toList()
+        for (episode in pending) {
+            currentCoroutineContext().ensureActive()
+            if (EpisodeDurationDiscovery.playbackActive) return
+            if (!attempted.add(episode.id)) continue
+            val inspection = try {
+                EpisodeDurationDiscovery.inspect(episode, source.userAgent)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                // Backgrounding or navigating to player must not mark a
+                // cancelled metadata request as permanently inspected.
+                attempted.remove(episode.id)
+                throw cancelled
+            }
+            if (EpisodeDurationDiscovery.playbackActive) {
+                attempted.remove(episode.id)
+                return
+            }
+            when (inspection.status) {
+                EpisodeDurationDiscovery.Result.DISCOVERED ->
+                    inspection.seconds?.let {
+                        graph.catalogRepository.saveVerifiedEpisodeDuration(episode, it)
+                    }
+                EpisodeDurationDiscovery.Result.PROVIDER_BUSY -> return
+                EpisodeDurationDiscovery.Result.UNAVAILABLE -> Unit
+            }
+            // One episode at a time with an idle gap. Providers often limit
+            // concurrent sessions; never compete with native video playback.
+            delay(4_000L)
+        }
+    }
+
 
     /** For the series detail screen: look the series up by row id. */
     fun seriesById(id: Long): kotlinx.coroutines.flow.Flow<Series?> =
