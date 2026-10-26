@@ -34,7 +34,7 @@ object PassiveSkipDetector {
     fun template(history: List<EpisodeScenes>, credits: Boolean = false): RepeatedClip? {
         val valid = history.filter { episode ->
             episode.samples.count { allowed(it, episode.totalMs, credits) } >= 8
-        }.takeLast(8)
+        }.takeLast(4)
         if (valid.size < 2) return null
         var best: RepeatedClip? = null
         var bestScore = -1L
@@ -58,7 +58,7 @@ object PassiveSkipDetector {
                 votes[bucket] = (votes[bucket] ?: 0) + 1
             }
             // Check the strongest candidate offsets, not just the single maximum.
-            val buckets = votes.entries.sortedByDescending { it.value }.take(12)
+            val buckets = votes.entries.sortedByDescending { it.value }.take(6)
             for (bucket in buckets) {
                 val delta = bucket.key * OFFSET_BIN_MS + OFFSET_BIN_MS / 2L
                 val aligned = mutableListOf<PairHit>()
@@ -69,17 +69,23 @@ object PassiveSkipDetector {
                     val expectedLeftTime = if (credits)
                         a.totalMs - (b.totalMs - rightFrame.atMs - delta)
                         else rightFrame.atMs - delta
-                    val candidate = left.asSequence()
-                        .filter {
-                            it.atMs > lastLeftAt &&
-                                abs(it.atMs - expectedLeftTime) <= MAX_TIME_JITTER_MS
+                    var chosen: PairHit? = null
+                    var bestDistance = Int.MAX_VALUE
+                    for (leftFrame in left) {
+                        if (leftFrame.atMs <= lastLeftAt ||
+                            abs(leftFrame.atMs - expectedLeftTime) > MAX_TIME_JITTER_MS) continue
+                        val difference = distance(leftFrame.hash, rightFrame.hash)
+                        if (difference > MAX_FRAME_DISTANCE) continue
+                        val score = difference * 200L +
+                            abs(leftFrame.atMs - expectedLeftTime) / 100L
+                        if (score < bestDistance.toLong()) {
+                            bestDistance = score.toInt()
+                            chosen = PairHit(leftFrame, rightFrame, difference)
                         }
-                        .map { PairHit(it, rightFrame, distance(it.hash, rightFrame.hash)) }
-                        .filter { it.distance <= MAX_FRAME_DISTANCE }
-                        .minByOrNull { it.distance * 200 + abs(it.a.atMs - expectedLeftTime) / 100 }
-                    if (candidate != null) {
-                        aligned.add(candidate)
-                        lastLeftAt = candidate.a.atMs
+                    }
+                    if (chosen != null) {
+                        aligned.add(chosen)
+                        lastLeftAt = chosen.a.atMs
                     }
                 }
                 // The strongest temporal run is the proposed common sequence.
