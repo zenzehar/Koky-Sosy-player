@@ -358,6 +358,7 @@ internal fun ContinueWatchingRow(
 private fun ResumeCard(item: VodViewModel.ResumeItem, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "resumeScale")
+    val verifiedProgress = ResumeCardTime.fraction(item.positionMs, item.durationMs)
     Column(
         Modifier
             .width(190.dp)
@@ -384,10 +385,12 @@ private fun ResumeCard(item: VodViewModel.ResumeItem, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
-            LinearProgressIndicator(
-                progress = { item.progress },
-                modifier = Modifier.fillMaxWidth().height(4.dp).align(Alignment.BottomStart),
-            )
+            verifiedProgress?.let { progress ->
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).align(Alignment.BottomStart),
+                )
+            }
         }
         Spacer(Modifier.height(6.dp))
         Text(
@@ -396,6 +399,12 @@ private fun ResumeCard(item: VodViewModel.ResumeItem, onClick: () -> Unit) {
             color = if (focused) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            ResumeCardTime.format(item.positionMs, item.durationMs),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
         )
     }
 }
