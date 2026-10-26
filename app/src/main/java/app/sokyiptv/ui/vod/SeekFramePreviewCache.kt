@@ -35,6 +35,7 @@ internal class SeekFramePreviewCache {
     suspend fun record(root: View, playedPositionMs: Long) {
         if (playedPositionMs < 0L || frames.any { abs(it.atMs - playedPositionMs) < 10_000L }) return
         val surface = activeVideoSurface(root) ?: return
+        if (surface is SurfaceView && Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
         val bitmap = Bitmap.createBitmap(192, 108, Bitmap.Config.ARGB_8888)
         val ok = withTimeoutOrNull(1_200L) {
             when (surface) {
