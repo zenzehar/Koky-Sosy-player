@@ -114,6 +114,7 @@ fun VlcFallbackScreen(
     val style by preferences.playerUiStyle.collectAsState()
     val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
+    var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
@@ -433,7 +434,7 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
-    LaunchedEffect(controlsVisible, ready) {
+    LaunchedEffect(controlsVisible, ready, netflix) {
         delay(55)
         runCatching {
             if (controlsVisible && ready) {
@@ -629,6 +630,8 @@ fun VlcFallbackScreen(
                     title = title, isEpisode = showEpisodeControls,
                     positionMs = positionMs, durationMs = durationMs, paused = paused,
                     nextAvailable = nextEpisodeAvailable, playFocus = pauseFocus,
+                    timelineFocus = seekFocus, tracksFocus = trackFocus,
+                    onActivity = { interaction++ },
                     onBack = ::leaveVideo, onToggle = ::togglePlayback,
                     onSeek = ::seekTo, onEpisodes = ::leaveVideo,
                     onTracks = { trackPanelVisible = true; showControls() },
@@ -836,19 +839,31 @@ fun VlcFallbackScreen(
             showEpisodeControls && autoSkips.introEndMs > positionMs + 3_000L &&
             positionMs < 480_000L
         val showCredits = !ended && ready && !paused && !failed &&
-            autoSkips.credits && durationMs > 0L && positionMs >= durationMs * 75L / 100L
-        if (showIntro || showCredits) {
+            !creditsDismissed && autoSkips.credits && durationMs > 0L && positionMs >= durationMs * 75L / 100L
+        if (showIntro) {
             NetflixSkipPrompt(
-                label = when {
-                    showIntro -> "Skip Intro"
-                    showEpisodeControls && nextEpisodeAvailable -> "Next Episode"
-                    else -> "Skip Credits"
+                label = "Skip Intro",
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+            ) { seekTo(autoSkips.introEndMs) }
+        } else if (showCredits && netflix) {
+            NetflixCreditsPrompt(
+                isEpisode = showEpisodeControls, nextAvailable = nextEpisodeAvailable,
+                onContinue = { creditsDismissed = true },
+                onSkip = {
+                    if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
+                    else leaveVideo()
                 },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        } else if (showCredits) {
+            NetflixSkipPrompt(
+                label = if (showEpisodeControls && nextEpisodeAvailable)
+                    "Next Episode" else "Back to Title",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
             ) {
-                if (showIntro) seekTo(autoSkips.introEndMs)
-                else if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
+                if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
                 else leaveVideo()
             }
         }
