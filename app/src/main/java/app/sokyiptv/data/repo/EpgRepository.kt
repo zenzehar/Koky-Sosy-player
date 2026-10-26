@@ -283,7 +283,7 @@ class EpgRepository(
         val populated = programmeDao.channelIdsWithProgrammes().toHashSet()
 
         // Five columns per channel, not complete URLs/logo/metadata objects.
-        val channels = channelDao.allForMatching()
+        val channels = channelDao.matchCandidates()
         val changes = ArrayList<Pair<Long, String?>>()
         var matched = 0
 
