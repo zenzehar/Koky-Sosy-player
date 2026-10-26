@@ -171,6 +171,9 @@ fun VodPlayerScreen(
     DisposableEffect(skipTracker) {
         onDispose { skipTracker.finish() }
     }
+    LaunchedEffect(skipTracker) {
+        skipTracker.prepare()
+    }
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
