@@ -77,7 +77,8 @@ object PassiveVideoCapture {
         val density = java.lang.Long.bitCount(fingerprint)
         // Flat black screens, black bars, loading circles, static logos etc.
         // must not create artificial identical patterns across episodes.
-        if (density !in 9..55) return null
+        // Keep low-texture frames until after the separate rolling-credits test.
+        // The old early return silently dropped nearly black credit backgrounds.
 
         // Conservative scrolling-credit appearance: near-black background with
         // several short horizontal white strokes in the central 70% of the frame.
@@ -102,6 +103,7 @@ object PassiveVideoCapture {
         val creditText = total > 0 && dark > total * 7 / 10 &&
             bright in (total * 2 / 100)..(total * 22 / 100) &&
             lineRows >= 5
+        if (density !in 8..56 && !creditText) return null
         return SceneSample(atMs, fingerprint, creditText)
     }
 }
