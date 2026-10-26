@@ -500,8 +500,10 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
             val list = variants
                 .flatMap { it.epgCandidates }
                 .firstNotNullOfOrNull { id -> byEpgChannel[id] }
-                ?.sortedBy { it.startUtcMillis }
                 .orEmpty()
+            // ProgrammeDao.observeWindow already orders by epgChannelId and start
+            // time. groupBy preserves each channel's order, so sorting each list
+            // again for every category switch needlessly reallocated arrays.
 
             // Feed the progress bar as rows come together — this is the slow part on a big
             // provider, so it's what the percentage should actually track.
@@ -784,67 +786,74 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         settings.activeProfileId
             .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 300) }
             .mapLatest { positions ->
-                // The DAO sorts newest first. Group BEFORE discarding completed entries;
-                // otherwise an old incomplete episode resurfaces after a newer completion.
-                val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
-                for (position in positions) {
-                    val resolved = resolveResume(position) ?: continue
-                    groups.getOrPut(resolved.logicalKey) { mutableListOf() }.add(resolved)
-                }
-                groups.values.mapNotNull { versions ->
-                    val latest = versions.first()
-                    if (latest.finished) null else latest.copy(resetKeys = versions.map { it.mediaKey })
+                if (positions.isEmpty()) return@mapLatest emptyList()
+                val plan = ResumeLookupPlan.from(positions.map { it.mediaKey })
+                // Previously: one movie/episode query per saved position plus another
+                // series query per episode (up to ~600 Room round trips). Now this is
+                // two bounded IN queries and one parent query per source, all on IO.
+                val movieIndex = graph.catalogRepository.moviesByIds(plan.movieIds).associateBy { it.id }
+                val episodeIndex = graph.catalogRepository.episodesByIds(plan.episodeIds).associateBy { it.id }
+                val parentIndex = graph.catalogRepository.parentSeriesForEpisodes(episodeIndex.values)
+
+                withContext(Dispatchers.Default) {
+                    // The DAO sorts newest first. Group before checking finished, so
+                    // older incomplete episodes never replace a newer completion.
+                    val groups = LinkedHashMap<String, MutableList<ResumeItem>>()
+                    for (position in positions) {
+                        val parsed = ResumeLookupPlan.parse(position.mediaKey) ?: continue
+                        val resolved = when (parsed.first) {
+                            "movie" -> movieIndex[parsed.second]?.let { movie ->
+                                val presentation = ResumeProgressPresentation.resolve(
+                                    position.positionMillis, position.durationMillis,
+                                    movie.durationSeconds,
+                                )
+                                ResumeItem(
+                                    position.mediaKey, movie.displayTitle, movie.posterUrl,
+                                    movie.streamUrl, presentation.fraction,
+                                    logicalKey = "movie:${movie.sourceId}:${movie.displayTitle.trim().lowercase()}:${movie.year ?: 0}",
+                                    finished = position.isFinished, sourceId = movie.sourceId,
+                                    positionMs = position.positionMillis,
+                                    durationMs = presentation.durationMs,
+                                )
+                            }
+                            "ep" -> episodeIndex[parsed.second]?.let { episode ->
+                                val parent = parentIndex[episode.sourceId to episode.seriesId]
+                                val presentation = ResumeProgressPresentation.resolve(
+                                    position.positionMillis, position.durationMillis,
+                                    episode.durationSeconds,
+                                )
+                                ResumeItem(
+                                    position.mediaKey,
+                                    parent?.displayTitle ?: episode.title.ifBlank { "Season ${episode.season}" },
+                                    parent?.posterUrl ?: episode.stillUrl,
+                                    episode.streamUrl, presentation.fraction,
+                                    logicalKey = "series:${episode.sourceId}:${episode.seriesId}",
+                                    finished = position.isFinished, sourceId = episode.sourceId,
+                                    seriesProviderId = episode.seriesId,
+                                    episodeLabel = "S%02dE%02d".format(episode.season, episode.episodeNumber),
+                                    positionMs = position.positionMillis,
+                                    durationMs = presentation.durationMs,
+                                )
+                            }
+                            else -> null
+                        } ?: continue
+                        groups.getOrPut(resolved.logicalKey) { mutableListOf() }.add(resolved)
+                    }
+                    groups.values.mapNotNull { versions ->
+                        val latest = versions.first()
+                        if (latest.finished) null
+                        else latest.copy(resetKeys = versions.map { it.mediaKey })
+                    }
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private suspend fun resolveResume(pos: PlaybackPosition): ResumeItem? {
-        val parts = pos.mediaKey.split(":", limit = 2)
-        if (parts.size != 2) return null
-        val id = parts[1].toLongOrNull() ?: return null
-        return when (parts[0]) {
-            "movie" -> graph.catalogRepository.movie(id)?.let {
-                val presentation = ResumeProgressPresentation.resolve(
-                    pos.positionMillis, pos.durationMillis, it.durationSeconds,
-                )
-                ResumeItem(
-                    pos.mediaKey, it.displayTitle, it.posterUrl, it.streamUrl,
-                    presentation.fraction,
-                    logicalKey = "movie:${it.sourceId}:${it.displayTitle.trim().lowercase()}:${it.year ?: 0}",
-                    finished = pos.isFinished, sourceId = it.sourceId,
-                    positionMs = pos.positionMillis, durationMs = presentation.durationMs,
-                )
-            }
-            "ep" -> graph.catalogRepository.episode(id)?.let { episode ->
-                val parent = graph.catalogRepository.seriesByProviderId(episode.sourceId, episode.seriesId)
-                val presentation = ResumeProgressPresentation.resolve(
-                    pos.positionMillis, pos.durationMillis, episode.durationSeconds,
-                )
-                ResumeItem(
-                    pos.mediaKey,
-                    parent?.displayTitle ?: episode.title.ifBlank { "Season ${episode.season}" },
-                    parent?.posterUrl ?: episode.stillUrl,
-                    episode.streamUrl, presentation.fraction,
-                    logicalKey = "series:${episode.sourceId}:${episode.seriesId}",
-                    finished = pos.isFinished, sourceId = episode.sourceId,
-                    seriesProviderId = episode.seriesId,
-                    episodeLabel = "S%02dE%02d".format(episode.season, episode.episodeNumber),
-                    positionMs = pos.positionMillis, durationMs = presentation.durationMs,
-                )
-            }
-            else -> null
-        }
-    }
 
     /** Reset all quality variants of the SAME logical movie, not just one stream id. */
     private suspend fun resetLogicalMovie(movieId: Long, profileId: Long) {
         val original = graph.catalogRepository.movie(movieId) ?: return
         val title = original.displayTitle.trim().lowercase()
-        val keys = graph.catalogRepository.allMovies()
-            .filter {
-                it.sourceId == original.sourceId && it.year == original.year &&
-                    it.displayTitle.trim().lowercase() == title
-            }
+        val keys = graph.catalogRepository.movieResetCandidates(original.sourceId, original.year)
+            .filter { it.displayTitle.trim().lowercase() == title }
             .map { "movie:${it.id}" }
         graph.playbackPositions.deleteKeys(profileId, keys.ifEmpty { listOf("movie:$movieId") })
     }
@@ -1046,8 +1055,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     private val VOD_TTL_MILLIS = 12L * 60 * 60 * 1000  // 12 hours
 
     fun ensureVodLoaded() {
-        // Browsing VOD uses Room only. Startup and explicit Update own network fetches.
-        loadHomeFeeds()
+        // The current TV browser directly pages Room. It subscribes to recent and
+        // resume flows independently, so loading every movie and series here only
+        // allocates large lists and ranks invisible genre feeds on each entrance.
+        // Keep [loadHomeFeeds] available for a screen that explicitly needs those
+        // optional shelves; don't start that full-catalogue scan by opening VOD.
     }
 
     /**
@@ -1075,7 +1087,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             val last = settings.vodSyncedAtMillis
             val fresh = last > 0 && now - last < VOD_TTL_MILLIS
             if (haveCatalogue && fresh) {
-                loadHomeFeeds()
+                // The paged browser and its Room flows are already current.
                 return
             }
         }
@@ -1092,8 +1104,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         // Stamp the cache only when the fetch actually succeeded, so a failed sync retries on the
         // next open instead of being remembered as "fresh" and leaving the user with no catalogue.
         if (synced) settings.vodSyncedAtMillis = now
-        // The catalogue may have grown — recompute the computed home rows off the fresh data.
-        loadHomeFeeds()
+        // Paginated browse and reactive shelves update directly from Room.
+        // Expensive whole-catalogue rankings remain opt-in, never part of refresh.
     }
 
     // ---- VOD search (shared by the unified search screen) --------------------------------------

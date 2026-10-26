@@ -276,32 +276,37 @@ class EpgRepository(
      * Joins every channel to the merged guide by normalised name.
      * Returns (channels with a working guide id, total channels).
      */
-    suspend fun runMatcher(): Pair<Int, Int> {
+    suspend fun runMatcher(): Pair<Int, Int> = withContext(Dispatchers.Default) {
         val aliases = aliasDao.all()
         val index = EpgMatcher.buildIndex(aliases.map { it.epgId to it.displayName })
-        // Only ids that actually have programmes count as "working" — a match against a
-        // channel the guide lists but never fills is a guide that looks broken.
+        // Only ids with actual programme rows count as working.
         val populated = programmeDao.channelIdsWithProgrammes().toHashSet()
 
-        val channels = channelDao.allForMatching()
+        // Five columns per channel, not complete URLs/logo/metadata objects.
+        val channels = channelDao.matchCandidates()
+        val changes = ArrayList<Pair<Long, String?>>()
         var matched = 0
 
         for (channel in channels) {
             val newMatch = index.match(channel.groupKey)
-            if (newMatch != channel.matchedEpgId) {
-                channelDao.setMatchedEpgId(channel.id, newMatch)
-            }
+            if (newMatch != channel.matchedEpgId) changes += channel.id to newMatch
+            // Match exactly the old semantics, including the previously matched id:
+            // this is a reporting calculation, not a change in matching policy.
             val works = channel.epgCandidates.any { it in populated } ||
                 (newMatch != null && newMatch in populated)
             if (works) matched++
         }
+        // One Room transaction/observer invalidation after the CPU-heavy pass,
+        // rather than as many transactions as changed channels.
+        if (changes.isNotEmpty()) channelDao.applyMatchedEpgChanges(changes)
 
         Log.i(
             TAG,
             "Matcher: $matched of ${channels.size} channels have a working guide " +
-                "(${aliases.size} guide aliases, ${populated.size} populated guide channels)",
+                "(${aliases.size} guide aliases, ${populated.size} populated guide channels; " +
+                "${changes.size} updated in one transaction)",
         )
-        return matched to channels.size
+        matched to channels.size
     }
 
     suspend fun setManualOverride(channelId: Long, epgId: String?) =

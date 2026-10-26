@@ -35,6 +35,19 @@ class VlcPlaybackHealthTest {
         assertEquals(VlcPlaybackHealth.State.PLAYING, h.sample(11000, 2000, true, false).state)
         assertFalse(h.networkBuffering)
     }
+    @Test fun nativeIsPlayingFalseStillShowsRealClockStallAfterTimeout() {
+        val h = VlcPlaybackHealth()
+        h.onPlaying(0L)
+        assertEquals(VlcPlaybackHealth.State.PLAYING,
+            h.sample(2_000L, 0L, false, false).state)
+        assertEquals(VlcPlaybackHealth.State.STALLED,
+            h.sample(9_500L, 0L, false, false).state)
+        assertEquals(VlcPlaybackHealth.State.PAUSED,
+            h.sample(10_000L, 0L, false, true).state)
+        assertEquals(VlcPlaybackHealth.State.PLAYING,
+            h.sample(10_500L, 900L, true, false).state)
+    }
+
     @Test fun briefRebufferDoesNotFlashOverlay() {
         val h = VlcPlaybackHealth()
         h.onPlaying(0)

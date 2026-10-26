@@ -77,6 +77,7 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.player.VlcNativeSeekCorrection
+import app.sokyiptv.player.VodWaitIndicator
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 import kotlin.math.max
@@ -570,8 +571,34 @@ fun VlcFallbackScreen(
                 TvVlcButton("Back to title", onClick = onBack)
             }
         }
-        // Keep buffering/stall state internal. The initial opening spinner remains,
-        // but no buffering percentage or false-stalled overlay covers playing video.
+        // Minimal, player-neutral feedback when playback actually stops advancing.
+        // This is independent of control-bar visibility: buffering pauses an existing
+        // auto-hide countdown but MUST NOT reveal the controls if they were hidden.
+        val waitIndicator = VodWaitIndicator.show(
+            ready = ready, failed = failed, ended = ended, paused = paused,
+            suspended = suspendPlayback, scrubbing = scrubbing,
+            state = healthSnapshot.state,
+        )
+        if (waitIndicator != VodWaitIndicator.Kind.NONE) {
+            Row(
+                modifier = Modifier.align(Alignment.Center)
+                    .background(Color(0xFF162338).copy(alpha = 0.58f), RoundedCornerShape(16.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.width(20.dp).height(20.dp),
+                    color = CinemaBlue, strokeWidth = 2.dp,
+                )
+                Text(
+                    if (waitIndicator == VodWaitIndicator.Kind.BUFFERING) "Buffering…"
+                    else "Playback stalled",
+                    color = Color.White,
+                )
+            }
+        }
         if (controlsVisible) {
             Box(
                 Modifier.fillMaxSize()

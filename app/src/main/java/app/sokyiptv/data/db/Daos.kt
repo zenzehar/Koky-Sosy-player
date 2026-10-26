@@ -33,6 +33,31 @@ import kotlinx.coroutines.flow.Flow
 /** Rows per upsert statement. Keeps a 40,000-channel playlist from building one huge query. */
 private const val UPSERT_CHUNK = 500
 
+/** Only the per-channel user choices needed when replacing a large live catalogue.
+ * Avoid hydrating every stored channel URL/logo/name just to preserve favourites. */
+data class ChannelUserState(
+    val id: Long,
+    val streamId: String,
+    val favourite: Boolean,
+    val hidden: Boolean,
+    val sortIndex: Int,
+    val customName: String?,
+    val epgOverrideId: String?,
+    val matchedEpgId: String?,
+)
+
+/** Smallest possible in-memory EPG join working set (no stream URL or credentials). */
+data class ChannelMatchCandidate(
+    val id: Long,
+    val groupKey: String,
+    val matchedEpgId: String?,
+    val epgOverrideId: String?,
+    val epgChannelId: String?,
+) {
+    val epgCandidates: List<String>
+        get() = listOfNotNull(epgOverrideId, epgChannelId, matchedEpgId)
+}
+
 /** Minimal reference projection: never include provider credentials in cloud payloads. */
 data class CloudMediaRef(val id: Long, val streamUrl: String)
 
@@ -245,12 +270,28 @@ interface ChannelDao {
     @Query("UPDATE channels SET matchedEpgId = :epgId WHERE id = :id")
     suspend fun setMatchedEpgId(id: Long, epgId: String?)
 
+    /** Commit all changed EPG joins in ONE transaction. Thousands of per-row
+     * transactions previously caused repeated invalidations and TV-guide stutter. */
+    @Transaction
+    suspend fun applyMatchedEpgChanges(changes: List<Pair<Long, String?>>) {
+        for ((id, epgId) in changes) setMatchedEpgId(id, epgId)
+    }
+
     @Query("UPDATE channels SET epgOverrideId = :epgId WHERE id = :id")
     suspend fun setEpgOverride(id: Long, epgId: String?)
 
-    /** The matcher's working set: id, group key, and what is already known. */
+    /** Full-channel working set is still required by catalogue re-normalisation and
+     * unmatched guide reporting; preserve the existing caller contract. */
     @Query("SELECT * FROM channels")
     suspend fun allForMatching(): List<Channel>
+
+    /** Matcher-only five-column projection: never load URLs and poster metadata
+     * into RAM for the broad EPG reconciliation scan. */
+    @Query("""
+        SELECT id, groupKey, matchedEpgId, epgOverrideId, epgChannelId
+        FROM channels
+    """)
+    suspend fun matchCandidates(): List<ChannelMatchCandidate>
 
     @Upsert
     suspend fun upsertAll(channels: List<Channel>)
@@ -286,38 +327,41 @@ interface ChannelDao {
         if (incoming.isEmpty()) return
 
         val existing = userStateForSource(sourceId).associateBy { it.streamId }
-        val merged = incoming.map { channel ->
-            val previous = existing[channel.streamId]
-            if (previous == null) {
-                channel.copy(lastSeenMillis = syncStamp)
-            } else {
-                channel.copy(
-                    id = previous.id,
-                    favourite = previous.favourite,
-                    // OR, not overwrite: the importer hides separator rows ('### UK ###')
-                    // at parse time, and that decision must stick even for rows that
-                    // predate the rule. User hides are preserved the same way.
-                    hidden = previous.hidden || channel.hidden,
-                    sortIndex = previous.sortIndex,
-                    // A user's rename must outlive the provider's fresh name on every refresh.
-                    customName = previous.customName,
-                    epgOverrideId = previous.epgOverrideId,
-                    matchedEpgId = previous.matchedEpgId,
-                    lastSeenMillis = syncStamp,
-                )
+        // Upsert a bounded batch at a time. Previously incoming.map allocated a
+        // second entire 40k-Channel catalogue AND then chunked it, needlessly
+        // retaining thousands of copied URL/artwork strings and Channel objects.
+        // Keep the one transaction and original user-choice merge semantics.
+        for (start in incoming.indices step UPSERT_CHUNK) {
+            val end = minOf(start + UPSERT_CHUNK, incoming.size)
+            val batch = incoming.subList(start, end).map { channel ->
+                val previous = existing[channel.streamId]
+                if (previous == null) {
+                    channel.copy(lastSeenMillis = syncStamp)
+                } else {
+                    channel.copy(
+                        id = previous.id,
+                        favourite = previous.favourite,
+                        hidden = previous.hidden || channel.hidden,
+                        sortIndex = previous.sortIndex,
+                        customName = previous.customName,
+                        epgOverrideId = previous.epgOverrideId,
+                        matchedEpgId = previous.matchedEpgId,
+                        lastSeenMillis = syncStamp,
+                    )
+                }
             }
-        }
-        // Chunked so a 40,000-channel playlist does not build one enormous statement.
-        val batches = merged.chunked(UPSERT_CHUNK)
-        batches.forEachIndexed { i, batch ->
             upsertAll(batch)
-            onImportProgress((i + 1f) / batches.size)
+            onImportProgress(end.toFloat() / incoming.size)
         }
         deleteStale(sourceId, syncStamp)
     }
 
-    @Query("SELECT * FROM channels WHERE sourceId = :sourceId")
-    suspend fun userStateForSource(sourceId: Long): List<Channel>
+    @Query("""
+        SELECT id, streamId, favourite, hidden, sortIndex,
+               customName, epgOverrideId, matchedEpgId
+        FROM channels WHERE sourceId = :sourceId
+    """)
+    suspend fun userStateForSource(sourceId: Long): List<ChannelUserState>
 }
 
 @Dao
@@ -562,6 +606,19 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun byId(id: Long): Movie?
 
+    /** Single bounded lookup for a Continue Watching page (at most 300 IDs). */
+    @Query("SELECT * FROM movies WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<Long>): List<Movie>
+
+    /** Restrict a multi-quality title reset before applying the normal display-title
+     * matching in Kotlin. A 40k title catalogue must never be read for one reset. */
+    @Query("""
+        SELECT * FROM movies
+        WHERE sourceId = :sourceId
+          AND (year = :year OR (year IS NULL AND :year IS NULL))
+    """)
+    suspend fun resetCandidates(sourceId: Long, year: Int?): List<Movie>
+
     /** Stream URL is the cross-device key: the same film has the same URL on the same provider. */
     @Query("SELECT * FROM movies WHERE streamUrl = :url LIMIT 1")
     suspend fun byStreamUrl(url: String): Movie?
@@ -712,6 +769,10 @@ interface EpisodeDao {
 
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun byId(id: Long): Episode?
+
+    /** Batch watched-episode lookup; avoids one Room query per visible card. */
+    @Query("SELECT * FROM episodes WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<Long>): List<Episode>
 
     @Query("""SELECT * FROM episodes WHERE sourceId = :sourceId AND seriesId = :seriesId
         AND (season > :season OR (season = :season AND episodeNumber > :number))
