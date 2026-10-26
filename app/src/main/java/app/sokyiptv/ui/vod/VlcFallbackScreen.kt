@@ -159,6 +159,7 @@ fun VlcFallbackScreen(
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
     var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var netflixSeeking by remember(mediaKey) { mutableStateOf(false) }
     var interaction by remember { mutableIntStateOf(0) }
     val rootFocus = remember { FocusRequester() }
     var rootOwnsFocus by remember { mutableStateOf(false) }
@@ -443,8 +444,8 @@ fun VlcFallbackScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, interaction, nativePlaybackActive, paused, scrubbing, failed, ended) {
-        if (controlsVisible && nativePlaybackActive && !paused && !scrubbing && !failed && !ended &&
+    LaunchedEffect(controlsVisible, interaction, nativePlaybackActive, paused, scrubbing, netflixSeeking, failed, ended) {
+        if (controlsVisible && nativePlaybackActive && !paused && !scrubbing && !netflixSeeking && !failed && !ended &&
             !trackPanelVisible && !markerPanelVisible) {
             delay(5_000)
             controlsVisible = false
@@ -656,6 +657,7 @@ fun VlcFallbackScreen(
                     nextAvailable = nextEpisodeAvailable, playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
                     thumbnailAt = seekFrames::thumbnail,
+                    onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },
                     onBack = ::leaveVideo, onToggle = ::togglePlayback,
                     onSeek = ::seekTo, onEpisodes = ::leaveVideo,
