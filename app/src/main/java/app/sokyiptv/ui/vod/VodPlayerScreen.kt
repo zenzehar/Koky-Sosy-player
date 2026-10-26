@@ -165,6 +165,8 @@ fun VodPlayerScreen(
     val autoplay by settings.seriesAutoplay.collectAsState()
     val uiStyle by settings.playerUiStyle.collectAsState()
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
+    val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
     var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
     val markerStore = remember(context) { ManualSeriesSkipStore(context) }
     var manualSkips by remember(mediaKey, seriesGroup) {
@@ -311,6 +313,7 @@ fun VodPlayerScreen(
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
     val netflixTracksFocus = remember { FocusRequester() }
+    var netflixVideoView by remember(mediaKey) { mutableStateOf<PlayerView?>(null) }
     val rootFocus = remember { FocusRequester() }
     var rootOwnsFocus by remember { mutableStateOf(false) }
     val autoplayFocus = remember { FocusRequester() }
@@ -577,6 +580,30 @@ fun VodPlayerScreen(
         }
     }
 
+    // Netflix-style thumbnails only from the decoder ALREADY playing the movie.
+    // No independent seek, IPTV request, stream or extra player.
+    LaunchedEffect(netflixVideoView, netflix, usingVlc) {
+        val video = netflixVideoView ?: return@LaunchedEffect
+        if (usingVlc || !netflix) return@LaunchedEffect
+        var failures = 0
+        while (isActive && !usingVlc) {
+            delay(5_500L)
+            val p = controller.player
+            if (paused || awaitingSeekPlayback || !p.isPlaying ||
+                p.playbackState != Player.STATE_READY) continue
+            val recordedAt = p.currentPosition.coerceAtLeast(0L)
+            val bitmap = NetflixSeekFrameCapture.sample(video)
+            if (bitmap == null) {
+                if (++failures >= 5) break
+                continue
+            }
+            if (kotlin.math.abs(p.currentPosition - recordedAt) <= 1_400L) {
+                seekFrames.store(recordedAt, bitmap)
+                failures = 0
+            } else bitmap.recycle()
+        }
+    }
+
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
@@ -751,6 +778,7 @@ fun VodPlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
+                    netflixVideoView = this
                     player = controller.player
                     useController = false
                     subtitleView?.setUserDefaultStyle()
@@ -763,6 +791,7 @@ fun VodPlayerScreen(
             },
             // Drop Media3's view reference before the native/decoder teardown.
             onRelease = { playerView ->
+                if (netflixVideoView === playerView) netflixVideoView = null
                 playerView.player = null
             },
         )
@@ -809,6 +838,7 @@ fun VodPlayerScreen(
                         positionMs = positionMs, durationMs = durationMs, paused = paused,
                         nextAvailable = followingEpisode != null, playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
+                        thumbnailAt = seekFrames::thumbnail,
                         onActivity = { interaction++ },
                         onBack = onBack,
                         onToggle = {
