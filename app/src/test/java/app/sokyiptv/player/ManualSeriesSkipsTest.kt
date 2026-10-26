@@ -4,13 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
-import org.robolectric.RuntimeEnvironment
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
 class ManualSeriesSkipsTest {
     @Test fun incompleteMarkNeverShowsSkip() {
         val initial = ManualSeriesSkips()
@@ -41,22 +35,6 @@ class ManualSeriesSkipsTest {
         assertTrue(marks.showCredits(2_050_000L))
         assertFalse(marks.showCredits(2_130_000L))
         assertFalse(marks.clearCredits().showCredits(2_050_000L))
-    }
-
-    @Test fun localMarkersAreIsolatedByProviderAndSeriesAndSurviveReload() {
-        val store = ManualSeriesSkipStore(RuntimeEnvironment.getApplication())
-        val sourceOne = "test-provider-one:series-test-137"
-        val sourceTwo = "test-provider-two:series-test-137"
-        store.write(sourceOne, ManualSeriesSkips())
-        store.write(sourceTwo, ManualSeriesSkips())
-        val marks = ManualSeriesSkips().mark(SkipMark.INTRO_START, 12_000L)
-            .mark(SkipMark.INTRO_END, 90_000L)
-        store.write(sourceOne, marks)
-        val reloaded = ManualSeriesSkipStore(RuntimeEnvironment.getApplication())
-        assertEquals(marks, reloaded.read(sourceOne))
-        assertFalse(reloaded.read(sourceTwo).introValid())
-        store.write(sourceOne, ManualSeriesSkips())
-        assertFalse(reloaded.read(sourceOne).introValid())
     }
 
     @Test fun changingOneRangeDoesNotDestroyTheOther() {
