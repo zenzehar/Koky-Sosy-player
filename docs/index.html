@@ -5,7 +5,7 @@
   Licensed under the GNU General Public License v3.0 or later.
 
   Self-contained on purpose: no external CSS, no fonts, no analytics, no trackers.
-  Nothing here phones home except one call to api.github.com to find the retained test build.
+  Nothing here phones home except one call to api.github.com to find the gold-standard test build.
 
   Nothing is hardcoded to a particular GitHub account either — the owner and repo are read
   from this page's own URL at runtime, so the same file works whoever forks it.
@@ -186,7 +186,7 @@
   <p class="shot-caption">The guide — the channel you're on keeps playing while you browse.</p>
 
   <div class="card" id="release-box">
-    <p class="status-line" id="status">Checking for the retained TV test build…</p>
+    <p class="status-line" id="status">Checking for the user-approved gold-standard test build…</p>
     <a class="btn" id="download" href="#" aria-disabled="true">Download APK</a>
     <p class="meta" id="release-meta"></p>
     <p class="meta">This APK is for testing, not production release. Do not distribute emulator-only diagnostic builds.</p>
@@ -198,7 +198,7 @@
       <code class="url" id="short-url">…</code>
       <button class="copy" id="copy-btn" type="button">Copy</button>
     </div>
-    <p class="meta">For this project the link is pinned to v0.1.11.47, the retained Android TV test build; newer experiments are not selected automatically.</p>
+    <p class="meta">For this project the link is pinned to v0.1.11.54, the user-approved gold-standard Android TV test build; newer experiments are not selected automatically.</p>
   </div>
 
   <h2>What you get</h2>
@@ -341,7 +341,7 @@
     <p>Faster and less fiddly if you already use it:</p>
     <ul>
       <li>Enable <span class="path">Developer options → USB debugging</span> on the box.</li>
-      <li>On your computer: <kbd>adb connect &lt;box-ip&gt;:5555</kbd> then <kbd>adb install Soky_IPTV_Pro_v0.1.11.47.apk</kbd></li>
+      <li>On your computer: <kbd>adb connect &lt;box-ip&gt;:5555</kbd> then <kbd>adb install Soky_IPTV_Pro_v0.1.11.54.apk</kbd></li>
     </ul>
   </section>
 
@@ -375,7 +375,7 @@
 
   <h2>Is this safe to install?</h2>
   <p class="small muted">
-    The retained test build is produced through GitHub Actions, but a successful build does not
+    The gold-standard test build is produced through GitHub Actions, but a successful build does not
     demonstrate that an APK is secure, production-signed or tested on all Android TV devices.
     Do not enter live provider credentials into unapproved diagnostic or emulator builds.
   </p>
@@ -490,7 +490,7 @@
 
   var isSoky = target.owner.toLowerCase() === "zenzehar" && target.repo.toLowerCase() === "koky-sosy-player";
   var api = "https://api.github.com/repos/" + target.owner + "/" + target.repo +
-    (isSoky ? "/releases/tags/v0.1.11.47-v019-native-vlc-restored" : "/releases/latest");
+    (isSoky ? "/releases/tags/v0.1.11.54-continue-watching-duration-card" : "/releases/latest");
 
   fetch(api, { headers: { Accept: "application/vnd.github+json" } })
     .then(function (response) {
@@ -515,7 +515,7 @@
         return;
       }
 
-      statusEl.textContent = isSoky ? "Retained TV test build (not production-approved)" : "Latest build";
+      statusEl.textContent = isSoky ? "User-approved gold standard (not production-signed)" : "Latest build";
       statusEl.className = "status-line";
       buttonEl.textContent = "Download " + (release.tag_name || "APK");
       buttonEl.href = apk.browser_download_url;
