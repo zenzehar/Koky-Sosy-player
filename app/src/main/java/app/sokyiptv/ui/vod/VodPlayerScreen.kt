@@ -5,9 +5,9 @@
  */
 package app.sokyiptv.ui.vod
 
-import app.sokyiptv.player.DetectedSkip
-import app.sokyiptv.player.PassiveSkipTracker
-import app.sokyiptv.player.PassiveVideoCapture
+import app.sokyiptv.player.ManualSeriesSkips
+import app.sokyiptv.player.ManualSeriesSkipStore
+import app.sokyiptv.player.SkipMark
 import app.sokyiptv.data.remote.EpisodeDurationDiscovery
 import app.sokyiptv.data.remote.EpisodeRuntimeHints
 
@@ -166,21 +166,17 @@ fun VodPlayerScreen(
     val uiStyle by settings.playerUiStyle.collectAsState()
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
-    val skipTracker = remember(mediaKey, seriesGroup) {
-        PassiveSkipTracker(context, seriesGroup, mediaKey)
+    val markerStore = remember(context) { ManualSeriesSkipStore(context) }
+    var manualSkips by remember(mediaKey, seriesGroup) {
+        mutableStateOf(markerStore.read(seriesGroup))
     }
-    var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
-    var skipCaptureMisses by remember(mediaKey) { mutableIntStateOf(0) }
-    var skipCaptureLogged by remember(mediaKey) { mutableStateOf(false) }
-    var skipIntroLogged by remember(mediaKey) { mutableStateOf(false) }
-    var skipCreditsLogged by remember(mediaKey) { mutableStateOf(false) }
+    fun storeManualSkips(updated: ManualSeriesSkips) {
+        if (seriesGroup.isNullOrBlank()) return
+        markerStore.write(seriesGroup, updated)
+        manualSkips = updated
+    }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
-    DisposableEffect(skipTracker) {
-        onDispose { skipTracker.finish() }
-    }
-    LaunchedEffect(skipTracker) {
-        skipTracker.prepare()
-    }
+    var markerDialogVisible by remember(mediaKey) { mutableStateOf(false) }
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
@@ -576,43 +572,6 @@ fun VodPlayerScreen(
         }
     }
 
-    // Sample the actual video surface passively (never open a second IPTV stream).
-    LaunchedEffect(media3VideoView, skipTracker, usingVlc) {
-        if (usingVlc) return@LaunchedEffect
-        val videoView = media3VideoView ?: return@LaunchedEffect
-        while (isActive && !usingVlc) {
-            delay(if (positionMs < 180_000L) 1_500L else 3_000L)
-            if (paused || !controller.player.isPlaying || awaitingSeekPlayback) continue
-            val pos = controller.player.currentPosition.coerceAtLeast(0L)
-            val length = controller.player.duration.takeIf { it > 0L } ?: 0L
-            if (pos > 480_000L && (length == 0L || pos < length * 75L / 100L)) continue
-            val scene = runCatching { PassiveVideoCapture.sample(videoView, pos) }.getOrNull()
-            if (scene == null) {
-                skipCaptureMisses++
-                if (skipCaptureMisses == 8) PlaybackDiagnostics.event(
-                    context, "SKIP_FRAME_MISS", android.os.Build.VERSION.SDK_INT,
-                    persistNow = true)
-                continue
-            }
-            if (!skipCaptureLogged) {
-                skipCaptureLogged = true
-                PlaybackDiagnostics.event(context, "SKIP_FRAME_OK",
-                    skipTracker.referenceEpisodes, persistNow = true)
-            }
-            autoSkips = skipTracker.observe(scene, length)
-            if (autoSkips.introEndMs > 0L && !skipIntroLogged) {
-                skipIntroLogged = true
-                PlaybackDiagnostics.event(context, "SKIP_INTRO_FOUND",
-                    (autoSkips.introEndMs / 1000L).toInt(), persistNow = true)
-            }
-            if (autoSkips.credits && !skipCreditsLogged) {
-                skipCreditsLogged = true
-                PlaybackDiagnostics.event(context, "SKIP_CREDITS_FOUND",
-                    (pos / 1000L).toInt(), persistNow = true)
-            }
-        }
-    }
-
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
@@ -620,7 +579,7 @@ fun VodPlayerScreen(
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
         if (controlsVisible && !paused && !scrubbing && vodPanel == VodPanel.NONE &&
-            activelyPlaying && !awaitingSeekPlayback) {
+            !markerDialogVisible && activelyPlaying && !awaitingSeekPlayback) {
             delay(5_000)
             controlsVisible = false
         }
@@ -656,6 +615,7 @@ fun VodPlayerScreen(
         val activelyPlaying = state is PlayerController.State.Playing ||
             (growingRec && state is PlayerController.State.Buffering)
         when {
+            markerDialogVisible -> markerDialogVisible = false
             vodPanel != VodPanel.NONE -> vodPanel = VodPanel.NONE
             controlsVisible && activelyPlaying && !paused -> controlsVisible = false
             else -> onBack()
@@ -666,7 +626,8 @@ fun VodPlayerScreen(
         VlcFallbackScreen(
             streamUrl = streamUrl,
             mediaKey = mediaKey,
-            skipTracker = skipTracker,
+            manualSkips = manualSkips,
+            onSkipsChanged = ::storeManualSkips,
             title = title,
             userAgent = userAgent,
             initialPositionMs = (if (positionMs > 0L) positionMs else resumeFromMs),
@@ -1022,16 +983,14 @@ fun VodPlayerScreen(
             }
             }
         }
-        val introSkip = mediaKey.startsWith("ep:") &&
-            autoSkips.introEndMs > positionMs + 3_000L && positionMs <= 480_000L
-        val creditsSkip = autoSkips.credits && durationMs > 0L &&
-            positionMs >= durationMs * 75L / 100L
+        val introSkip = mediaKey.startsWith("ep:") && manualSkips.showIntro(positionMs)
+        val creditsSkip = mediaKey.startsWith("ep:") && manualSkips.showCredits(positionMs)
         if (state !is PlayerController.State.Error && !paused && introSkip) {
             NetflixSkipPrompt(
                 label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
-            ) { seekAt(autoSkips.introEndMs) }
+            ) { seekAt(manualSkips.introEndMs) }
         } else if (state !is PlayerController.State.Error && !paused &&
             creditsSkip && !creditsDismissed) {
             val nextAction: () -> Unit = {
