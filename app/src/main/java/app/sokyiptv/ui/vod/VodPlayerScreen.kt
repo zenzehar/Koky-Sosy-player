@@ -325,6 +325,11 @@ fun VodPlayerScreen(
     val media3SeekClock = remember(controller) { VlcSeekClock() }
     val postSeekGate = remember(controller) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(controller) { mutableStateOf(false) }
+    val onMarkerLongPress = rememberManualMarkerLongPress(
+        enabled = !usingVlc && paused && mediaKey.startsWith("ep:") &&
+            !markerDialogVisible && vodPanel == VodPanel.NONE,
+        onLongPress = { markerDialogVisible = true; controlsVisible = true; interaction++ },
+    )
 
     fun reveal() { controlsVisible = true; interaction++ }
 
@@ -669,6 +674,7 @@ fun VodPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
+                if (onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 when {
                     TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode) -> {
@@ -841,10 +847,7 @@ fun VodPlayerScreen(
                                     }
                                 }
                             }
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .75f)),
-                            contentAlignment = Alignment.Center) {
-                            NetflixTrackOptions(aud, sub) { vodPanel = VodPanel.NONE }
-                        }
+                        NetflixTrackOptions(aud, sub) { vodPanel = VodPanel.NONE }
                     }
                 }
             }
@@ -1023,6 +1026,31 @@ fun VodPlayerScreen(
                 onDismiss = { media3Diagnostic = null },
             )
         }
+    }
+    if (!usingVlc && markerDialogVisible && mediaKey.startsWith("ep:")) {
+        ManualSeriesSkipDialog(
+            atMs = positionMs,
+            marks = manualSkips,
+            onMark = { mark ->
+                val current = controller.player.currentPosition.coerceAtLeast(0L)
+                storeManualSkips(manualSkips.mark(mark, current))
+                markerDialogVisible = false
+                reveal()
+            },
+            onClearIntro = {
+                storeManualSkips(manualSkips.clearIntro())
+                markerDialogVisible = false
+            },
+            onClearCredits = {
+                storeManualSkips(manualSkips.clearCredits())
+                markerDialogVisible = false
+            },
+            onClearAll = {
+                storeManualSkips(ManualSeriesSkips())
+                markerDialogVisible = false
+            },
+            onClose = { markerDialogVisible = false },
+        )
     }
 }
 
