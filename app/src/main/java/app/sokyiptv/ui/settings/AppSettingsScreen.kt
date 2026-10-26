@@ -72,6 +72,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val captions by settings.subtitlesEnabled.collectAsState()
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val autoNext by settings.seriesAutoplay.collectAsState()
+    val playerUiStyle by settings.playerUiStyle.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -300,6 +301,19 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Spacer(Modifier.height(16.dp))
 
         SettingsSection(stringResource(R.string.settings_section_playback)) {
+            Text("Video player controls", style = MaterialTheme.typography.titleMedium)
+            Text("Choose the control layout for Movies and Series. Playback engine and seeking remain unchanged.",
+                style = MaterialTheme.typography.bodySmall)
+            ThemeOption("Current style", playerUiStyle == AppSettings.PlayerUiStyle.CURRENT) {
+                settings.setPlayerUiStyle(AppSettings.PlayerUiStyle.CURRENT)
+            }
+            ThemeOption("Netflix-like style", playerUiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE) {
+                settings.setPlayerUiStyle(AppSettings.PlayerUiStyle.NETFLIX_LIKE)
+            }
+            Text("Intro/credits detection uses named video chapters or markers saved for this exact title. No fixed-length guessing.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = {
                 diagnosticReport = PlaybackDiagnostics.lastReport(context)
             }) {
