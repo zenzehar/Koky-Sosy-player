@@ -134,6 +134,8 @@ fun VlcFallbackScreen(
     // Re-enable v39 selected-target, one-retry seek correction. The v47 renderer did not call it.
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
+    val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
     var surfaceRebindPending by remember(streamUrl) { mutableStateOf(false) }
     var nativePlaybackActive by remember(streamUrl) { mutableStateOf(false) }
     var healthSnapshot by remember(streamUrl) {
@@ -392,6 +394,29 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Passive Netflix-style trickplay stills from this same VLC video surface.
+    // Never seek or allocate another decoder to produce a thumbnail.
+    LaunchedEffect(videoLayout, ready, netflix) {
+        val layout = videoLayout ?: return@LaunchedEffect
+        if (!netflix || !ready) return@LaunchedEffect
+        var failures = 0
+        while (isActive && !leaving.get() && !nativeReleased.get()) {
+            delay(5_500L)
+            if (paused || !ready || failed || ended || !player.isPlaying ||
+                !nativePlaybackActive) continue
+            val timestamp = player.time.coerceAtLeast(0L)
+            val still = NetflixSeekFrameCapture.sample(layout)
+            if (still == null) {
+                if (++failures >= 5) break // Unsupported/protected video surface.
+                continue
+            }
+            if (kotlin.math.abs(player.time - timestamp) <= 1_400L) {
+                seekFrames.store(timestamp, still)
+                failures = 0
+            } else still.recycle()
+        }
+    }
+
     // Preserve modern screensaver pause API, without newer decoder rebind or seek recovery.
     LaunchedEffect(suspendPlayback) {
         if (suspendPlayback) {
@@ -630,6 +655,7 @@ fun VlcFallbackScreen(
                     positionMs = positionMs, durationMs = durationMs, paused = paused,
                     nextAvailable = nextEpisodeAvailable, playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
+                    thumbnailAt = seekFrames::thumbnail,
                     onActivity = { interaction++ },
                     onBack = ::leaveVideo, onToggle = ::togglePlayback,
                     onSeek = ::seekTo, onEpisodes = ::leaveVideo,
