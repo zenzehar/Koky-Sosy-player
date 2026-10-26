@@ -49,6 +49,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.sokyiptv.data.model.PlaybackPosition
+import app.sokyiptv.data.remote.EpisodeRuntimeHints
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -142,6 +143,9 @@ internal fun TvSeriesDetailLayout(
     val savedRuntimeByEpisode = remember(knownPlaybackLengths) {
         knownPlaybackLengths.associate { it.episodeId to it.durationMs }
     }
+    val cachedRuntimeRevision by EpisodeRuntimeHints.revision.collectAsState()
+    val runtimeContext = LocalContext.current
+    var durationScanStatus by remember(seriesId) { mutableStateOf("") }
 
     LaunchedEffect(seriesId) {
         series = viewModel.seriesDetail(seriesId)
@@ -165,6 +169,7 @@ internal fun TvSeriesDetailLayout(
             val loaded = snapshotFlow { episodes }.first { it.isNotEmpty() }
             viewModel.fillUnknownEpisodeDurations(
                 selected, loaded, attemptedEpisodeDurations, activeSeason,
+                onStatus = { durationScanStatus = it },
             )
         }
     }
@@ -301,6 +306,13 @@ internal fun TvSeriesDetailLayout(
         Row(Modifier.fillMaxWidth().padding(start = 25.dp)) {
             TvDetailTab("Episodes (${episodes.size})", !showCast) { showCast = false }
             TvDetailTab("Cast", showCast) { showCast = true }
+            if (!showCast && durationScanStatus.isNotBlank()) {
+                Text(
+                    durationScanStatus,
+                    modifier = Modifier.padding(start = 16.dp, top = 5.dp),
+                    color = Color(0xFFA8D9E6), fontSize = 11.sp, maxLines = 1,
+                )
+            }
         }
         Box(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
             if (showCast) {
@@ -357,7 +369,13 @@ internal fun TvSeriesDetailLayout(
                     ) {
                         items(currentEpisodes, key = { it.id }) { ep ->
                             EpisodePreviewRow(
-                                ep, s.posterUrl, savedRuntimeByEpisode[ep.id],
+                                ep, s.posterUrl,
+                                savedRuntimeByEpisode[ep.id]
+                                    ?: EpisodeRuntimeHints.lookupMillis(runtimeContext, ep).also {
+                                        // Observe revision so newly scanned or retained
+                                        // duration hints update this row reactively.
+                                        cachedRuntimeRevision
+                                    },
                                 Modifier,
                                 onPlay = {
                                     lastPlayedEpisode = ep.id
