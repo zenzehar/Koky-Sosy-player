@@ -78,6 +78,7 @@ import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.player.AdaptiveVodTimeline
 import app.sokyiptv.player.VlcPlaybackHealth
 import app.sokyiptv.player.VlcNativeSeekCorrection
+import app.sokyiptv.player.CommunitySkipResult
 import app.sokyiptv.player.DetectedSkip
 import app.sokyiptv.player.PassiveSkipTracker
 import app.sokyiptv.player.PassiveVideoCapture
@@ -93,6 +94,7 @@ fun VlcFallbackScreen(
     streamUrl: String,
     mediaKey: String,
     skipTracker: PassiveSkipTracker,
+    communitySkips: CommunitySkipResult = CommunitySkipResult(),
     title: String,
     userAgent: String,
     initialPositionMs: Long,
@@ -870,17 +872,28 @@ fun VlcFallbackScreen(
         }
         // Show a skip only after content evidence exists; learned intros may need
         // previous episodes as reference. Never guess a constant intro length.
+        // A SponsorBlock-style community marker can offer a skip in the FIRST
+        // episode; passive fingerprints remain a fallback for unknown episodes.
+        val knownIntro = communitySkips.intro
+        val knownCredits = communitySkips.credits
+        val trustedIntro = knownIntro != null &&
+            positionMs >= knownIntro.startMs - 3_000L &&
+            positionMs < knownIntro.endMs - 4_000L
+        val introTarget = if (trustedIntro) knownIntro!!.endMs else autoSkips.introEndMs
         val showIntro = !ended && ready && !paused && !failed &&
-            showEpisodeControls && autoSkips.introEndMs > positionMs + 3_000L &&
+            showEpisodeControls && introTarget > positionMs + 3_000L &&
             positionMs < 480_000L
         val showCredits = !ended && ready && !paused && !failed &&
-            !creditsDismissed && autoSkips.credits && durationMs > 0L && positionMs >= durationMs * 75L / 100L
+            !creditsDismissed && ((knownCredits != null &&
+                positionMs >= knownCredits.startMs && positionMs < knownCredits.endMs) ||
+                (autoSkips.credits && durationMs > 0L &&
+                    positionMs >= durationMs * 75L / 100L))
         if (showIntro) {
             NetflixSkipPrompt(
                 label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
-            ) { seekTo(autoSkips.introEndMs) }
+            ) { seekTo(introTarget) }
         } else if (showCredits && netflix) {
             NetflixCreditsPrompt(
                 isEpisode = showEpisodeControls, nextAvailable = nextEpisodeAvailable,
