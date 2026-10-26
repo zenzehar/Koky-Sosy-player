@@ -3,6 +3,7 @@ package app.sokyiptv.ui.vod
 
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,8 +42,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -100,6 +104,7 @@ internal fun NetflixLikePlayerChrome(
     onEpisodes: () -> Unit,
     onTracks: () -> Unit,
     onNext: () -> Unit,
+    previewFrames: SeekFramePreviewCache? = null,
 ) {
     val closeFocus = remember { FocusRequester() }
     val backwardFocus = remember { FocusRequester() }
@@ -113,7 +118,23 @@ internal fun NetflixLikePlayerChrome(
     var heldDirection by remember { mutableStateOf<SeekDirection?>(null) }
     var seekFocused by remember { mutableStateOf(false) }
     var activeTarget by remember { mutableStateOf(NetflixTarget.PLAY) }
-    val displayMs = if (scrubbing) seekPreviewMs else positionMs
+    var feedbackMs by remember { mutableLongStateOf(-1L) }
+    var feedbackSerial by remember { mutableIntStateOf(0) }
+    LaunchedEffect(feedbackSerial) {
+        if (feedbackMs >= 0L) {
+            delay(1_800L)
+            feedbackMs = -1L
+        }
+    }
+    fun seekByTransport(direction: SeekDirection) {
+        val target = TvSeekPolicy.tap(positionMs, durationMs, direction)
+        feedbackMs = target
+        feedbackSerial++
+        onSeek(target)
+    }
+    val previewMs = if (scrubbing) seekPreviewMs else if (feedbackMs >= 0L) feedbackMs else positionMs
+    val displayMs = previewMs
+    val showingSeekPosition = (scrubbing || seekFocused || feedbackMs >= 0L) && durationMs > 0L
 
     // Do not block arrow-key focus traversal with a fullscreen clickable surface.
     BoxWithConstraints(Modifier.fillMaxSize()
@@ -194,7 +215,7 @@ internal fun NetflixLikePlayerChrome(
                         right = playFocus; up = closeFocus; down = timelineFocus
                     },
                 58,
-                onClick = { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.BACKWARD)) },
+                onClick = { seekByTransport(SeekDirection.BACKWARD) },
                 onActivity = onActivity,
             )
             NIcon(
@@ -217,11 +238,51 @@ internal fun NetflixLikePlayerChrome(
                     left = playFocus; up = closeFocus; down = timelineFocus
                 },
                 58,
-                onClick = { onSeek(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)) },
+                onClick = { seekByTransport(SeekDirection.FORWARD) },
                 onActivity = onActivity,
             )
         }
 
+        // Seek-location bubble follows the selected TIME, not the current native
+        // decoder clock. A real thumbnail is shown only for a nearby frame that
+        // this same video player has actually decoded; otherwise timecode only.
+        if (showingSeekPosition) {
+            val fraction = (previewMs.toDouble() / durationMs.toDouble())
+                .toFloat().coerceIn(0f, 1f)
+            val span = (maxWidth - 197.dp).coerceAtLeast(0.dp)
+            val xPosition = (57.dp + span * fraction - 100.dp)
+                .coerceIn(12.dp, (maxWidth - 212.dp).coerceAtLeast(12.dp))
+            val thumbnail = previewFrames?.nearest(previewMs)
+            Column(
+                modifier = Modifier.align(Alignment.BottomStart)
+                    .offset(x = xPosition)
+                    .padding(bottom = timelineBottom + 53.dp)
+                    .width(200.dp)
+                    .background(Color(0xD81A1A1A), RoundedCornerShape(7.dp))
+                    .padding(5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                if (thumbnail != null) {
+                    Image(
+                        bitmap = thumbnail,
+                        contentDescription = "Previously decoded scene near selected time",
+                        modifier = Modifier.width(190.dp).height(107.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                }
+                Text(
+                    text = seekTimecode(previewMs),
+                    color = Color.White, fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "-" + seekTimecode((durationMs - previewMs).coerceAtLeast(0L)),
+                    color = Color.White.copy(alpha = .72f), fontSize = 12.sp,
+                )
+            }
+        }
         Row(
             modifier = Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth().padding(start = 47.dp, end = 53.dp, bottom = timelineBottom),
@@ -266,7 +327,11 @@ internal fun NetflixLikePlayerChrome(
                             }
                             true
                         } else if (event.type == KeyEventType.KeyUp) {
-                            if (scrubbing && durationMs > 0L) onSeek(seekPreviewMs)
+                            if (scrubbing && durationMs > 0L) {
+                                feedbackMs = seekPreviewMs
+                                feedbackSerial++
+                                onSeek(seekPreviewMs)
+                            }
                             scrubbing = false
                             heldDirection = null
                             true
@@ -548,4 +613,11 @@ private fun nClock(ms: Long): String {
     val m = (sec % 3600L) / 60L
     val s = sec % 60L
     return if (h > 0L) "%d:%02d:%02d".format(h,m,s) else "%d:%02d".format(m,s)
+}
+
+/** Always show hours for accurate, Netflix-style seek feedback. */
+internal fun seekTimecode(ms: Long): String {
+    val seconds = ms.coerceAtLeast(0L) / 1_000L
+    return "%02d:%02d:%02d".format(seconds / 3_600L, seconds % 3_600L / 60L,
+        seconds % 60L)
 }
