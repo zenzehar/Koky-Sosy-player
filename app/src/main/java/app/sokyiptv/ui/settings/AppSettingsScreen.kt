@@ -310,7 +310,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             ThemeOption("Netflix-like style", playerUiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE) {
                 settings.setPlayerUiStyle(AppSettings.PlayerUiStyle.NETFLIX_LIKE)
             }
-            Text("Intro/credits detection uses named video chapters or markers saved for this exact title. No fixed-length guessing.",
+            Text("Automatic intro and credits recognition learns from playback visuals on this device. Skip appears only with sufficient visual evidence; it never assumes fixed intro lengths.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
