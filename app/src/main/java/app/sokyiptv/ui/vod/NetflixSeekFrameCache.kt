@@ -41,7 +41,7 @@ internal class NetflixSeekFrameCache {
         val match = frames.entries.minByOrNull { abs(it.key - positionMs) }
             ?: return null
         // Never pretend an unrelated scene belongs to the selected timestamp.
-        if (abs(match.key - positionMs) > 2_600L) return null
+        if (!NetflixSeekPreviewPolicy.frameMatches(match.key, positionMs)) return null
         return match.value.asImageBitmap()
     }
 
@@ -97,6 +97,9 @@ internal object NetflixSeekFrameCapture {
 
     suspend fun sample(root: View): Bitmap? {
         val surface = locate(root) ?: return null
+        // API 23 SurfaceView cannot be copied. Exit before bitmap allocation.
+        if (surface is SurfaceView && Build.VERSION.SDK_INT < Build.VERSION_CODES.N)
+            return null
         val bitmap = Bitmap.createBitmap(208, 117, Bitmap.Config.ARGB_8888)
         val success = try {
             withTimeoutOrNull(850L) {
@@ -119,7 +122,11 @@ internal object NetflixSeekFrameCapture {
                 }
             } == true
         } catch (_: Exception) { false }
-        if (!success) { bitmap.recycle(); return null }
+        if (!success) {
+            // Timed-out asynchronous PixelCopy can still complete into bitmap;
+            // do not recycle its output until the framework has released it.
+            return null
+        }
         // Black/secure surfaces do not give a meaningful visual scene preview.
         val pix = IntArray(20)
         for (i in pix.indices) {
