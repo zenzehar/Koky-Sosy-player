@@ -136,6 +136,24 @@ internal fun NetflixLikePlayerChrome(
     val displayMs = previewMs
     val showingSeekPosition = (scrubbing || seekFocused || feedbackMs >= 0L) && durationMs > 0L
 
+    // Advance long-hold seek preview using monotonic time even on Fire TV
+    // remotes which do not generate repeated OK/arrow key events.
+    LaunchedEffect(heldDirection, seekHeldAtMs, durationMs) {
+        val direction = heldDirection ?: return@LaunchedEffect
+        if (durationMs <= 0L) return@LaunchedEffect
+        while (heldDirection == direction) {
+            val held = SystemClock.uptimeMillis() - seekHeldAtMs
+            if (scrubbing && held >= TvSeekPolicy.HOLD_THRESHOLD_MS) {
+                val target = TvSeekPolicy.heldPreview(
+                    seekOriginMs, held, direction, durationMs,
+                )
+                seekPreviewMs = if (direction == SeekDirection.FORWARD)
+                    max(seekPreviewMs, target) else min(seekPreviewMs, target)
+            }
+            delay(75L)
+        }
+    }
+
     // Do not block arrow-key focus traversal with a fullscreen clickable surface.
     BoxWithConstraints(Modifier.fillMaxSize()
         .onPreviewKeyEvent { event ->
