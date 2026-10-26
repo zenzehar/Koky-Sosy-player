@@ -141,6 +141,18 @@ class AppSettings private constructor(context: Context) {
 
     /** Whether launching the app jumps straight back to the last channel you watched. */
     /** Default on, independently toggleable from the Settings and series details. */
+    enum class PlayerUiStyle { CURRENT, NETFLIX_LIKE }
+
+    private val _playerUiStyle = MutableStateFlow(
+        runCatching { PlayerUiStyle.valueOf(prefs.getString("player_ui_style", "CURRENT") ?: "CURRENT") }
+            .getOrDefault(PlayerUiStyle.CURRENT)
+    )
+    val playerUiStyle: StateFlow<PlayerUiStyle> = _playerUiStyle.asStateFlow()
+    fun setPlayerUiStyle(style: PlayerUiStyle) {
+        prefs.edit().putString("player_ui_style", style.name).apply()
+        _playerUiStyle.value = style
+    }
+
     private val _seriesAutoplay = MutableStateFlow(prefs.getBoolean("series_auto_next", true))
     val seriesAutoplay: StateFlow<Boolean> = _seriesAutoplay.asStateFlow()
     fun setSeriesAutoplay(enabled: Boolean) {
