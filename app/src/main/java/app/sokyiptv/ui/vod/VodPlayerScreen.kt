@@ -168,6 +168,7 @@ fun VodPlayerScreen(
         PassiveSkipTracker(context, seriesGroup, mediaKey)
     }
     var autoSkips by remember(mediaKey) { mutableStateOf(DetectedSkip()) }
+    var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     DisposableEffect(skipTracker) {
         onDispose { skipTracker.finish() }
     }
@@ -307,6 +308,7 @@ fun VodPlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var interaction by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val barFocus = remember { FocusRequester() }
+    val netflixTracksFocus = remember { FocusRequester() }
     var media3VideoView by remember(mediaKey) { mutableStateOf<PlayerView?>(null) }
     val rootFocus = remember { FocusRequester() }
     val autoplayFocus = remember { FocusRequester() }
@@ -596,13 +598,15 @@ fun VodPlayerScreen(
         }
     }
 
-    LaunchedEffect(controlsVisible, vodPanel) {
+    LaunchedEffect(controlsVisible, vodPanel, netflix) {
         if (controlsVisible) {
             delay(40)
             runCatching {
-                if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
+                if (vodPanel != VodPanel.NONE && !netflix) panelFocus.requestFocus()
                 else if (netflix) {
-                    barFocus.requestFocus()
+                    if (focusSeekOnReveal) timelineFocus.requestFocus()
+                    else barFocus.requestFocus()
+                    focusSeekOnReveal = false
                 } else if (focusSeekOnReveal) {
                     timelineFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.SEEK
@@ -802,6 +806,8 @@ fun VodPlayerScreen(
                         title = title, isEpisode = mediaKey.startsWith("ep:"),
                         positionMs = positionMs, durationMs = durationMs, paused = paused,
                         nextAvailable = followingEpisode != null, playFocus = barFocus,
+                        timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
+                        onActivity = { interaction++ },
                         onBack = onBack,
                         onToggle = {
                             paused = !paused
@@ -975,23 +981,36 @@ fun VodPlayerScreen(
             autoSkips.introEndMs > positionMs + 3_000L && positionMs <= 480_000L
         val creditsSkip = autoSkips.credits && durationMs > 0L &&
             positionMs >= durationMs * 75L / 100L
-        if (state !is PlayerController.State.Error && !paused &&
-            (introSkip || creditsSkip)) {
+        if (state !is PlayerController.State.Error && !paused && introSkip) {
             NetflixSkipPrompt(
-                label = when {
-                    introSkip -> "Skip Intro"
-                    mediaKey.startsWith("ep:") && followingEpisode != null -> "Next Episode"
-                    else -> "Skip Credits"
-                },
+                label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
-            ) {
-                if (introSkip) seekAt(autoSkips.introEndMs)
-                else if (mediaKey.startsWith("ep:") && followingEpisode != null) {
-                    followingEpisode?.let { target ->
-                        scope.launch { savePosition(); onNextEpisode(target) }
-                    }
+            ) { seekAt(autoSkips.introEndMs) }
+        } else if (state !is PlayerController.State.Error && !paused &&
+            creditsSkip && !creditsDismissed) {
+            val nextAction: () -> Unit = {
+                val candidate = followingEpisode
+                if (mediaKey.startsWith("ep:") && candidate != null) {
+                    scope.launch { savePosition(); onNextEpisode(candidate) }
                 } else onBack()
+            }
+            if (netflix) {
+                NetflixCreditsPrompt(
+                    isEpisode = mediaKey.startsWith("ep:"),
+                    nextAvailable = followingEpisode != null,
+                    onContinue = { creditsDismissed = true },
+                    onSkip = nextAction,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            } else {
+                NetflixSkipPrompt(
+                    label = if (mediaKey.startsWith("ep:") && followingEpisode != null)
+                        "Next Episode" else "Back to Title",
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                        .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+                    onClick = nextAction,
+                )
             }
         }
         media3Diagnostic?.let { report ->
