@@ -33,6 +33,18 @@ import kotlinx.coroutines.flow.Flow
 /** Rows per upsert statement. Keeps a 40,000-channel playlist from building one huge query. */
 private const val UPSERT_CHUNK = 500
 
+/** Smallest possible in-memory EPG join working set (no stream URL or credentials). */
+data class ChannelMatchCandidate(
+    val id: Long,
+    val groupKey: String,
+    val matchedEpgId: String?,
+    val epgOverrideId: String?,
+    val epgChannelId: String?,
+) {
+    val epgCandidates: List<String>
+        get() = listOfNotNull(epgOverrideId, epgChannelId, matchedEpgId)
+}
+
 /** Minimal reference projection: never include provider credentials in cloud payloads. */
 data class CloudMediaRef(val id: Long, val streamUrl: String)
 
@@ -245,12 +257,23 @@ interface ChannelDao {
     @Query("UPDATE channels SET matchedEpgId = :epgId WHERE id = :id")
     suspend fun setMatchedEpgId(id: Long, epgId: String?)
 
+    /** Commit all changed EPG joins in ONE transaction. Thousands of per-row
+     * transactions previously caused repeated invalidations and TV-guide stutter. */
+    @Transaction
+    suspend fun applyMatchedEpgChanges(changes: List<Pair<Long, String?>>) {
+        for ((id, epgId) in changes) setMatchedEpgId(id, epgId)
+    }
+
     @Query("UPDATE channels SET epgOverrideId = :epgId WHERE id = :id")
     suspend fun setEpgOverride(id: Long, epgId: String?)
 
-    /** The matcher's working set: id, group key, and what is already known. */
-    @Query("SELECT * FROM channels")
-    suspend fun allForMatching(): List<Channel>
+    /** Matching only needs five columns; don't load 40k stream URLs, titles,
+     * logos and other Channel fields into memory just to join EPG identifiers. */
+    @Query("""
+        SELECT id, groupKey, matchedEpgId, epgOverrideId, epgChannelId
+        FROM channels
+    """)
+    suspend fun allForMatching(): List<ChannelMatchCandidate>
 
     @Upsert
     suspend fun upsertAll(channels: List<Channel>)
