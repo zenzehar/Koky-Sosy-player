@@ -2,6 +2,8 @@
 package app.sokyiptv.player
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Every observation is from the CURRENT stream's already rendered picture.
@@ -14,10 +16,23 @@ class PassiveSkipTracker(
     private val episodeKey: String,
 ) {
     private val memory = PassiveSkipMemory(context)
-    private val history = groupKey?.let { memory.history(it, episodeKey) }.orEmpty()
-    private val intro = if (groupKey != null) PassiveSkipDetector.template(history) else null
-    private val outro = if (groupKey != null)
-        PassiveSkipDetector.template(history, credits = true) else null
+    // Cross-episode comparisons can be expensive for large series. Never block
+    // Compose, LibVLC callbacks, screen navigation or hardware remote focus.
+    @Volatile private var intro: RepeatedClip? = null
+    @Volatile private var outro: RepeatedClip? = null
+
+    suspend fun prepare() {
+        val key = groupKey ?: return
+        val examples = withContext(Dispatchers.IO) {
+            memory.history(key, episodeKey)
+        }
+        val pair = withContext(Dispatchers.Default) {
+            PassiveSkipDetector.template(examples) to
+                PassiveSkipDetector.template(examples, credits = true)
+        }
+        intro = pair.first
+        outro = pair.second
+    }
     private val observations = ArrayList<SceneSample>(350)
     private var lastAt = -1L
     private var highestDurationMs = 0L
