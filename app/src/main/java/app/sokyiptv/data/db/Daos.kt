@@ -795,8 +795,30 @@ interface EpisodeDao {
     suspend fun deleteForSource(sourceId: Long)
 }
 
+/**
+ * A local per-episode playback length. This is not provider metadata and is never
+ * used to seek, to determine completion, or as a duration for a different episode.
+ */
+data class EpisodePlaybackLength(val episodeId: Long, val durationMs: Long)
+
 @Dao
 interface PlaybackPositionDao {
+    /** Join just the selected show's episodes against this profile's saved playback.
+     * Room invalidates this Flow on either episode or progress updates.
+     * The existing primary key (profileId, mediaKey) avoids full history scans.
+     */
+    @Query("""
+        SELECT e.id AS episodeId, p.durationMillis AS durationMs
+        FROM episodes e INNER JOIN playback_positions p
+          ON p.profileId = :profileId AND p.mediaKey = ('ep:' || e.id)
+        WHERE e.sourceId = :sourceId AND e.seriesId = :seriesId
+          AND p.durationMillis BETWEEN 60000 AND 86400000
+          AND p.positionMillis BETWEEN 0 AND (p.durationMillis + 30000)
+    """)
+    fun observeEpisodeLengths(
+        profileId: Long, sourceId: Long, seriesId: String,
+    ): Flow<List<EpisodePlaybackLength>>
+
     @Query("SELECT * FROM playback_positions WHERE profileId = :profileId AND mediaKey = :key")
     suspend fun get(profileId: Long, key: String): PlaybackPosition?
 
