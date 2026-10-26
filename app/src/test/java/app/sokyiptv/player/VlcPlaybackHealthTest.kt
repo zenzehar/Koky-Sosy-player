@@ -41,11 +41,11 @@ class VlcPlaybackHealthTest {
         assertEquals(VlcPlaybackHealth.State.PLAYING,
             h.sample(2_000L, 0L, false, false).state)
         assertEquals(VlcPlaybackHealth.State.STALLED,
-            h.sample(7_500L, 0L, false, false).state)
+            h.sample(9_500L, 0L, false, false).state)
         assertEquals(VlcPlaybackHealth.State.PAUSED,
-            h.sample(8_000L, 0L, false, true).state)
+            h.sample(10_000L, 0L, false, true).state)
         assertEquals(VlcPlaybackHealth.State.PLAYING,
-            h.sample(8_500L, 900L, true, false).state)
+            h.sample(10_500L, 900L, true, false).state)
     }
 
     @Test fun briefRebufferDoesNotFlashOverlay() {
