@@ -46,12 +46,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.sokyiptv.data.model.PlaybackPosition
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -74,6 +76,7 @@ import app.sokyiptv.data.parser.displayTitle
 import app.sokyiptv.ui.VodViewModel
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 @Composable
 internal fun TvSeriesDetailLayout(
@@ -107,6 +110,9 @@ internal fun TvSeriesDetailLayout(
     var initialActionFocused by remember(seriesId) { mutableStateOf(false) }
     val playedFocus = remember { FocusRequester() }
     val episodeListState = rememberLazyListState()
+    // Do not probe the same unhelpful stream repeatedly on recompositions,
+    // season switches or returning from video. Stored per series-detail visit.
+    val attemptedEpisodeDurations = remember(seriesId) { mutableSetOf<Long>() }
     val preferences = remember { AppSettings.get(viewModel.getApplication()) }
     val autoNext by preferences.seriesAutoplay.collectAsState()
     var portraits by remember(seriesId) {
@@ -150,6 +156,18 @@ internal fun TvSeriesDetailLayout(
         episodes.groupBy { it.season }.mapValues { (_, eps) -> eps.sortedBy { it.episodeNumber } }.toSortedMap()
     }
     val activeSeason = selectedSeason.takeIf { it in bySeason.keys } ?: bySeason.keys.firstOrNull() ?: 1
+    // Runs only while this UI is foreground-resumed. Cancels in-flight HTTP
+    // metadata reads on close/background, and skips all reads during playback.
+    // Episode rows update reactively as verified lengths arrive in Room.
+    LaunchedEffect(series?.id, activeSeason, lifecycleOwner) {
+        val selected = series ?: return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val loaded = snapshotFlow { episodes }.first { it.isNotEmpty() }
+            viewModel.fillUnknownEpisodeDurations(
+                selected, loaded, attemptedEpisodeDurations, activeSeason,
+            )
+        }
+    }
     val currentEpisodes = bySeason[activeSeason].orEmpty()
     val firstEpisode = currentEpisodes.firstOrNull()
     val playEpisode = resumeEpisode?.takeIf { it.season == activeSeason && currentEpisodes.any { e -> e.id == it.id } }
