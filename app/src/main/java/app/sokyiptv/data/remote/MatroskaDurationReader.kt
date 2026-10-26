@@ -43,24 +43,31 @@ internal object MatroskaDurationReader {
             var scale = 1_000_000L
             var duration: Double? = null
             while (cursor < end - 3) {
-                val len = when {
-                    hasId(bytes, cursor, TIMESTAMP_SCALE) -> 3
-                    hasId(bytes, cursor, DURATION) -> 2
-                    else -> break
+                val first = bytes[cursor].toInt() and 255
+                if (first == 0) break
+                var idLen = 1
+                var mask = 0x80
+                while (idLen <= 4 && first and mask == 0) {
+                    idLen++; mask = mask ushr 1
                 }
-                val (payloadLen, encodedLen) = sizeAt(bytes, cursor + len) ?: break
-                val payload = cursor + len + encodedLen
-                if (payloadLen < 1L || payloadLen > 8L || payload + payloadLen > end) break
-                if (len == 3) {
+                if (idLen > 4 || cursor + idLen >= end) break
+                val isScale = hasId(bytes, cursor, TIMESTAMP_SCALE)
+                val isDuration = hasId(bytes, cursor, DURATION)
+                val (payloadLen, encodedLen) = sizeAt(bytes, cursor + idLen) ?: break
+                val payload = cursor + idLen + encodedLen
+                if (payloadLen < 0L || payloadLen > 2_000_000L ||
+                    payload + payloadLen > end) break
+                if (isScale && payloadLen in 1..8) {
                     var n = 0L
                     for (i in 0 until payloadLen.toInt())
                         n = (n shl 8) or (bytes[payload + i].toLong() and 255L)
                     if (n in 1..1_000_000_000) scale = n
-                } else if (payloadLen == 4L || payloadLen == 8L) {
+                } else if (isDuration && (payloadLen == 4L || payloadLen == 8L)) {
                     val bb = ByteBuffer.wrap(bytes, payload, payloadLen.toInt())
                         .order(ByteOrder.BIG_ENDIAN)
                     duration = if (payloadLen == 4L) bb.float.toDouble() else bb.double
                 }
+                // Skip unrelated Info children such as MuxingApp and WritingApp.
                 cursor = payload + payloadLen.toInt()
             }
             val seconds = duration?.times(scale.toDouble() / 1_000_000_000.0)
