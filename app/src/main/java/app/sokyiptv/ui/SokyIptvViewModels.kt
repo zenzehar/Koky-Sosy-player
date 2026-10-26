@@ -6,6 +6,7 @@
 package app.sokyiptv.ui
 
 import app.sokyiptv.data.remote.EpisodeDurationDiscovery
+import app.sokyiptv.data.remote.EpisodeRuntimeHints
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
@@ -66,6 +67,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -863,10 +865,31 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         graph.playbackPositions.deleteKeys(profileId, keys.ifEmpty { listOf("movie:$movieId") })
     }
 
+    /** Backfill pre-v59 saved runtimes before deleting watch history. */
+    private suspend fun retainSeriesDurations(sourceId: Long, seriesId: String, profileId: Long) {
+        val saved = graph.playbackPositions
+            .observeEpisodeLengths(profileId, sourceId, seriesId).first()
+        for (length in saved) {
+            val episode = graph.catalogRepository.episode(length.episodeId) ?: continue
+            EpisodeRuntimeHints.save(
+                getApplication(), episode, (length.durationMs / 1_000L).toInt(),
+            )
+        }
+    }
+
+    private suspend fun retainEpisodeDuration(episodeId: Long, profileId: Long) {
+        val saved = graph.playbackPositions.get(profileId, "ep:${episodeId}") ?: return
+        val seconds = (saved.durationMillis / 1_000L).toInt()
+        if (seconds !in 120..43_200) return
+        val episode = graph.catalogRepository.episode(episodeId) ?: return
+        EpisodeRuntimeHints.save(getApplication(), episode, seconds)
+    }
+
     fun resetResumeItem(item: ResumeItem) {
         viewModelScope.launch {
             val profileId = settings.activeProfileId.value
             if (item.seriesProviderId != null) {
+                retainSeriesDurations(item.sourceId, item.seriesProviderId, profileId)
                 graph.playbackPositions.deleteSeries(profileId, item.sourceId, item.seriesProviderId)
             } else {
                 val id = item.mediaKey.removePrefix("movie:").toLongOrNull()
@@ -877,9 +900,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetEpisodeProgress(episodeId: Long) {
         viewModelScope.launch {
-            graph.playbackPositions.deleteKeys(
-                settings.activeProfileId.value, listOf("ep:${episodeId}")
-            )
+            val profileId = settings.activeProfileId.value
+            retainEpisodeDuration(episodeId, profileId)
+            graph.playbackPositions.deleteKeys(profileId, listOf("ep:${episodeId}"))
         }
     }
 
@@ -889,7 +912,9 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     fun resetSeriesProgress(series: Series) {
         viewModelScope.launch {
-            graph.playbackPositions.deleteSeries(settings.activeProfileId.value, series.sourceId, series.seriesId)
+            val profileId = settings.activeProfileId.value
+            retainSeriesDurations(series.sourceId, series.seriesId, profileId)
+            graph.playbackPositions.deleteSeries(profileId, series.sourceId, series.seriesId)
         }
     }
 
@@ -1172,20 +1197,32 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
         loadedEpisodes: List<app.sokyiptv.data.model.Episode>,
         attempted: MutableSet<Long>,
         preferredSeason: Int,
+        onStatus: (String) -> Unit = {},
     ) {
         val source = graph.sourceRepository.byId(series.sourceId) ?: return
         if (source.kind != SourceKind.XTREAM) return
         val pending = loadedEpisodes
             .asSequence()
-            .filter { it.id > 0L && (it.durationSeconds == null || it.durationSeconds <= 0) }
+            .filter { it.id > 0L && (it.durationSeconds == null || it.durationSeconds <= 0) &&
+                EpisodeRuntimeHints.lookupMillis(getApplication(), it) == null }
             .sortedWith(compareBy<app.sokyiptv.data.model.Episode> {
                 if (it.season == preferredSeason) 0 else 1
             }.thenBy { it.season }.thenBy { it.episodeNumber })
             .toList()
+        if (pending.isEmpty()) {
+            onStatus("All known durations are already saved")
+            return
+        }
+        var scanned = 0
+        var found = 0
+        var unsupported = 0
+        onStatus("Checking episode durations: 0/${pending.size}")
         for (episode in pending) {
             currentCoroutineContext().ensureActive()
             if (EpisodeDurationDiscovery.playbackActive) return
             if (!attempted.add(episode.id)) continue
+            onStatus("Checking S${episode.season}E${episode.episodeNumber} · " +
+                "$scanned/${pending.size} checked · $found found")
             val inspection = try {
                 EpisodeDurationDiscovery.inspect(episode, source.userAgent)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -1201,15 +1238,35 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             when (inspection.status) {
                 EpisodeDurationDiscovery.Result.DISCOVERED ->
                     inspection.seconds?.let {
-                        graph.catalogRepository.saveVerifiedEpisodeDuration(episode, it)
+                        // Independently retain both approximate TS and exact header
+                        // discoveries so Reset Progress or catalogue refresh cannot
+                        // erase the duration hint. Never affects seeking or completion.
+                        EpisodeRuntimeHints.save(getApplication(), episode, it)
+                        if (!inspection.approximate) {
+                            graph.catalogRepository.saveVerifiedEpisodeDuration(episode, it)
+                        }
+                        found++
                     }
-                EpisodeDurationDiscovery.Result.PROVIDER_BUSY -> return
+                EpisodeDurationDiscovery.Result.PROVIDER_BUSY -> {
+                    onStatus("Provider limited duration checks · $scanned checked, $found found")
+                    return
+                }
+                EpisodeDurationDiscovery.Result.RANGE_UNSUPPORTED -> {
+                    onStatus("Provider does not allow small video ranges · scan stopped")
+                    return
+                }
+                EpisodeDurationDiscovery.Result.UNSUPPORTED -> unsupported++
                 EpisodeDurationDiscovery.Result.UNAVAILABLE -> Unit
             }
+            scanned++
+            onStatus("Durations: $scanned/${pending.size} checked · " +
+                "$found found · $unsupported unsupported")
             // One episode at a time with an idle gap. Providers often limit
             // concurrent sessions; never compete with native video playback.
             delay(4_000L)
         }
+        onStatus("Duration scan finished · $found found · " +
+            "$unsupported unsupported · ${scanned - found - unsupported} unavailable")
     }
 
 

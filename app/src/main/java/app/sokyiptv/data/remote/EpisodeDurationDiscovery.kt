@@ -29,8 +29,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * to the video player. Do not expose credential-bearing URLs in any diagnostics.
  */
 internal object EpisodeDurationDiscovery {
-    enum class Result { DISCOVERED, UNAVAILABLE, PROVIDER_BUSY }
-    data class Inspection(val status: Result, val seconds: Int? = null)
+    enum class Result { DISCOVERED, UNAVAILABLE, UNSUPPORTED, PROVIDER_BUSY, RANGE_UNSUPPORTED }
+    data class Inspection(
+        val status: Result, val seconds: Int? = null,
+        val approximate: Boolean = false,
+    )
 
     private const val MAX_RESPONSE = 262_144
     private val serial = Mutex()
@@ -68,34 +71,68 @@ internal object EpisodeDurationDiscovery {
                 if (playbackActive) return@withLock Inspection(Result.UNAVAILABLE)
                 val url = episode.streamUrl.toHttpUrlOrNull()
                     ?: return@withLock Inspection(Result.UNAVAILABLE)
-                // Only sources where a *small* header or playlist can prove length.
-                // MKV, MPEG-TS, DASH and other transports require a separate media
-                // parser and must never be opened as a fake playback session.
+                // A significant share of IPTV episode URLs end in .mkv or
+                // .ts, which v58 silently skipped. Probe both only with bounded
+                // bytes, never an additional decoder or complete media transfer.
                 val extension = url.encodedPath.substringAfterLast('.', "").lowercase()
-                if (extension !in setOf("mp4", "m4v", "mov", "m3u8"))
-                    return@withLock Inspection(Result.UNAVAILABLE)
+                if (extension !in setOf("mp4", "m4v", "mov", "m3u8", "mkv", "ts"))
+                    return@withLock Inspection(Result.UNSUPPORTED)
 
                 try {
-                    val seconds = if (extension == "m3u8") {
-                        requestBytes(url.toString(), userAgent, range = null)?.let {
-                            BoundedVODDurationParser.hlsVodSeconds(it)
+                    val found = when (extension) {
+                        "m3u8" -> requestBytes(url.toString(), userAgent, range = null)
+                            ?.let { BoundedVODDurationParser.hlsVodSeconds(it) to false }
+                        "mkv" -> {
+                            val front = requestBytes(url.toString(), userAgent, "bytes=0-131071")
+                            val exact = front?.let(MatroskaDurationReader::seconds)
+                            if (exact != null) exact to false
+                            else {
+                                // Some IPTV servers mislabel transport streams
+                                // as .mkv. A PCR estimate requires the tail too.
+                                val tail = if (front != null && !playbackActive)
+                                    requestBytes(url.toString(), userAgent, "bytes=-262144")
+                                    else null
+                                if (front != null && tail != null)
+                                    TransportStreamDurationReader.approximateSeconds(front, tail) to true
+                                else null
+                            }
                         }
-                    } else {
-                        val front = requestBytes(
-                            url.toString(), userAgent, range = "bytes=0-131071",
-                        )
-                        front?.let(BoundedVODDurationParser::mp4Seconds)
-                            ?: if (!playbackActive) {
-                                requestBytes(url.toString(), userAgent,
-                                    range = "bytes=-262144")
-                                    ?.let(BoundedVODDurationParser::mp4Seconds)
-                            } else null
+                        "ts" -> {
+                            val front = requestBytes(url.toString(), userAgent, "bytes=0-131071")
+                            val back = if (front != null && !playbackActive)
+                                requestBytes(url.toString(), userAgent, "bytes=-262144")
+                                else null
+                            if (front != null && back != null)
+                                TransportStreamDurationReader.approximateSeconds(front, back) to true
+                                else null
+                        }
+                        else -> {
+                            val front = requestBytes(url.toString(), userAgent, "bytes=0-131071")
+                            val headTime = front?.let(BoundedVODDurationParser::mp4Seconds)
+                                ?: front?.let(MatroskaDurationReader::seconds)
+                            if (headTime != null) headTime to false
+                            else {
+                                val tail = if (front != null && !playbackActive)
+                                    requestBytes(url.toString(), userAgent, "bytes=-262144")
+                                    else null
+                                val exact = tail?.let(BoundedVODDurationParser::mp4Seconds)
+                                if (exact != null) exact to false
+                                else if (front != null && tail != null)
+                                    TransportStreamDurationReader.approximateSeconds(front, tail) to true
+                                else null
+                            }
+                        }
                     }
+                    val seconds = found?.first
                     if (seconds != null && !playbackActive)
-                        Inspection(Result.DISCOVERED, seconds)
+                        Inspection(Result.DISCOVERED, seconds, approximate = found.second)
                     else Inspection(Result.UNAVAILABLE)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
+                } catch (_: RangeUnsupported) {
+                    // The server would send full videos when Range is requested.
+                    // Stop discovery for this series instead of hammering it.
+                    Inspection(Result.RANGE_UNSUPPORTED)
                 } catch (_: ProviderDenied) {
                     // Avoid more requests when a provider enforces connection limits
                     // or rate-limits; revisit only on a future series-screen visit.
@@ -109,6 +146,7 @@ internal object EpisodeDurationDiscovery {
         }
 
     private class ProviderDenied : IOException()
+    private class RangeUnsupported : IOException()
 
     /** Range MUST return 206; a 200 can be an entire multi-GB video, so do not
      * consume a single byte in that case. A bounded HLS manifest may use 200. */
@@ -142,6 +180,7 @@ internal object EpisodeDurationDiscovery {
             return response.use {
                 if (it.code == 429 || it.code == 401 || it.code == 403 ||
                     it.code == 503) throw ProviderDenied()
+                if (range != null && it.code in listOf(200, 416)) throw RangeUnsupported()
                 if (it.code != if (range == null) 200 else 206) return@use null
                 if (range != null && it.header("Content-Range").isNullOrBlank())
                     return@use null

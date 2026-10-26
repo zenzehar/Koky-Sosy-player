@@ -6,6 +6,7 @@
 package app.sokyiptv.ui.vod
 
 import app.sokyiptv.data.remote.EpisodeDurationDiscovery
+import app.sokyiptv.data.remote.EpisodeRuntimeHints
 
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -447,6 +448,11 @@ fun VodPlayerScreen(
             // Crash-sensitive Back path: only one queued Room write on the isolated
             // IO store. No sync gate, callback or network wake-up.
             VodProgressStore.enqueue(graph, finalProgress)
+            // Duration hints outlive the user's progress record and its Reset
+            // action. This only uses primitive snapshots captured on UI thread.
+            EpisodeRuntimeHints.savePlaybackLengthAsync(
+                context.applicationContext, graph, mediaKey, endingPos, endingDuration,
+            )
             if (media3Holder.isInitialized()) controller.release()
             scope.cancel()
         }
