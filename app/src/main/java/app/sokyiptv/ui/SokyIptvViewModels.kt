@@ -1214,9 +1214,11 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
             when (inspection.status) {
                 EpisodeDurationDiscovery.Result.DISCOVERED ->
                     inspection.seconds?.let {
-                        if (inspection.approximate) {
-                            EpisodeRuntimeHints.save(getApplication(), episode, it)
-                        } else {
+                        // Independently retain both approximate TS and exact header
+                        // discoveries so Reset Progress or catalogue refresh cannot
+                        // erase the duration hint. Never affects seeking or completion.
+                        EpisodeRuntimeHints.save(getApplication(), episode, it)
+                        if (!inspection.approximate) {
                             graph.catalogRepository.saveVerifiedEpisodeDuration(episode, it)
                         }
                         found++
