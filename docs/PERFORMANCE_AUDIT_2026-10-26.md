@@ -19,6 +19,7 @@ watch-history synchronization stays **disabled** in this campaign.
 | Reset movie progress | Full `allMovies()` scan including unrelated providers/years | Query candidate movies for the same provider/year only, then apply identical normalized-title filter | Only matching quality variants have progress removed |
 | Paged VOD TV browser | `accumulatedList + nextPage` reallocated every loaded title over and over | `SnapshotStateList.addAll` modifies pages in place; list no longer recopied on each fetch | Stable item keys, D-pad selection and page order unchanged |
 | EPG matching working set | `SELECT *` instantiated complete Channel records, including streams and artwork, for every guide-match pass | Five-column projection (id/key/three EPG candidate IDs) | Same normalization and candidate precedence |
+| Live catalogue upsert | Created a full second copied Channel list before batching; read every existing full Channel row to recover user settings | Reuse 500-row slices and retain only one batch of merged Channel copies; project 8 user-state columns | Same upsert transaction, favourites, hidden flags, manual order, renames and guide overrides |
 | EPG matching writes | One Room transaction/observer invalidation per changed channel ID | Collect changes, commit via one `@Transaction` call | Unchanged matched IDs are not written; matching policy unchanged |
 | EPG guide grouping | Re-sorted each programme list on every category switch | Reuse `ProgrammeDao.observeWindow`'s `ORDER BY epgChannelId, startUtcMillis`; grouped iteration order is already preserved | Chronological guide entries |
 | Unused recommendations on TV VOD entry | Opening the paged VOD browser could separately load and rank the entire movie/series catalogues | Make full-library home-feed ranking explicit opt-in rather than a side effect of opening/refreshing the paged TV browser | Existing on-demand recommendations code remains available |
@@ -34,6 +35,9 @@ sync reactivation, secrets, credentials, or provider stream URLs were introduced
   as pages grew; in-place observable append makes addition O(number of new items).
 - **EPG match writes:** one transaction rather than one transaction per changed channel. The number of
   SQL updates is unchanged; the transaction and invalidation overhead is reduced.
+- **Live importer memory:** merged Channel copies are bounded to 500 records at a time, instead
+  of retaining an additional full 40k-record merged list alongside input and existing state.
+  Existing-channel reads now project only the eight fields the import preserves.
 
 These are source-level complexity claims, **not measured frame rate, memory, CPU or elapsed-time gains**.
 
