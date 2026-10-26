@@ -35,6 +35,7 @@ import androidx.compose.runtime.collectAsState
 import app.sokyiptv.core.AppSettings
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -430,15 +431,19 @@ fun VlcFallbackScreen(
     }
 
     LaunchedEffect(controlsVisible, interaction, nativePlaybackActive, paused, scrubbing, failed, ended) {
-        if (controlsVisible && nativePlaybackActive && !paused && !scrubbing && !failed && !ended) {
+        if (controlsVisible && nativePlaybackActive && !paused && !scrubbing && !failed && !ended &&
+            !trackPanelVisible) {
             delay(5_000)
             controlsVisible = false
         }
     }
-    LaunchedEffect(controlsVisible, ready, netflix, focusSeekOnReveal) {
-        delay(55)
+    // Focus only when overlay visibility changes, never after a D-pad move.
+    // Wait until the real focus targets have attached before requesting them.
+    LaunchedEffect(controlsVisible, netflix) {
+        withFrameNanos { }
+        withFrameNanos { }
         runCatching {
-            if (controlsVisible && ready) {
+            if (controlsVisible) {
                 if (focusSeekOnReveal) {
                     seekFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.SEEK
@@ -447,18 +452,7 @@ fun VlcFallbackScreen(
                     pauseFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.CONTROLS
                 }
-            } else if (controlsVisible) {
-                if (focusSeekOnReveal) {
-                    seekFocus.requestFocus()
-                    focusLevel = CinematicFocusLevel.SEEK
-                    focusSeekOnReveal = false
-                } else {
-                    pauseFocus.requestFocus()
-                    focusLevel = CinematicFocusLevel.CONTROLS
-                }
-            } else {
-                rootFocus.requestFocus()
-            }
+            } else rootFocus.requestFocus()
         }
     }
 
