@@ -632,7 +632,9 @@ fun VodPlayerScreen(
         withFrameNanos { }
         if (controlsVisible) {
             runCatching {
-                if (vodPanel != VodPanel.NONE && !netflix) panelFocus.requestFocus()
+                if (vodPanel != VodPanel.NONE && netflix) {
+                    // NetflixTrackOptions owns focus while its modal is present.
+                } else if (vodPanel != VodPanel.NONE) panelFocus.requestFocus()
                 else if (netflix) {
                     if (focusSeekOnReveal) timelineFocus.requestFocus()
                     else barFocus.requestFocus()
