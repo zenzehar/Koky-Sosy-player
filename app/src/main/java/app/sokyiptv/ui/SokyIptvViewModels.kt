@@ -500,8 +500,10 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
             val list = variants
                 .flatMap { it.epgCandidates }
                 .firstNotNullOfOrNull { id -> byEpgChannel[id] }
-                ?.sortedBy { it.startUtcMillis }
                 .orEmpty()
+            // ProgrammeDao.observeWindow already orders by epgChannelId and start
+            // time. groupBy preserves each channel's order, so sorting each list
+            // again for every category switch needlessly reallocated arrays.
 
             // Feed the progress bar as rows come together — this is the slow part on a big
             // provider, so it's what the percentage should actually track.
