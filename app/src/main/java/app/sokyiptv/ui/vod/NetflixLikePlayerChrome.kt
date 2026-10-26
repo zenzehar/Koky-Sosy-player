@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +36,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -61,6 +67,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.sokyiptv.player.ManualSeriesSkips
+import app.sokyiptv.player.SkipMark
 import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
 import kotlin.math.max
@@ -199,6 +207,7 @@ internal fun NetflixLikePlayerChrome(
                     up = closeFocus; down = timelineFocus
                 },
                 73, onClick = onToggle, onActivity = onActivity,
+                opacityUnfocused = .16f,
             )
             NIcon(
                 Icons.Filled.Forward10, "Forward 10 seconds",
@@ -331,6 +340,7 @@ internal fun NetflixLikePlayerChrome(
 private fun NIcon(
     icon: ImageVector, label: String, modifier: Modifier = Modifier,
     size: Int, onClick: () -> Unit, onActivity: () -> Unit,
+    opacityUnfocused: Float = 1f,
 ) {
     var focused by remember { mutableStateOf(false) }
     Box(
@@ -343,7 +353,8 @@ private fun NIcon(
             .padding(5.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, label, tint = netflixWhite, modifier = Modifier.size(size.dp))
+        Icon(icon, label, tint = netflixWhite.copy(alpha =
+            if (focused) 1f else opacityUnfocused), modifier = Modifier.size(size.dp))
     }
 }
 
@@ -414,36 +425,120 @@ internal fun NetflixCreditsPrompt(
     }
 }
 
+/**
+ * A separate modal window keeps focus away from the underlying transport.
+ * Explicit D-pad routing avoids Android TV's occasionally wrong spatial search,
+ * especially when there are many audio/subtitle tracks.
+ */
+@Composable
+private fun TvChoiceDialog(
+    heading: String, details: String,
+    items: List<Pair<String, () -> Unit>>,
+    onClose: () -> Unit,
+) {
+    val focusTargets = remember(items.size) { List(items.size) { FocusRequester() } }
+    var selected by remember(items.size) { mutableStateOf(0) }
+    val scroll = rememberScrollState()
+    val pixels = with(LocalDensity.current) { 49.dp.toPx() }
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        LaunchedEffect(items.size) {
+            withFrameNanos { }
+            withFrameNanos { }
+            if (focusTargets.isNotEmpty()) runCatching { focusTargets[0].requestFocus() }
+        }
+        LaunchedEffect(selected) {
+            val target = (selected * pixels - 100f).toInt().coerceAtLeast(0)
+            scroll.animateScrollTo(target.coerceAtMost(scroll.maxValue))
+        }
+        Box(
+            Modifier.fillMaxSize()
+                .background(Color.Black.copy(alpha = .55f))
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp, Key.DirectionLeft -> {
+                            selected = (selected - 1).coerceAtLeast(0)
+                            focusTargets.getOrNull(selected)?.let { runCatching { it.requestFocus() } }
+                            true
+                        }
+                        Key.DirectionDown, Key.DirectionRight -> {
+                            selected = (selected + 1).coerceAtMost((items.size - 1).coerceAtLeast(0))
+                            focusTargets.getOrNull(selected)?.let { runCatching { it.requestFocus() } }
+                            true
+                        }
+                        Key.Back, Key.Escape -> { onClose(); true }
+                        else -> false
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.fillMaxWidth(.62f).heightIn(max = 500.dp)
+                    .background(Color(0xFA141414), RoundedCornerShape(10.dp))
+                    .padding(21.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(heading, color = Color.White, fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp)
+                Text(details, color = Color.White.copy(alpha = .74f), fontSize = 14.sp)
+                Column(Modifier.weight(1f, fill = false).verticalScroll(scroll),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    items.forEachIndexed { index, (label, action) ->
+                        NText(
+                            label,
+                            modifier = Modifier.fillMaxWidth().focusRequester(focusTargets[index])
+                                .onFocusChanged { if (it.isFocused) selected = index },
+                            onClick = action,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ManualSeriesSkipDialog(
+    atMs: Long, marks: ManualSeriesSkips, onMark: (SkipMark) -> Unit,
+    onClearIntro: () -> Unit, onClearCredits: () -> Unit,
+    onClearAll: () -> Unit, onClose: () -> Unit,
+) {
+    val time = ManualSeriesSkips.clock(atMs)
+    TvChoiceDialog(
+        heading = "Series skip markers",
+        details = "Paused at $time. Mark the beginning and ending in this episode." +
+            "\n" + marks.display() + "\nApplies to all episodes of this series until cleared.",
+        items = listOf(
+            "Mark intro START at $time" to { onMark(SkipMark.INTRO_START) },
+            "Mark intro END at $time" to { onMark(SkipMark.INTRO_END) },
+            "Mark credits START at $time" to { onMark(SkipMark.CREDITS_START) },
+            "Mark credits END at $time" to { onMark(SkipMark.CREDITS_END) },
+            "Clear intro markers" to onClearIntro,
+            "Clear credits markers" to onClearCredits,
+            "Clear all markers for this series" to onClearAll,
+            "Cancel" to onClose,
+        ),
+        onClose = onClose,
+    )
+}
+
 @Composable
 internal fun NetflixTrackOptions(
     audio: List<Pair<String, () -> Unit>>,
     subtitles: List<Pair<String, () -> Unit>>,
     onClose: () -> Unit,
 ) {
-    // Modal focus is independent of player transport; opening tracks should
-    // never leave D-pad focus on an obscured playback control.
-    val firstOption = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        withFrameNanos { }
-        runCatching { firstOption.requestFocus() }
-    }
-    Column(Modifier.background(Color(0xED111111), RoundedCornerShape(9.dp))
-        .padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Text("Audio & Subtitles", color = Color.White, fontWeight = FontWeight.SemiBold)
-        Text("Audio", color = Color.White.copy(alpha = .70f))
-        audio.forEachIndexed { index, (label, action) ->
-            NText(label, modifier = if (index == 0) Modifier.focusRequester(firstOption)
-                else Modifier, onClick = action)
-        }
-        Text("Subtitles", color = Color.White.copy(alpha = .70f))
-        subtitles.forEachIndexed { index, (label, action) ->
-            NText(label, modifier = if (audio.isEmpty() && index == 0)
-                Modifier.focusRequester(firstOption) else Modifier, onClick = action)
-        }
-        NText("Done", modifier = if (audio.isEmpty() && subtitles.isEmpty())
-            Modifier.focusRequester(firstOption) else Modifier, onClick = onClose)
-    }
+    TvChoiceDialog(
+        heading = "Audio & Subtitles",
+        details = "Select a track using the D-pad. Back closes this menu.",
+        items = audio.map { (name, select) -> ("Audio  •  " + name) to select } +
+            subtitles.map { (name, select) -> ("Subtitles  •  " + name) to select } +
+            listOf("Done" to onClose),
+        onClose = onClose,
+    )
 }
 
 private fun nClock(ms: Long): String {
