@@ -432,7 +432,7 @@ internal fun NetflixCreditsPrompt(
  * especially when there are many audio/subtitle tracks.
  */
 @Composable
-private fun TvChoiceDialog(
+internal fun TvChoiceDialog(
     heading: String, details: String,
     items: List<Pair<String, () -> Unit>>,
     onClose: () -> Unit,
