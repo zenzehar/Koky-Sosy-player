@@ -106,6 +106,7 @@ internal fun NetflixLikePlayerChrome(
     timelineFocus: FocusRequester,
     tracksFocus: FocusRequester,
     frameAt: (Long) -> NetflixSeekFrameCache.CapturedFrame? = { null },
+    onPreviewRequested: (Long) -> Unit = {},
     onSeekingChanged: (Boolean) -> Unit = {},
     onActivity: () -> Unit,
     onBack: () -> Unit,
@@ -379,6 +380,12 @@ internal fun NetflixLikePlayerChrome(
             val travel = (maxWidth - 47.dp - 53.dp - 111.dp).coerceAtLeast(0.dp)
             val start = (58.dp + travel * fraction - bubbleWidth / 2f)
                 .coerceIn(8.dp, (maxWidth - bubbleWidth - 8.dp).coerceAtLeast(8.dp))
+            // Conflate rapid remote scrubbing into one targeted extraction
+            // request, while the passive/prepared thumbnails draw immediately.
+            LaunchedEffect(previewAt) {
+                delay(260L)
+                onPreviewRequested(previewAt)
+            }
             val frame = frameAt(previewAt)
             Column(
                 modifier = Modifier.align(Alignment.BottomStart)
@@ -403,7 +410,8 @@ internal fun NetflixLikePlayerChrome(
                         )
                         if (!frame.accurate) {
                             Text(
-                                "Nearby frame: " + nClock(frame.timestampMs),
+                                (if (frame.storyboard) "Storyboard near: " else "Nearby frame: ") +
+                                    nClock(frame.timestampMs),
                                 modifier = Modifier.align(Alignment.BottomCenter)
                                     .fillMaxWidth()
                                     .background(Color.Black.copy(alpha = .83f))
