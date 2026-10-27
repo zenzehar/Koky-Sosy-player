@@ -96,6 +96,8 @@ internal fun NetflixLikePlayerChrome(
     positionMs: Long,
     durationMs: Long,
     paused: Boolean,
+    buffering: Boolean = false,
+    bufferingPercent: Int? = null,
     nextAvailable: Boolean,
     manualSkips: ManualSeriesSkips = ManualSeriesSkips(),
     markersEnabled: Boolean = false,
@@ -250,6 +252,8 @@ internal fun NetflixLikePlayerChrome(
                 },
                 73, onClick = onToggle, onActivity = onActivity,
                 opacityUnfocused = .12f,
+                buffering = buffering,
+                bufferingPercent = bufferingPercent,
             )
             NIcon(
                 Icons.Filled.Forward10, "Forward 10 seconds",
@@ -478,6 +482,8 @@ private fun NIcon(
     icon: ImageVector, label: String, modifier: Modifier = Modifier,
     size: Int, onClick: () -> Unit, onActivity: () -> Unit,
     opacityUnfocused: Float = 1f,
+    buffering: Boolean = false,
+    bufferingPercent: Int? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Box(
@@ -491,8 +497,16 @@ private fun NIcon(
             .padding(5.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, label, tint = netflixWhite.copy(alpha =
-            opacityUnfocused), modifier = Modifier.size(size.dp))
+        if (buffering) {
+            BufferingControlFace(
+                percent = bufferingPercent,
+                netflix = true,
+                diameterDp = size,
+            )
+        } else {
+            Icon(icon, label, tint = netflixWhite.copy(alpha =
+                opacityUnfocused), modifier = Modifier.size(size.dp))
+        }
     }
 }
 
