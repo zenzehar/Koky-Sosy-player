@@ -507,11 +507,13 @@ fun VlcFallbackScreen(
     // For the original theme too: show native VLC input-buffer progress
     // during a genuine buffering event; 100% but no advancing video means
     // stalled decoding, so use an indeterminate ring rather than a false 100%.
-    val nativeInputPercent = if (!ready) bufferEventPercent
-        else healthSnapshot.bufferPercent
-    val playButtonBufferPercent = nativeInputPercent.takeIf {
-        it in 0..99 || it == 100 &&
-            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING
+    val playButtonBufferPercent = bufferEventPercent.takeIf {
+        // Use LibVLC's actual latest native input-buffer event, not the
+        // health model's 0% default before an event has ever been received.
+        it in 0..99 && (!ready ||
+            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING ||
+            healthSnapshot.state == VlcPlaybackHealth.State.STALLED ||
+            !nativePlaybackActive)
     }
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
