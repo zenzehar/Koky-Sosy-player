@@ -167,6 +167,7 @@ fun VodPlayerScreen(
     val uiStyle by settings.playerUiStyle.collectAsState()
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
     var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
     val markerStore = remember(context) { ManualSeriesSkipStore(context) }
@@ -387,6 +388,7 @@ fun VodPlayerScreen(
         awaitingSeekPlayback = true
         controller.player.seekTo(target)
         positionMs = media3SeekClock.requested(target, now)
+        thumbnailPostSeekTargetMs = target
         scrubValue = target.toFloat()
         scrubbing = false
         reveal()
@@ -402,6 +404,7 @@ fun VodPlayerScreen(
         awaitingSeekPlayback = true
         controller.player.seekTo(target)
         positionMs = media3SeekClock.requested(target, now)
+        thumbnailPostSeekTargetMs = target
         scrubValue = target.toFloat()
         scrubbing = false
         interaction++
@@ -633,6 +636,23 @@ fun VodPlayerScreen(
                 failures = 0
             } else bitmap.recycle()
         }
+    }
+
+    // Prioritize a single new screenshot just AFTER a seek finishes rendering.
+    // No network request or additional player: this is the active decoder output.
+    LaunchedEffect(thumbnailPostSeekTargetMs, netflixVideoView, usingVlc, netflix) {
+        val target = thumbnailPostSeekTargetMs
+        val video = netflixVideoView ?: return@LaunchedEffect
+        if (usingVlc || !netflix || target < 0L) return@LaunchedEffect
+        delay(620L)
+        val p = controller.player
+        if (paused || p.playbackState != Player.STATE_READY || !p.isPlaying) return@LaunchedEffect
+        val atMs = p.currentPosition.coerceAtLeast(0L)
+        if (kotlin.math.abs(atMs - target) > 2_500L) return@LaunchedEffect
+        val bitmap = NetflixSeekFrameCapture.sample(video) ?: return@LaunchedEffect
+        if (kotlin.math.abs(p.currentPosition - atMs) <= 1_800L) {
+            seekFrames.store(atMs, bitmap)
+        } else bitmap.recycle()
     }
 
     // Buffer percentage is Media3's whole-video buffered fraction, not an
@@ -1010,6 +1030,7 @@ fun VodPlayerScreen(
                             awaitingSeekPlayback = true
                             controller.player.seekTo(scrubValue.toLong())
                             positionMs = media3SeekClock.requested(scrubValue.toLong(), now)
+                            thumbnailPostSeekTargetMs = scrubValue.toLong()
                             scrubbing = false
                             interaction++
                         },
