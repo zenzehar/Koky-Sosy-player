@@ -20,18 +20,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
- * Bounded TV memory: 120 * 208 * 117 * 4 bytes, ~12 MB uncompressed. Each
+ * Bounded TV memory: 72 * 208 * 117 * 4 bytes, ~7 MB uncompressed. Each
  * preview corresponds to a *previously displayed* moment of the current title.
  * Unknown/non-seeked positions must not reuse the wrong scene image.
  */
 internal class NetflixSeekFrameCache {
-    private val frames = LinkedHashMap<Long, Bitmap>(128, .75f, true)
-    private val capacity = 120
+    private val frames = LinkedHashMap<Long, Bitmap>(80, .75f, true)
+    private val capacity = 72
     data class CapturedFrame(
         val timestampMs: Long,
         val image: ImageBitmap,
@@ -85,6 +87,13 @@ internal class NetflixSeekFrameCache {
  * null. Attempts are time limited so the TV UI can never stall for capture.
  */
 internal object NetflixSeekFrameCapture {
+    // Avoid concurrent PixelCopy requests after quick repeated seeks/remote taps.
+    private val captureMutex = Mutex()
+
+    suspend fun sample(root: View): Bitmap? = captureMutex.withLock {
+        sampleUnlocked(root)
+    }
+
     private fun locate(root: View): View? {
         var best: View? = null
         var bestArea = 0L
@@ -106,7 +115,7 @@ internal object NetflixSeekFrameCapture {
         return best
     }
 
-    suspend fun sample(root: View): Bitmap? {
+    private suspend fun sampleUnlocked(root: View): Bitmap? {
         val surface = locate(root) ?: return null
         // API 23 SurfaceView cannot be copied. Exit before bitmap allocation.
         if (surface is SurfaceView && Build.VERSION.SDK_INT < Build.VERSION_CODES.N)
@@ -121,8 +130,13 @@ internal object NetflixSeekFrameCapture {
                         else suspendCancellableCoroutine { continuation ->
                             runCatching {
                                 PixelCopy.request(surface, bitmap, { result ->
-                                    if (continuation.isActive)
+                                    if (continuation.isActive) {
                                         continuation.resume(result == PixelCopy.SUCCESS)
+                                    } else {
+                                        // A timed-out PixelCopy still owns its output;
+                                        // only recycle AFTER Android has finished writing.
+                                        bitmap.recycle()
+                                    }
                                 }, Handler(Looper.getMainLooper()))
                             }.onFailure {
                                 if (continuation.isActive) continuation.resume(false)
@@ -134,8 +148,9 @@ internal object NetflixSeekFrameCapture {
             } == true
         } catch (_: Exception) { false }
         if (!success) {
-            // Timed-out asynchronous PixelCopy can still complete into bitmap;
-            // do not recycle its output until the framework has released it.
+            // SurfaceView requests that time out are recycled in their callback.
+            // TextureView is synchronous and safe to recycle immediately.
+            if (surface is TextureView) bitmap.recycle()
             return null
         }
         // Black/secure surfaces do not give a meaningful visual scene preview.
