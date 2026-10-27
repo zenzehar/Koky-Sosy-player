@@ -1,11 +1,11 @@
 package app.sokyiptv.ui.vod
 
 /** Deterministic 2D TV navigation. No geometry/focus-search heuristics. */
-internal enum class NetflixTarget { CLOSE, REWIND, PLAY, FORWARD, TIMELINE, EPISODES, TRACKS, NEXT }
+internal enum class NetflixTarget { CLOSE, REWIND, PLAY, FORWARD, TIMELINE, EPISODES, MARKERS, TRACKS, NEXT }
 internal enum class NetflixDirection { UP, DOWN, LEFT, RIGHT }
 
 internal object NetflixFocusGraph {
-    fun next(current: NetflixTarget, direction: NetflixDirection, isEpisode: Boolean, hasNext: Boolean): NetflixTarget {
+    fun next(current: NetflixTarget, direction: NetflixDirection, isEpisode: Boolean, hasNext: Boolean, markersEnabled: Boolean = false): NetflixTarget {
         val last = if (isEpisode && hasNext) NetflixTarget.NEXT else NetflixTarget.TRACKS
         val first = if (isEpisode) NetflixTarget.EPISODES else NetflixTarget.TRACKS
         return when (current) {
@@ -38,12 +38,18 @@ internal object NetflixFocusGraph {
             }
             NetflixTarget.EPISODES -> when (direction) {
                 NetflixDirection.UP -> NetflixTarget.TIMELINE
-                NetflixDirection.RIGHT -> NetflixTarget.TRACKS
+                NetflixDirection.RIGHT -> if (markersEnabled) NetflixTarget.MARKERS else NetflixTarget.TRACKS
                 else -> NetflixTarget.EPISODES
+            }
+            NetflixTarget.MARKERS -> when (direction) {
+                NetflixDirection.UP -> NetflixTarget.TIMELINE
+                NetflixDirection.LEFT -> if (isEpisode) NetflixTarget.EPISODES else NetflixTarget.MARKERS
+                NetflixDirection.RIGHT -> NetflixTarget.TRACKS
+                else -> NetflixTarget.MARKERS
             }
             NetflixTarget.TRACKS -> when (direction) {
                 NetflixDirection.UP -> NetflixTarget.TIMELINE
-                NetflixDirection.LEFT -> first
+                NetflixDirection.LEFT -> if (markersEnabled) NetflixTarget.MARKERS else first
                 NetflixDirection.RIGHT -> last
                 else -> NetflixTarget.TRACKS
             }
