@@ -205,6 +205,8 @@ internal fun CinematicAutoplay(
 internal fun CinematicTransport(
     isEpisode: Boolean,
     paused: Boolean,
+    buffering: Boolean = false,
+    bufferingPercent: Int? = null,
     previousEnabled: Boolean,
     nextEnabled: Boolean,
     onPrevious: () -> Unit,
@@ -230,6 +232,8 @@ internal fun CinematicTransport(
             if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
             if (paused) "Resume" else "Pause",
             focusRequester = pauseRequester,
+            buffering = buffering,
+            bufferingPercent = bufferingPercent,
             onClick = onTogglePause,
         )
         CinematicControl(Icons.Filled.Forward10, "Forward 10 seconds", onClick = onForward)
@@ -252,6 +256,8 @@ private fun CinematicControl(
     label: String,
     enabled: Boolean = true,
     focusRequester: FocusRequester? = null,
+    buffering: Boolean = false,
+    bufferingPercent: Int? = null,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -275,12 +281,18 @@ private fun CinematicControl(
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
-            modifier = Modifier.size(35.dp),
-        )
+        if (buffering) {
+            BufferingControlFace(
+                percent = bufferingPercent, netflix = false, diameterDp = 62,
+            )
+        } else {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
+                modifier = Modifier.size(35.dp),
+            )
+        }
     }
 }
 
