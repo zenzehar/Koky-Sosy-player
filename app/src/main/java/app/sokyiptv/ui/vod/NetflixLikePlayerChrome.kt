@@ -511,10 +511,15 @@ private fun NText(
 
 @Composable
 internal fun NetflixSkipPrompt(
-    label: String, modifier: Modifier = Modifier, onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
 ) {
-    val promptFocus = remember { FocusRequester() }
-    LaunchedEffect(label) {
+    val fallbackFocus = remember { FocusRequester() }
+    val promptFocus = focusRequester ?: fallbackFocus
+    LaunchedEffect(label, promptFocus) {
+        withFrameNanos { }
         withFrameNanos { }
         runCatching { promptFocus.requestFocus() }
     }
@@ -532,9 +537,12 @@ internal fun NetflixCreditsPrompt(
     onContinue: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
 ) {
-    val actionFocus = remember { FocusRequester() }
-    LaunchedEffect(nextAvailable, isEpisode) {
+    val fallbackFocus = remember { FocusRequester() }
+    val actionFocus = focusRequester ?: fallbackFocus
+    LaunchedEffect(nextAvailable, isEpisode, actionFocus) {
+        withFrameNanos { }
         withFrameNanos { }
         runCatching { actionFocus.requestFocus() }
     }
@@ -544,7 +552,7 @@ internal fun NetflixCreditsPrompt(
             .background(Color(0xC2505050), RoundedCornerShape(4.dp)),
             onClick = onContinue)
         NText(
-            if (isEpisode && nextAvailable) "Skip Credits · Next Episode" else "Skip Credits · Back to Title",
+            if (isEpisode && nextAvailable) "Next Episode" else "Back to Title",
             icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
             modifier = Modifier.focusRequester(actionFocus)
                 .background(Color.White, RoundedCornerShape(4.dp)),
@@ -643,10 +651,10 @@ internal fun ManualSeriesSkipDialog(
             "\nSkip Credits appears from the outro mark and opens the next episode." +
             "\nBoth marks apply to this series until cleared.",
         items = listOf(
-            "Set INTRO END here ($time)" to { onMark(SkipMark.INTRO_END) },
-            "Set CREDITS / OUTRO START here ($time)" to { onMark(SkipMark.CREDITS_START) },
-            "Clear intro end" to onClearIntro,
-            "Clear credits / outro start" to onClearCredits,
+            "Skip intro marker · set endpoint ($time)" to { onMark(SkipMark.INTRO_END) },
+            "Skip end credits marker · set start ($time)" to { onMark(SkipMark.CREDITS_START) },
+            "Clear Skip intro marker" to onClearIntro,
+            "Clear Skip end credits marker" to onClearCredits,
             "Clear both marks for this series" to onClearAll,
             "Cancel" to onClose,
         ),
