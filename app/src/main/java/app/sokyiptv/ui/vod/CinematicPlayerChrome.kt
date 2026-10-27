@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -204,6 +205,8 @@ internal fun CinematicAutoplay(
 internal fun CinematicTransport(
     isEpisode: Boolean,
     paused: Boolean,
+    buffering: Boolean = false,
+    bufferingPercent: Int? = null,
     previousEnabled: Boolean,
     nextEnabled: Boolean,
     onPrevious: () -> Unit,
@@ -211,6 +214,7 @@ internal fun CinematicTransport(
     onTogglePause: () -> Unit,
     onForward: () -> Unit,
     onNext: () -> Unit,
+    onMarkers: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     pauseRequester: FocusRequester? = null,
 ) {
@@ -228,12 +232,19 @@ internal fun CinematicTransport(
             if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
             if (paused) "Resume" else "Pause",
             focusRequester = pauseRequester,
+            buffering = buffering,
+            bufferingPercent = bufferingPercent,
             onClick = onTogglePause,
         )
         CinematicControl(Icons.Filled.Forward10, "Forward 10 seconds", onClick = onForward)
         if (isEpisode) {
             CinematicControl(Icons.Filled.SkipNext, "Next episode",
                 enabled = nextEnabled, onClick = onNext)
+        }
+        // Accessible fallback when a particular remote cannot report held OK.
+        if (isEpisode && paused && onMarkers != null) {
+            CinematicControl(Icons.Filled.BookmarkAdd,
+                "Mark intro and credits", onClick = onMarkers)
         }
     }
 }
@@ -245,6 +256,8 @@ private fun CinematicControl(
     label: String,
     enabled: Boolean = true,
     focusRequester: FocusRequester? = null,
+    buffering: Boolean = false,
+    bufferingPercent: Int? = null,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -268,12 +281,18 @@ private fun CinematicControl(
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
-            modifier = Modifier.size(35.dp),
-        )
+        if (buffering) {
+            BufferingControlFace(
+                percent = bufferingPercent, netflix = false, diameterDp = 62,
+            )
+        } else {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = if (enabled) 1f else 0.38f),
+                modifier = Modifier.size(35.dp),
+            )
+        }
     }
 }
 

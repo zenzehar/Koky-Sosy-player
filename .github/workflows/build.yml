@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.59-duration-persistence-ts-mkv-scan' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'feat/v0.1.11.71-proactive-seek-thumbnails' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.59-duration-persistence-ts-mkv-scan'
+      github.head_ref == 'feat/v0.1.11.71-proactive-seek-thumbnails'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.59.apk
-          gh release create v0.1.11.59-duration-persistence-ts-mkv-scan \
-            "apk/Soky_IPTV_Pro_v0.1.11.59.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.71.apk
+          gh release create v0.1.11.71-proactive-seek-thumbnails \
+            "apk/Soky_IPTV_Pro_v0.1.11.71.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.59 Duration Persistence and Scan" \
-            --notes "v0.1.11.59 EXPERIMENTAL TV TEST BUILD. Based on v58 (gold v54 unchanged). Fix two reported bugs: formerly only episodes already played displayed duration and Reset Progress erased those durations. Actual automatic inspection now supports MP4/HLS plus bounded MKV Info/Duration and finite seekable MPEG-TS PCR endpoint estimation. Each episode checked sequentially (4-second gaps); never start another player/decoder, never read more than 256KiB per request, cancel when actual VOD playback starts; visible status shows progress/found/unsupported. Exact verified MP4/MKV/HLS metadata updates only its own episode database row; approximate PCR runtimes and observed native playback lengths are kept in separate persistent small device-local provider-episode keyed hints that survive Reset Progress. Watch-history position, Cloud sync pause and player/seek behavior unchanged. Unsupported HTTP range or absent metadata leave duration unavailable, no guessed sibling duration. New unit tests for Matroska, MPEG-TS, stable reset-independent local hints and previous parsers. CI passing does not guarantee provider compatibility or playback stability. Debug-signed prerelease; do not merge to golden without real Android TV/Fire TV testing." --prerelease
+            --title "Soky IPTV Pro v0.1.11.71 Proactive Seek Thumbnails" \
+            --notes "v0.1.11.71 EXPERIMENTAL proactive seeking-thumbnail prefetch. For supported Android 8.1+ progressive HTTP VOD such as .mp4/.mkv, wait for stable playback before opening at most one low-priority metadata retriever connection, prefetch up to 24 distributed keyframes, prioritize likely destinations and seek-preview targets, pause new extraction when buffering, and stop on repeated failure or slow response. Approximate storyboard scenes explicitly show their frame time, never pretend a nearby keyframe is the exact requested video moment. Strict ~7 MB cache: 48 real played screenshots plus 24 future frames; prefetch frames survive normal playback eviction. HLS/TS, unknown streams, old Android and unsupported/provider-limited streams remain on safe passive screenshots. No second VLC or ExoPlayer and main decoder is never sought to generate previews. This optional metadata connection may be unsuitable for IPTV providers that forbid simultaneous requests; users should validate on hardware. Includes prior v70 playback-resume and skip focus fixes; v59 gold stays protected." --prerelease
