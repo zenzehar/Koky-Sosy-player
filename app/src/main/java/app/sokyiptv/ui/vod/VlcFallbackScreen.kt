@@ -135,6 +135,7 @@ fun VlcFallbackScreen(
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
     var surfaceRebindPending by remember(streamUrl) { mutableStateOf(false) }
@@ -500,6 +501,17 @@ fun VlcFallbackScreen(
         showEpisodeControls && manualSkips.showIntro(positionMs)
     val skipCreditsPromptVisible = !ended && ready && !paused && !failed &&
         showEpisodeControls && !creditsDismissed && manualSkips.showCredits(positionMs)
+    // Start the optional low-priority storyboard after native video is stable.
+    // Unsupported and live-like formats continue to use PixelCopy only.
+    ProactiveSeekThumbnailPrefetch(
+        streamUrl = streamUrl, userAgent = userAgent, netflix = netflix,
+        durationMs = durationMs, positionMs = positionMs,
+        playbackHealthy = ready && nativePlaybackActive && !paused &&
+            !suspendPlayback && !failed && !ended &&
+            healthSnapshot.state == VlcPlaybackHealth.State.PLAYING,
+        requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
+    )
+
     val playButtonBuffering = !paused && !ended && !failed &&
         (!ready || healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING ||
             healthSnapshot.state == VlcPlaybackHealth.State.STALLED ||
@@ -730,6 +742,7 @@ fun VlcFallbackScreen(
                     playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
                     frameAt = seekFrames::nearestFrame,
+                    onPreviewRequested = { requestedPreviewMs = it },
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },
                     onBack = ::leaveVideo, onToggle = ::togglePlayback,
