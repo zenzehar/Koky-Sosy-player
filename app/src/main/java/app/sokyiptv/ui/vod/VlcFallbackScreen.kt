@@ -135,6 +135,7 @@ fun VlcFallbackScreen(
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
     var surfaceRebindPending by remember(streamUrl) { mutableStateOf(false) }
     var nativePlaybackActive by remember(streamUrl) { mutableStateOf(false) }
@@ -240,6 +241,7 @@ fun VlcFallbackScreen(
         player.setTime(capped)
         PlaybackDiagnostics.event(context, "VLC_SEEK", (capped / 1000).toInt())
         positionMs = capped
+        thumbnailPostSeekTargetMs = capped
         showControls()
     }
 
@@ -443,6 +445,22 @@ fun VlcFallbackScreen(
                 failures = 0
             } else still.recycle()
         }
+    }
+
+    // A completed seek deserves one timely REAL scene capture. The periodic
+    // sampler alone could miss the destination by several seconds.
+    LaunchedEffect(thumbnailPostSeekTargetMs, videoLayout, netflix, ready) {
+        val target = thumbnailPostSeekTargetMs
+        val layout = videoLayout ?: return@LaunchedEffect
+        if (target < 0L || !netflix || !ready || failed || ended) return@LaunchedEffect
+        delay(620L) // let VLC display the sought decoder frame
+        if (leaving.get() || nativeReleased.get() || !player.isPlaying) return@LaunchedEffect
+        val atMs = player.time.coerceAtLeast(0L)
+        if (kotlin.math.abs(atMs - target) > 2_500L) return@LaunchedEffect
+        val snapshot = NetflixSeekFrameCapture.sample(layout) ?: return@LaunchedEffect
+        if (kotlin.math.abs(player.time - atMs) <= 1_800L) {
+            seekFrames.store(atMs, snapshot)
+        } else snapshot.recycle()
     }
 
     // Preserve modern screensaver pause API, without newer decoder rebind or seek recovery.
