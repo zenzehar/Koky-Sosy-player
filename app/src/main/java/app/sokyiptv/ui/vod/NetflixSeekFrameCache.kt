@@ -25,29 +25,40 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
- * Bounded TV memory: 48 * 208 * 117 * 4 bytes, <5 MB uncompressed. Each
+ * Bounded TV memory: 120 * 208 * 117 * 4 bytes, ~12 MB uncompressed. Each
  * preview corresponds to a *previously displayed* moment of the current title.
  * Unknown/non-seeked positions must not reuse the wrong scene image.
  */
 internal class NetflixSeekFrameCache {
-    private val frames = LinkedHashMap<Long, Bitmap>(50, .75f, true)
-    private val capacity = 48
+    private val frames = LinkedHashMap<Long, Bitmap>(128, .75f, true)
+    private val capacity = 120
+    data class CapturedFrame(
+        val timestampMs: Long,
+        val image: ImageBitmap,
+        /** Accurate only for already-played frames within a few seconds. */
+        val accurate: Boolean,
+    )
     var revision by mutableIntStateOf(0)
         private set
 
-    fun thumbnail(positionMs: Long): ImageBitmap? {
+    fun nearestFrame(positionMs: Long): CapturedFrame? {
         // Compose tracks changes via revision, while bitmaps remain out of snapshots.
         @Suppress("UNUSED_VARIABLE") val observedRevision = revision
-        val match = frames.entries.minByOrNull { abs(it.key - positionMs) }
-            ?: return null
-        // Never pretend an unrelated scene belongs to the selected timestamp.
-        if (!NetflixSeekPreviewPolicy.frameMatches(match.key, positionMs)) return null
-        return match.value.asImageBitmap()
+        val match = frames.entries.minByOrNull { abs(it.key - positionMs) } ?: return null
+        // A labelled nearby historical frame is better than a permanently empty
+        // card, but never attribute a distant scene to the selected position.
+        if (abs(match.key - positionMs) > 12_000L) return null
+        return CapturedFrame(match.key, match.value.asImageBitmap(),
+            NetflixSeekPreviewPolicy.frameMatches(match.key, positionMs))
     }
 
+    fun thumbnail(positionMs: Long): ImageBitmap? =
+        nearestFrame(positionMs)?.takeIf { it.accurate }?.image
+
     fun store(positionMs: Long, image: Bitmap) {
-        // One frame at approximately every five seconds; avoid near-duplicates.
-        if (positionMs < 0L || frames.keys.any { abs(it - positionMs) < 4_500L }) {
+        // Sample roughly every 1.5 s while decoding so ordinary short seeks
+        // and revisiting watched portions have reliable, genuine thumbnails.
+        if (positionMs < 0L || frames.keys.any { abs(it - positionMs) < 1_250L }) {
             image.recycle()
             return
         }
