@@ -456,6 +456,10 @@ fun VlcFallbackScreen(
         showEpisodeControls && manualSkips.showIntro(positionMs)
     val skipCreditsPromptVisible = !ended && ready && !paused && !failed &&
         showEpisodeControls && !creditsDismissed && manualSkips.showCredits(positionMs)
+    val playButtonBuffering = !paused && !ended && !failed &&
+        (!ready || healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING)
+    val playButtonBufferPercent = if (!ready) bufferEventPercent.takeIf { it in 0..100 }
+        else healthSnapshot.bufferPercent.takeIf { it in 0..100 }
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
     fun activateSkipPrompt() {
@@ -662,6 +666,8 @@ fun VlcFallbackScreen(
                 NetflixLikePlayerChrome(
                     title = title, isEpisode = showEpisodeControls,
                     positionMs = positionMs, durationMs = durationMs, paused = paused,
+                    buffering = playButtonBuffering,
+                    bufferingPercent = playButtonBufferPercent,
                     nextAvailable = nextEpisodeAvailable,
                     manualSkips = manualSkips,
                     markersEnabled = paused && showEpisodeControls && markersAvailable,
@@ -842,6 +848,8 @@ fun VlcFallbackScreen(
                 CinematicTransport(
                     isEpisode = showEpisodeControls,
                     paused = paused,
+                    buffering = playButtonBuffering,
+                    bufferingPercent = playButtonBufferPercent,
                     previousEnabled = previousEpisodeAvailable,
                     nextEnabled = nextEpisodeAvailable,
                     onPrevious = onPreviousEpisode,
@@ -879,19 +887,13 @@ fun VlcFallbackScreen(
             }
             }
         }
-        // Centre-screen percentage fill, above either player's chrome.
-        // VLC supplies actual native input-buffer percent; missing data stays indeterminate.
-        if (!ready && !failed && !ended) {
+        // When controls are hidden, the same centre Play/Pause face remains
+        // visible as the loading ring; never pop the entire transport chrome.
+        if (playButtonBuffering && !controlsVisible) {
             PlayerBufferPercentOverlay(
-                percent = bufferEventPercent.takeIf { it in 0..100 },
-                label = "Loading", netflix = netflix,
-                modifier = Modifier.align(Alignment.Center),
-            )
-        } else if (ready && !paused && !ended && !failed &&
-            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING) {
-            PlayerBufferPercentOverlay(
-                percent = healthSnapshot.bufferPercent.takeIf { it in 0..100 },
-                label = "Buffering", netflix = netflix,
+                percent = playButtonBufferPercent,
+                label = "Buffering",
+                netflix = netflix,
                 modifier = Modifier.align(Alignment.Center),
             )
         }
