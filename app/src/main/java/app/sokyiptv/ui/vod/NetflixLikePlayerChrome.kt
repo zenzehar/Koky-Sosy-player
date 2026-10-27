@@ -103,7 +103,7 @@ internal fun NetflixLikePlayerChrome(
     playFocus: FocusRequester,
     timelineFocus: FocusRequester,
     tracksFocus: FocusRequester,
-    thumbnailAt: (Long) -> ImageBitmap? = { null },
+    frameAt: (Long) -> NetflixSeekFrameCache.CapturedFrame? = { null },
     onSeekingChanged: (Boolean) -> Unit = {},
     onActivity: () -> Unit,
     onBack: () -> Unit,
@@ -375,7 +375,7 @@ internal fun NetflixLikePlayerChrome(
             val travel = (maxWidth - 47.dp - 53.dp - 111.dp).coerceAtLeast(0.dp)
             val start = (58.dp + travel * fraction - bubbleWidth / 2f)
                 .coerceIn(8.dp, (maxWidth - bubbleWidth - 8.dp).coerceAtLeast(8.dp))
-            val frame = thumbnailAt(previewAt)
+            val frame = frameAt(previewAt)
             Column(
                 modifier = Modifier.align(Alignment.BottomStart)
                     .padding(start = start, bottom = timelineBottom + 47.dp)
@@ -391,14 +391,24 @@ internal fun NetflixLikePlayerChrome(
                 ) {
                     if (frame != null) {
                         Image(
-                            bitmap = frame,
-                            contentDescription = "Actual previously decoded frame near " +
-                                nClock(previewAt),
+                            bitmap = frame.image,
+                            contentDescription = "Previously decoded scene at " +
+                                nClock(frame.timestampMs),
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
                         )
+                        if (!frame.accurate) {
+                            Text(
+                                "Nearby frame: " + nClock(frame.timestampMs),
+                                modifier = Modifier.align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .background(Color.Black.copy(alpha = .83f))
+                                    .padding(3.dp),
+                                color = Color.White, fontSize = 11.sp,
+                            )
+                        }
                     } else {
-                        Text("Preview unavailable", color = Color.White.copy(alpha = .6f),
+                        Text("No cached scene at this time", color = Color.White.copy(alpha = .6f),
                             fontSize = 12.sp)
                     }
                 }
