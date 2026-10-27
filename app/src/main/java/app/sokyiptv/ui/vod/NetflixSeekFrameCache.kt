@@ -42,6 +42,7 @@ internal class NetflixSeekFrameCache {
         val timestampMs: Long,
         val image: ImageBitmap,
         val accurate: Boolean,
+        val storyboard: Boolean = false,
     )
 
     var revision by mutableIntStateOf(0)
@@ -64,8 +65,10 @@ internal class NetflixSeekFrameCache {
             ProactivePreviewPolicy.maxApproximateDistanceMs(storyboardDurationMs)
         else 12_000L
         if (distance > tolerance) return null
+        val isStoryboard = storyboardFrames.containsKey(nearest.key)
         return CapturedFrame(nearest.key, nearest.value.asImageBitmap(),
-            NetflixSeekPreviewPolicy.frameMatches(nearest.key, positionMs))
+            !isStoryboard && NetflixSeekPreviewPolicy.frameMatches(nearest.key, positionMs),
+            storyboard = isStoryboard)
     }
 
     fun thumbnail(positionMs: Long): ImageBitmap? =
@@ -91,7 +94,9 @@ internal class NetflixSeekFrameCache {
         image: Bitmap,
         spacingMs: Long,
     ) {
-        if (positionMs < 0L || hasFrameNear(positionMs, spacingMs)) {
+        val duplicate = destination.keys.any { abs(it - positionMs) <= spacingMs } ||
+            (destination === storyboardFrames && liveFrames.keys.any { abs(it - positionMs) <= spacingMs })
+        if (positionMs < 0L || duplicate) {
             image.recycle()
             return
         }
