@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -96,6 +97,9 @@ internal fun NetflixLikePlayerChrome(
     durationMs: Long,
     paused: Boolean,
     nextAvailable: Boolean,
+    manualSkips: ManualSeriesSkips = ManualSeriesSkips(),
+    markersEnabled: Boolean = false,
+    onMarkers: () -> Unit = {},
     playFocus: FocusRequester,
     timelineFocus: FocusRequester,
     tracksFocus: FocusRequester,
@@ -113,6 +117,7 @@ internal fun NetflixLikePlayerChrome(
     val backwardFocus = remember { FocusRequester() }
     val forwardFocus = remember { FocusRequester() }
     val episodesFocus = remember { FocusRequester() }
+    val markersFocus = remember { FocusRequester() }
     val nextFocus = remember { FocusRequester() }
     var scrubbing by remember { mutableStateOf(false) }
     var seekPreviewMs by remember { mutableLongStateOf(0L) }
@@ -162,7 +167,7 @@ internal fun NetflixLikePlayerChrome(
             if (activeTarget == NetflixTarget.TIMELINE &&
                 direction in setOf(NetflixDirection.LEFT, NetflixDirection.RIGHT))
                 return@onPreviewKeyEvent false
-            val next = NetflixFocusGraph.next(activeTarget, direction, isEpisode, nextAvailable)
+            val next = NetflixFocusGraph.next(activeTarget, direction, isEpisode, nextAvailable, markersEnabled)
             onActivity()
             if (next != activeTarget) {
                 activeTarget = next
@@ -173,6 +178,7 @@ internal fun NetflixLikePlayerChrome(
                     NetflixTarget.FORWARD -> forwardFocus
                     NetflixTarget.TIMELINE -> timelineFocus
                     NetflixTarget.EPISODES -> episodesFocus
+                    NetflixTarget.MARKERS -> markersFocus
                     NetflixTarget.TRACKS -> tracksFocus
                     NetflixTarget.NEXT -> nextFocus
                 }
@@ -339,6 +345,9 @@ internal fun NetflixLikePlayerChrome(
                     val playhead = left + (right-left) * fraction
                     drawLine(netflixRed, Offset(left, middle), Offset(playhead, middle),
                         4.dp.toPx(), cap = StrokeCap.Round)
+                    drawManualTimelineBands(
+                        manualSkips, durationMs, left, right, middle, 7.dp.toPx()
+                    )
                     drawCircle(netflixRed,
                         (if (seekFocused) 11 else 9).dp.toPx(),
                         Offset(playhead, middle))
@@ -416,8 +425,19 @@ internal fun NetflixLikePlayerChrome(
                 Modifier.focusRequester(episodesFocus)
                     .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.EPISODES; onActivity() } }
                     .focusProperties {
-                    up = timelineFocus; right = tracksFocus
+                    up = timelineFocus; right = if (markersEnabled) markersFocus else tracksFocus
                 }, onClick = onEpisodes, onActivity = onActivity,
+            )
+            if (isEpisode && markersEnabled) NText(
+                "Mark skips", Icons.Filled.BookmarkAdd,
+                Modifier.focusRequester(markersFocus)
+                    .onFocusChanged {
+                        if (it.isFocused) { activeTarget = NetflixTarget.MARKERS; onActivity() }
+                    }
+                    .focusProperties {
+                        up = timelineFocus; left = episodesFocus; right = tracksFocus
+                    },
+                onClick = onMarkers, onActivity = onActivity,
             )
             NText(
                 "Audio & Subtitles", Icons.Filled.Subtitles,
@@ -425,7 +445,8 @@ internal fun NetflixLikePlayerChrome(
                     .onFocusChanged { if (it.isFocused) { activeTarget = NetflixTarget.TRACKS; onActivity() } }
                     .focusProperties {
                     up = timelineFocus
-                    if (isEpisode) left = episodesFocus
+                    if (markersEnabled) left = markersFocus
+                    else if (isEpisode) left = episodesFocus
                     if (isEpisode && nextAvailable) right = nextFocus
                 }, onClick = onTracks, onActivity = onActivity,
             )
