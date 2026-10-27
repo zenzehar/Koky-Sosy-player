@@ -606,6 +606,24 @@ fun VodPlayerScreen(
         }
     }
 
+    // Prompts stay fully navigable whether transport controls are visible or hidden.
+    val skipIntroPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
+        !paused && state !is PlayerController.State.Error &&
+        manualSkips.showIntro(positionMs)
+    val skipCreditsPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
+        !paused && state !is PlayerController.State.Error && !creditsDismissed &&
+        manualSkips.showCredits(positionMs)
+    val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
+    val skipPromptFocus = remember { FocusRequester() }
+    fun activateSkipPrompt() {
+        if (skipIntroPromptVisible) seekAt(manualSkips.introEndMs)
+        else if (skipCreditsPromptVisible) {
+            val candidate = followingEpisode
+            if (candidate != null) scope.launch { savePosition(); onNextEpisode(candidate) }
+            else onBack()
+        }
+    }
+
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
@@ -621,10 +639,12 @@ fun VodPlayerScreen(
 
     // One reliable focus handoff after controls have entered the Compose focus tree.
     // Never re-request focus on navigation events: that would steal it from D-pad moves.
-    LaunchedEffect(controlsVisible, vodPanel, netflix) {
+    LaunchedEffect(controlsVisible, vodPanel, netflix, skipPromptVisible) {
         withFrameNanos { }
         withFrameNanos { }
-        if (controlsVisible) {
+        if (skipPromptVisible) {
+            runCatching { skipPromptFocus.requestFocus() }
+        } else if (controlsVisible) {
             runCatching {
                 if (vodPanel != VodPanel.NONE) {
                     // Independent dialog owns focus in both player styles.
@@ -716,6 +736,21 @@ fun VodPlayerScreen(
                         true
                     }
                     event.key == Key.Back || event.key == Key.Escape -> false
+                    event.type == KeyEventType.KeyDown && skipPromptVisible && rootOwnsFocus &&
+                        event.key in setOf(Key.DirectionCenter, Key.Enter) -> {
+                        if (event.nativeKeyEvent.repeatCount == 0) activateSkipPrompt()
+                        true
+                    }
+                    event.type == KeyEventType.KeyDown && skipPromptVisible && rootOwnsFocus &&
+                        event.key in setOf(Key.DirectionUp, Key.DirectionDown,
+                            Key.DirectionLeft, Key.DirectionRight) -> {
+                        runCatching { skipPromptFocus.requestFocus() }
+                        true
+                    }
+                    skipPromptVisible -> {
+                        // Let prompt buttons own D-pad navigation and confirm action.
+                        false
+                    }
                     event.type == KeyEventType.KeyDown && !controlsVisible &&
                         (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
                         if (event.nativeKeyEvent.repeatCount == 0) {
@@ -799,14 +834,7 @@ fun VodPlayerScreen(
         )
 
         when (val current = state) {
-            is PlayerController.State.Buffering ->
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(Modifier.height(16.dp))
-                        Text(current.title, color = Color.White)
-                    }
-                }
+            is PlayerController.State.Buffering -> Unit
 
             is PlayerController.State.Error ->
                 Box(
@@ -1041,16 +1069,26 @@ fun VodPlayerScreen(
             }
             }
         }
-        val introSkip = mediaKey.startsWith("ep:") && manualSkips.showIntro(positionMs)
-        val creditsSkip = mediaKey.startsWith("ep:") && manualSkips.showCredits(positionMs)
-        if (state !is PlayerController.State.Error && !paused && introSkip) {
+        if (state is PlayerController.State.Buffering) {
+            val wholeVideoBufferedPercent = controller.player.bufferedPercentage.takeIf {
+                it in 0..100 && durationMs > 0L && !growingRec
+            }
+            PlayerBufferPercentOverlay(
+                percent = wholeVideoBufferedPercent,
+                label = if (wholeVideoBufferedPercent == null) "Buffering"
+                    else "Video buffered",
+                netflix = netflix,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        if (skipIntroPromptVisible) {
             NetflixSkipPrompt(
                 label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+                focusRequester = skipPromptFocus,
             ) { seekAt(manualSkips.introEndMs) }
-        } else if (state !is PlayerController.State.Error && !paused &&
-            creditsSkip && !creditsDismissed) {
+        } else if (skipCreditsPromptVisible) {
             val nextAction: () -> Unit = {
                 val candidate = followingEpisode
                 if (mediaKey.startsWith("ep:") && candidate != null) {
@@ -1064,13 +1102,15 @@ fun VodPlayerScreen(
                     onContinue = { creditsDismissed = true },
                     onSkip = nextAction,
                     modifier = Modifier.align(Alignment.Center),
+                    focusRequester = skipPromptFocus,
                 )
             } else {
                 NetflixSkipPrompt(
                     label = if (mediaKey.startsWith("ep:") && followingEpisode != null)
-                        "Skip Credits · Next Episode" else "Skip Credits · Back to Title",
+                        "Next Episode" else "Back to Title",
                     modifier = Modifier.align(Alignment.BottomEnd)
                         .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+                    focusRequester = skipPromptFocus,
                     onClick = nextAction,
                 )
             }
