@@ -607,6 +607,13 @@ fun VodPlayerScreen(
         }
     }
 
+    // Buffer percentage is Media3's whole-video buffered fraction, not an
+    // invented rebuffer completion count. Unknown durations show an indeterminate face.
+    val playButtonBuffering = !usingVlc && !paused &&
+        state is PlayerController.State.Buffering
+    val playButtonBufferPercent = if (playButtonBuffering && !growingRec && durationMs > 0L)
+        controller.player.bufferedPercentage.takeIf { it in 0..100 } else null
+
     // Prompts stay fully navigable whether transport controls are visible or hidden.
     val skipIntroPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
         !paused && state !is PlayerController.State.Error &&
@@ -867,6 +874,8 @@ fun VodPlayerScreen(
                     NetflixLikePlayerChrome(
                         title = title, isEpisode = mediaKey.startsWith("ep:"),
                         positionMs = positionMs, durationMs = durationMs, paused = paused,
+                        buffering = playButtonBuffering,
+                        bufferingPercent = playButtonBufferPercent,
                         nextAvailable = followingEpisode != null,
                         manualSkips = manualSkips,
                         markersEnabled = paused && !seriesGroup.isNullOrBlank() &&
@@ -1027,6 +1036,8 @@ fun VodPlayerScreen(
                 CinematicTransport(
                     isEpisode = mediaKey.startsWith("ep:"),
                     paused = paused,
+                    buffering = playButtonBuffering,
+                    bufferingPercent = playButtonBufferPercent,
                     previousEnabled = previousEpisode != null,
                     nextEnabled = followingEpisode != null,
                     onPrevious = {
@@ -1070,14 +1081,12 @@ fun VodPlayerScreen(
             }
             }
         }
-        if (state is PlayerController.State.Buffering) {
-            val wholeVideoBufferedPercent = controller.player.bufferedPercentage.takeIf {
-                it in 0..100 && durationMs > 0L && !growingRec
-            }
+        // If chrome is hidden, the same Play/Pause loading-face appears
+        // at centre without revealing transport controls or resetting auto-hide.
+        if (playButtonBuffering && !controlsVisible) {
             PlayerBufferPercentOverlay(
-                percent = wholeVideoBufferedPercent,
-                label = if (wholeVideoBufferedPercent == null) "Buffering"
-                    else "Video buffered",
+                percent = playButtonBufferPercent,
+                label = "Buffering",
                 netflix = netflix,
                 modifier = Modifier.align(Alignment.Center),
             )
