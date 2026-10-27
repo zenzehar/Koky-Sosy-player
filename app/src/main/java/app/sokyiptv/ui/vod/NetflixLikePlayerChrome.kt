@@ -541,18 +541,36 @@ internal fun NetflixCreditsPrompt(
 ) {
     val fallbackFocus = remember { FocusRequester() }
     val actionFocus = focusRequester ?: fallbackFocus
+    val watchFocus = remember { FocusRequester() }
     LaunchedEffect(nextAvailable, isEpisode, actionFocus) {
         withFrameNanos { }
         withFrameNanos { }
         runCatching { actionFocus.requestFocus() }
     }
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier.onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) false
+            else when (event.key) {
+                Key.DirectionLeft -> {
+                    runCatching { watchFocus.requestFocus() }
+                    true
+                }
+                Key.DirectionRight -> {
+                    runCatching { actionFocus.requestFocus() }
+                    true
+                }
+                else -> false
+            }
+        },
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         NText("Watch Credits", modifier = Modifier
+            .focusRequester(watchFocus)
             .background(Color(0xC2505050), RoundedCornerShape(4.dp)),
             onClick = onContinue)
         NText(
-            if (isEpisode && nextAvailable) "Next Episode" else "Back to Title",
+            if (isEpisode && nextAvailable) "Next episode" else "Back to title",
             icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
             modifier = Modifier.focusRequester(actionFocus)
                 .background(Color.White, RoundedCornerShape(4.dp)),
