@@ -32,31 +32,37 @@ class ManualMarkerInputAndTimelineTest {
         assertEquals(MarkerHoldGate.Result.PASS, gate.handle(23, false, true, 0, 4_000, true))
     }
 
-    @Test fun sharedTimesMapOntoDifferentEpisodeSeekbars() {
-        val marks = ManualSeriesSkips(30_000L, 90_000L, 2_400_000L, 2_500_000L)
-        val first = ManualTimelineModel.regions(marks, 2_600_000L)
-        val second = ManualTimelineModel.regions(marks, 2_800_000L)
-        assertEquals(2, first.size)
-        assertEquals(2, second.size)
-        assertEquals(MarkerRegion.INTRO, first[0].kind)
-        assertEquals(MarkerRegion.CREDITS, first[1].kind)
-        assertEquals(30_000f / 2_600_000f, first[0].startFraction, 0.0001f)
-        assertEquals(30_000f / 2_800_000f, second[0].startFraction, 0.0001f)
-        assertEquals(4, ManualTimelineModel.boundaries(marks, 2_600_000L).size)
+    @Test fun firstMarkMapsStartToIntroEndAcrossEpisodes() {
+        val marks = ManualSeriesSkips(introEndMs = 90_000L, creditsStartMs = 2_400_000L)
+        val a = ManualTimelineModel.regions(marks, 2_600_000L)
+        val b = ManualTimelineModel.regions(marks, 2_800_000L)
+        assertEquals(2, a.size)
+        assertEquals(2, b.size)
+        assertEquals(MarkerRegion.INTRO, a[0].kind)
+        assertEquals(0f, a[0].startFraction, 0.0001f)
+        assertEquals(90_000f / 2_600_000f, a[0].endFraction, 0.0001f)
+        assertEquals(90_000f / 2_800_000f, b[0].endFraction, 0.0001f)
+        assertEquals(MarkerRegion.CREDITS, a[1].kind)
+        assertEquals(1f, a[1].endFraction, 0.0001f)
+        assertEquals(2, ManualTimelineModel.boundaries(marks, 2_600_000L).size)
     }
 
-    @Test fun incompleteRangesShowTicksButNeverSkipRegion() {
-        val incomplete = ManualSeriesSkips(introStartMs = 35_000L, creditsEndMs = 2_000_000L)
-        assertTrue(ManualTimelineModel.regions(incomplete, 2_700_000L).isEmpty())
-        assertEquals(2, ManualTimelineModel.boundaries(incomplete, 2_700_000L).size)
-        assertFalse(incomplete.showIntro(40_000L))
+    @Test fun onePointAlreadyMakesOneRegionNotIncomplete() {
+        val one = ManualSeriesSkips(introEndMs = 35_000L)
+        assertEquals(1, ManualTimelineModel.regions(one, 2_700_000L).size)
+        assertEquals(1, ManualTimelineModel.boundaries(one, 2_700_000L).size)
+        assertTrue(one.showIntro(0L))
+        assertFalse(one.showCredits(2_650_000L))
     }
 
-    @Test fun clipsRangesToShorterFutureEpisodesAndClears() {
-        val marks = ManualSeriesSkips(20_000L, 80_000L, 2_400_000L, 2_500_000L)
+    @Test fun creditsPointFillsRemainingTimelineAndClears() {
+        val marks = ManualSeriesSkips(introEndMs = 80_000L, creditsStartMs = 2_400_000L)
         val shorter = ManualTimelineModel.regions(marks, 2_200_000L)
         assertEquals(1, shorter.size)
         assertEquals(MarkerRegion.INTRO, shorter[0].kind)
-        assertEquals(0, ManualTimelineModel.regions(marks.clearIntro().clearCredits(), 2_600_000L).size)
+        val longer = ManualTimelineModel.regions(marks, 2_500_000L)
+        assertEquals(2, longer.size)
+        assertEquals(1f, longer[1].endFraction, 0.0001f)
+        assertTrue(ManualTimelineModel.regions(marks.clearIntro().clearCredits(), 2_600_000L).isEmpty())
     }
 }
