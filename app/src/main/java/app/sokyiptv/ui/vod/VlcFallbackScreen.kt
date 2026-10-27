@@ -897,7 +897,7 @@ fun VlcFallbackScreen(
         // Only explicit saved series marks can display these prompts.
         if (skipIntroPromptVisible) {
             NetflixSkipPrompt(
-                label = "Skip Intro",
+                label = "Skip intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
@@ -916,7 +916,7 @@ fun VlcFallbackScreen(
         } else if (skipCreditsPromptVisible) {
             NetflixSkipPrompt(
                 label = if (showEpisodeControls && nextEpisodeAvailable)
-                    "Next Episode" else "Back to Title",
+                    "Next episode" else "Back to title",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
