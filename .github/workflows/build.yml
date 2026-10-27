@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.59-duration-persistence-ts-mkv-scan' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.69-seek-frame-buffer-button-default' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.59-duration-persistence-ts-mkv-scan'
+      github.head_ref == 'fix/v0.1.11.69-seek-frame-buffer-button-default'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.59.apk
-          gh release create v0.1.11.59-duration-persistence-ts-mkv-scan \
-            "apk/Soky_IPTV_Pro_v0.1.11.59.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.69.apk
+          gh release create v0.1.11.69-seek-frame-buffer-button-default \
+            "apk/Soky_IPTV_Pro_v0.1.11.69.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.59 Duration Persistence and Scan" \
-            --notes "v0.1.11.59 EXPERIMENTAL TV TEST BUILD. Based on v58 (gold v54 unchanged). Fix two reported bugs: formerly only episodes already played displayed duration and Reset Progress erased those durations. Actual automatic inspection now supports MP4/HLS plus bounded MKV Info/Duration and finite seekable MPEG-TS PCR endpoint estimation. Each episode checked sequentially (4-second gaps); never start another player/decoder, never read more than 256KiB per request, cancel when actual VOD playback starts; visible status shows progress/found/unsupported. Exact verified MP4/MKV/HLS metadata updates only its own episode database row; approximate PCR runtimes and observed native playback lengths are kept in separate persistent small device-local provider-episode keyed hints that survive Reset Progress. Watch-history position, Cloud sync pause and player/seek behavior unchanged. Unsupported HTTP range or absent metadata leave duration unavailable, no guessed sibling duration. New unit tests for Matroska, MPEG-TS, stable reset-independent local hints and previous parsers. CI passing does not guarantee provider compatibility or playback stability. Debug-signed prerelease; do not merge to golden without real Android TV/Fire TV testing." --prerelease
+            --title "Soky IPTV Pro v0.1.11.69 Seek Frames and Loading Play Button" \
+            --notes "v0.1.11.69 EXPERIMENTAL: Netflix-like is the default UI style for fresh installs, preserving users explicitly saved selection. Seeking thumbnails now capture approximately every 1.65 seconds of active VLC or Media3 video rather than every 5.5 seconds, keep up to 120 small frames (about 12MB), retry transient PixelCopy failures rather than permanently disabling capture, and show genuine nearby cached frames clearly labelled with their actual timestamps. Previously unseen footage still cannot have exact thumbnail without a separate decoder or provider storyboard; neither extra IPTV requests nor decoders are introduced. Buffering now morphs the Play/Pause icon itself into a filling ring with actual reported percentage (or indeterminate spinner) in Netflix-like and original player styles; when controls fade, only the compact loading face remains centered. Removes separate large buffering card. Underlying VLC/Media3 seek/playback engines and series intro/credits markers unchanged. Protected v0.1.11.59 gold untouched; real TV verification needed." --prerelease
