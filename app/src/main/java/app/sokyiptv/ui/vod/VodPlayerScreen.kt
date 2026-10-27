@@ -589,14 +589,15 @@ fun VodPlayerScreen(
         if (usingVlc || !netflix) return@LaunchedEffect
         var failures = 0
         while (isActive && !usingVlc) {
-            delay(5_500L)
+            delay(1_650L)
             val p = controller.player
             if (paused || awaitingSeekPlayback || !p.isPlaying ||
                 p.playbackState != Player.STATE_READY) continue
             val recordedAt = p.currentPosition.coerceAtLeast(0L)
             val bitmap = NetflixSeekFrameCapture.sample(video)
             if (bitmap == null) {
-                if (++failures >= 5) break
+                // Do not permanently give up on delayed/attached player surfaces.
+                failures++
                 continue
             }
             if (kotlin.math.abs(p.currentPosition - recordedAt) <= 1_400L) {
@@ -873,7 +874,7 @@ fun VodPlayerScreen(
                         onMarkers = { markerDialogVisible = true; reveal() },
                         playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
-                        thumbnailAt = seekFrames::thumbnail,
+                        frameAt = seekFrames::nearestFrame,
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },
                         onBack = onBack,
