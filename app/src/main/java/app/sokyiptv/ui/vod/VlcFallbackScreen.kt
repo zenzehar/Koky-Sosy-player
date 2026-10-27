@@ -896,7 +896,7 @@ fun VlcFallbackScreen(
         } else if (showCredits) {
             NetflixSkipPrompt(
                 label = if (showEpisodeControls && nextEpisodeAvailable)
-                    "Next Episode" else "Back to Title",
+                    "Skip Credits · Next Episode" else "Skip Credits · Back to Title",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
             ) {
