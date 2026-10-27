@@ -654,7 +654,11 @@ fun VlcFallbackScreen(
                 NetflixLikePlayerChrome(
                     title = title, isEpisode = showEpisodeControls,
                     positionMs = positionMs, durationMs = durationMs, paused = paused,
-                    nextAvailable = nextEpisodeAvailable, playFocus = pauseFocus,
+                    nextAvailable = nextEpisodeAvailable,
+                    manualSkips = manualSkips,
+                    markersEnabled = paused && showEpisodeControls && markersAvailable,
+                    onMarkers = { markerPanelVisible = true; showControls() },
+                    playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
                     thumbnailAt = seekFrames::thumbnail,
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
@@ -810,6 +814,10 @@ fun VlcFallbackScreen(
                                     end = androidx.compose.ui.geometry.Offset(playheadX, centerY),
                                     strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round,
                                 )
+                                drawManualTimelineBands(
+                                    manualSkips, timelineScale.maximumMs,
+                                    startX, endX, centerY, 8.dp.toPx()
+                                )
                                 drawCircle(
                                     color = Color.White,
                                     radius = if (timelineFocused) 8.dp.toPx() else 5.dp.toPx(),
@@ -833,6 +841,9 @@ fun VlcFallbackScreen(
                     onTogglePause = ::togglePlayback,
                     onForward = { seekTo(TvSeekPolicy.tap(positionMs, durationMs, SeekDirection.FORWARD)) },
                     onNext = onNextEpisodeClick,
+                    onMarkers = if (markersAvailable && showEpisodeControls) {
+                        { markerPanelVisible = true; showControls() }
+                    } else null,
                     pauseRequester = pauseFocus,
                     modifier = Modifier.align(Alignment.BottomCenter)
                         .padding(bottom = 74.dp)
