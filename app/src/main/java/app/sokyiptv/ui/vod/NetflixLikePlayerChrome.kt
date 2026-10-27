@@ -544,7 +544,7 @@ internal fun NetflixCreditsPrompt(
             .background(Color(0xC2505050), RoundedCornerShape(4.dp)),
             onClick = onContinue)
         NText(
-            if (isEpisode && nextAvailable) "Next Episode" else "Back to Title",
+            if (isEpisode && nextAvailable) "Skip Credits · Next Episode" else "Skip Credits · Back to Title",
             icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
             modifier = Modifier.focusRequester(actionFocus)
                 .background(Color.White, RoundedCornerShape(4.dp)),
@@ -637,16 +637,17 @@ internal fun ManualSeriesSkipDialog(
     val time = ManualSeriesSkips.clock(atMs)
     TvChoiceDialog(
         heading = "Series skip markers",
-        details = "Paused at $time. Mark the beginning and ending in this episode." +
-            "\n" + marks.display() + "\nApplies to all episodes of this series until cleared.",
+        details = "Paused at $time. Set just two episode-relative points." +
+            "\n" + marks.display() +
+            "\nSkip Intro appears at 0:00 for up to 10 seconds and jumps to its end mark." +
+            "\nSkip Credits appears from the outro mark and opens the next episode." +
+            "\nBoth marks apply to this series until cleared.",
         items = listOf(
-            "Mark intro START at $time" to { onMark(SkipMark.INTRO_START) },
-            "Mark intro END at $time" to { onMark(SkipMark.INTRO_END) },
-            "Mark credits START at $time" to { onMark(SkipMark.CREDITS_START) },
-            "Mark credits END at $time" to { onMark(SkipMark.CREDITS_END) },
-            "Clear intro markers" to onClearIntro,
-            "Clear credits markers" to onClearCredits,
-            "Clear all markers for this series" to onClearAll,
+            "Set INTRO END here ($time)" to { onMark(SkipMark.INTRO_END) },
+            "Set CREDITS / OUTRO START here ($time)" to { onMark(SkipMark.CREDITS_START) },
+            "Clear intro end" to onClearIntro,
+            "Clear credits / outro start" to onClearCredits,
+            "Clear both marks for this series" to onClearAll,
             "Cancel" to onClose,
         ),
         onClose = onClose,
