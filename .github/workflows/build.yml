@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.70-playback-resume-skip-highlight-preview' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'feat/v0.1.11.71-proactive-seek-thumbnails' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.70-playback-resume-skip-highlight-preview'
+      github.head_ref == 'feat/v0.1.11.71-proactive-seek-thumbnails'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.70.apk
-          gh release create v0.1.11.70-playback-resume-skip-highlight-preview \
-            "apk/Soky_IPTV_Pro_v0.1.11.70.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.71.apk
+          gh release create v0.1.11.71-proactive-seek-thumbnails \
+            "apk/Soky_IPTV_Pro_v0.1.11.71.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.70 Resume Reliability and Skip Focus" \
-            --notes "v0.1.11.70 EXPERIMENTAL. Fix missed Play/Pause resume: VLC no longer trusts the UI paused flag as proof the native decoder plays, and allows one bounded resume reassertion when an actual resume fails without network buffering; Media3 remote, Netflix and cinematic Play/Pause now share explicit player.play()/pause() intent and prepare an idle player without reloading an actively buffering stream. Original-style loading progress uses native VLC buffering events and detects a stalled/non-advancing playback clock, showing real percentage or indeterminate status. Netflix-like thumbnails now prioritize one actual decoded frame ~620ms after a completed seek, serialize PixelCopy requests, recycle late-timeout bitmap callbacks safely, and cap frame cache at 72 frames (~7 MiB) for Fire TV stability. Skip intro and Next episode prompts auto-emphasize, receive keyboard focus, and get a vivid red focus outline; Watch Credits remains navigable. Netflix-like stays default for fresh installs, series markers and gold v59 unchanged. CI tests and real TV acceptance required." --prerelease
+            --title "Soky IPTV Pro v0.1.11.71 Proactive Seek Thumbnails" \
+            --notes "v0.1.11.71 EXPERIMENTAL proactive seeking-thumbnail prefetch. For supported Android 8.1+ progressive HTTP VOD such as .mp4/.mkv, wait for stable playback before opening at most one low-priority metadata retriever connection, prefetch up to 24 distributed keyframes, prioritize likely destinations and seek-preview targets, pause new extraction when buffering, and stop on repeated failure or slow response. Approximate storyboard scenes explicitly show their frame time, never pretend a nearby keyframe is the exact requested video moment. Strict ~7 MB cache: 48 real played screenshots plus 24 future frames; prefetch frames survive normal playback eviction. HLS/TS, unknown streams, old Android and unsupported/provider-limited streams remain on safe passive screenshots. No second VLC or ExoPlayer and main decoder is never sought to generate previews. This optional metadata connection may be unsuitable for IPTV providers that forbid simultaneous requests; users should validate on hardware. Includes prior v70 playback-resume and skip focus fixes; v59 gold stays protected." --prerelease
