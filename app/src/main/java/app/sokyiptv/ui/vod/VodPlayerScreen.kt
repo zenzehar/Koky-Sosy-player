@@ -167,6 +167,7 @@ fun VodPlayerScreen(
     val uiStyle by settings.playerUiStyle.collectAsState()
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
     var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
@@ -655,6 +656,16 @@ fun VodPlayerScreen(
         } else bitmap.recycle()
     }
 
+    // The active Media3 path only; VLC owns its own bounded storyboard cache.
+    ProactiveSeekThumbnailPrefetch(
+        streamUrl = streamUrl, userAgent = userAgent,
+        netflix = netflix && !usingVlc && !growingRec,
+        durationMs = durationMs, positionMs = positionMs,
+        playbackHealthy = !usingVlc && !paused && !awaitingSeekPlayback &&
+            state is PlayerController.State.Playing,
+        requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
+    )
+
     // Buffer percentage is Media3's whole-video buffered fraction, not an
     // invented rebuffer completion count. Unknown durations show an indeterminate face.
     val playButtonBuffering = !usingVlc && !paused &&
@@ -932,6 +943,7 @@ fun VodPlayerScreen(
                         playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
                         frameAt = seekFrames::nearestFrame,
+                    onPreviewRequested = { requestedPreviewMs = it },
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },
                         onBack = onBack,
