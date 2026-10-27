@@ -338,15 +338,43 @@ fun VodPlayerScreen(
 
     fun reveal() { controlsVisible = true; interaction++ }
 
+    var media3ResumeGeneration by remember(controller) { mutableIntStateOf(0) }
+
+    fun setPlaybackIntent(play: Boolean) {
+        if (usingVlc) return
+        val p = controller.player
+        paused = !play
+        if (play) {
+            // playWhenReady is only an intent; an IDLE player needs prepare().
+            // Never reload an already-buffering stream or create another player.
+            if (p.playbackState == Player.STATE_ENDED) p.seekTo(0L)
+            if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            p.play()
+            media3ResumeGeneration++
+        } else p.pause()
+        reveal()
+    }
+
     fun setHardwarePlayback(action: TvHardwarePlaybackKeys.Action) {
-        val play = when (action) {
-            TvHardwarePlaybackKeys.Action.TOGGLE -> !controller.player.playWhenReady
+        setPlaybackIntent(when (action) {
+            TvHardwarePlaybackKeys.Action.TOGGLE -> paused
             TvHardwarePlaybackKeys.Action.PLAY -> true
             TvHardwarePlaybackKeys.Action.PAUSE -> false
+        })
+    }
+
+    // One deferred command reassertion only if the native playback intent was lost.
+    // Network buffering and decoder preparation are NOT interpreted as failures.
+    LaunchedEffect(media3ResumeGeneration, usingVlc) {
+        if (usingVlc || media3ResumeGeneration == 0) return@LaunchedEffect
+        delay(1_800L)
+        val p = controller.player
+        if (!paused && !p.playWhenReady && !screenSaverSuspended &&
+            p.playbackState != Player.STATE_BUFFERING &&
+            p.playbackState != Player.STATE_ENDED) {
+            p.play()
+            PlaybackDiagnostics.event(context, "MEDIA3_RESUME_REASSERT")
         }
-        controller.player.playWhenReady = play
-        paused = !play
-        reveal()
     }
 
     fun seekAt(targetMs: Long) {
@@ -611,8 +639,10 @@ fun VodPlayerScreen(
     // invented rebuffer completion count. Unknown durations show an indeterminate face.
     val playButtonBuffering = !usingVlc && !paused &&
         state is PlayerController.State.Buffering
+    // Media3's bufferedPercentage is whole-video download progress, not
+    // progress of the current stall. Show it only if partial and meaningful.
     val playButtonBufferPercent = if (playButtonBuffering && !growingRec && durationMs > 0L)
-        controller.player.bufferedPercentage.takeIf { it in 0..100 } else null
+        controller.player.bufferedPercentage.takeIf { it in 1..99 } else null
 
     // Prompts stay fully navigable whether transport controls are visible or hidden.
     val skipIntroPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
@@ -762,10 +792,8 @@ fun VodPlayerScreen(
                     event.type == KeyEventType.KeyDown && !controlsVisible &&
                         (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
                         if (event.nativeKeyEvent.repeatCount == 0) {
-                            paused = !paused
-                            controller.player.playWhenReady = !paused
-                        }
-                        reveal()
+                            setPlaybackIntent(paused)
+                        } else reveal()
                         true
                     }
                     event.type == KeyEventType.KeyDown && !controlsVisible &&
@@ -887,11 +915,7 @@ fun VodPlayerScreen(
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },
                         onBack = onBack,
-                        onToggle = {
-                            paused = !paused
-                            controller.player.playWhenReady = !paused
-                            reveal()
-                        },
+                        onToggle = { setPlaybackIntent(paused) },
                         onSeek = ::seekAt, onEpisodes = onBack,
                         onTracks = { vodPanel = VodPanel.AUDIO; reveal() },
                         onNext = {
@@ -1048,11 +1072,7 @@ fun VodPlayerScreen(
                     onRewind = {
                         seekTenSeconds(SeekDirection.BACKWARD)
                     },
-                    onTogglePause = {
-                        paused = !paused
-                        controller.player.playWhenReady = !paused
-                        interaction++
-                    },
+                    onTogglePause = { setPlaybackIntent(paused) },
                     onForward = {
                         seekTenSeconds(SeekDirection.FORWARD)
                     },
