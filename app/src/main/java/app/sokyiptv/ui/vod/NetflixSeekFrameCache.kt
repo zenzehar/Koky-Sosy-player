@@ -121,7 +121,7 @@ internal object NetflixSeekFrameCapture {
         if (surface is SurfaceView && Build.VERSION.SDK_INT < Build.VERSION_CODES.N)
             return null
         val bitmap = Bitmap.createBitmap(208, 117, Bitmap.Config.ARGB_8888)
-        val success = try {
+        val copyResult: Boolean? = try {
             withTimeoutOrNull(850L) {
                 when (surface) {
                     is TextureView -> surface.getBitmap(bitmap) != null
@@ -145,12 +145,12 @@ internal object NetflixSeekFrameCapture {
                     }
                     else -> false
                 }
-            } == true
+            }
         } catch (_: Exception) { false }
-        if (!success) {
-            // SurfaceView requests that time out are recycled in their callback.
-            // TextureView is synchronous and safe to recycle immediately.
-            if (surface is TextureView) bitmap.recycle()
+        if (copyResult != true) {
+            // Timed-out SurfaceView output is recycled in its later callback.
+            // Completed failure and all TextureView failures can be recycled now.
+            if (copyResult == false || surface is TextureView) bitmap.recycle()
             return null
         }
         // Black/secure surfaces do not give a meaningful visual scene preview.
