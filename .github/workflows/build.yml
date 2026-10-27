@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.66-manual-marker-input-and-timelines' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.67-two-point-skip-logic' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.66-manual-marker-input-and-timelines'
+      github.head_ref == 'fix/v0.1.11.67-two-point-skip-logic'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.66.apk
-          gh release create v0.1.11.66-manual-marker-input-and-timelines \
-            "apk/Soky_IPTV_Pro_v0.1.11.66.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.67.apk
+          gh release create v0.1.11.67-two-point-skip-logic \
+            "apk/Soky_IPTV_Pro_v0.1.11.67.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.66 Manual Markers and Timeline Overlays" \
-            --notes "v0.1.11.66 EXPERIMENTAL Fixes manual intro/credits marker dialog closing when releasing the same long-held OK key: it now opens only after the long key-up has been consumed, while short taps continue normally. Both Netflix-like and original cinematic player overlays now expose a paused Mark skips button for remotes with nonstandard long-press behavior. Intro (teal) and credits (amber) regions and start/end markers are painted on seekbars in VLC and Media3, for current and every later episode in the same source/series. Incomplete markers draw ticks only; cleared markers disappear. Keeps v65 Netflix trickplay thumbnail and timecode, no second stream or decoder, original player engine, audio/subtitle focus fix, protected v59 gold. Regression tests cover long-hold release and timeline range normalization. Not gold pending TV acceptance." --prerelease
+            --title "Soky IPTV Pro v0.1.11.67 Two-Point Series Skips" \
+            --notes "v0.1.11.67 EXPERIMENTAL Simplifies manual skips to exactly two per-series marks: Intro END and Credits/Outro START. Skip Intro appears immediately in the first 10 seconds of an episode and seeks directly to its saved end mark, never backwards. Once playback reaches Credits/Outro START, Skip Credits / Next Episode (or Back to Title at series end) appears, distinctly labelled from Skip Intro. Netflix credits overlay keeps Watch Credits as a separate action. Removes redundant intro start and credits end options. Existing v64-v66 user marks are migrated locally, retaining old intro-end and credits-start times. Timeline highlights extend from video start to intro end and credits start to end. Both Netflix-like and original player styles; both VLC and Media3. Gold v59 untouched. Regression tests cover exact 10-second window, credits onset and series-wide timelines." --prerelease
