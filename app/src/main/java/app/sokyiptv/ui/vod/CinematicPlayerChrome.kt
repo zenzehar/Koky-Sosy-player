@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -211,6 +212,7 @@ internal fun CinematicTransport(
     onTogglePause: () -> Unit,
     onForward: () -> Unit,
     onNext: () -> Unit,
+    onMarkers: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     pauseRequester: FocusRequester? = null,
 ) {
@@ -234,6 +236,11 @@ internal fun CinematicTransport(
         if (isEpisode) {
             CinematicControl(Icons.Filled.SkipNext, "Next episode",
                 enabled = nextEnabled, onClick = onNext)
+        }
+        // Accessible fallback when a particular remote cannot report held OK.
+        if (isEpisode && paused && onMarkers != null) {
+            CinematicControl(Icons.Filled.BookmarkAdd,
+                "Mark intro and credits", onClick = onMarkers)
         }
     }
 }
