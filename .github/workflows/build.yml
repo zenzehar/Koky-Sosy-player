@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.69-seek-frame-buffer-button-default' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.70-playback-resume-skip-highlight-preview' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.69-seek-frame-buffer-button-default'
+      github.head_ref == 'fix/v0.1.11.70-playback-resume-skip-highlight-preview'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.69.apk
-          gh release create v0.1.11.69-seek-frame-buffer-button-default \
-            "apk/Soky_IPTV_Pro_v0.1.11.69.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.70.apk
+          gh release create v0.1.11.70-playback-resume-skip-highlight-preview \
+            "apk/Soky_IPTV_Pro_v0.1.11.70.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.69 Seek Frames and Loading Play Button" \
-            --notes "v0.1.11.69 EXPERIMENTAL: Netflix-like is the default UI style for fresh installs, preserving users explicitly saved selection. Seeking thumbnails now capture approximately every 1.65 seconds of active VLC or Media3 video rather than every 5.5 seconds, keep up to 120 small frames (about 12MB), retry transient PixelCopy failures rather than permanently disabling capture, and show genuine nearby cached frames clearly labelled with their actual timestamps. Previously unseen footage still cannot have exact thumbnail without a separate decoder or provider storyboard; neither extra IPTV requests nor decoders are introduced. Buffering now morphs the Play/Pause icon itself into a filling ring with actual reported percentage (or indeterminate spinner) in Netflix-like and original player styles; when controls fade, only the compact loading face remains centered. Removes separate large buffering card. Underlying VLC/Media3 seek/playback engines and series intro/credits markers unchanged. Protected v0.1.11.59 gold untouched; real TV verification needed." --prerelease
+            --title "Soky IPTV Pro v0.1.11.70 Resume Reliability and Skip Focus" \
+            --notes "v0.1.11.70 EXPERIMENTAL. Fix missed Play/Pause resume: VLC no longer trusts the UI paused flag as proof the native decoder plays, and allows one bounded resume reassertion when an actual resume fails without network buffering; Media3 remote, Netflix and cinematic Play/Pause now share explicit player.play()/pause() intent and prepare an idle player without reloading an actively buffering stream. Original-style loading progress uses native VLC buffering events and detects a stalled/non-advancing playback clock, showing real percentage or indeterminate status. Netflix-like thumbnails now prioritize one actual decoded frame ~620ms after a completed seek, serialize PixelCopy requests, recycle late-timeout bitmap callbacks safely, and cap frame cache at 72 frames (~7 MiB) for Fire TV stability. Skip intro and Next episode prompts auto-emphasize, receive keyboard focus, and get a vivid red focus outline; Watch Credits remains navigable. Netflix-like stays default for fresh installs, series markers and gold v59 unchanged. CI tests and real TV acceptance required." --prerelease
