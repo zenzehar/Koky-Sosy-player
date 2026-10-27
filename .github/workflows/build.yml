@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.67-two-point-skip-logic' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.68-skip-focus-buffer-visual' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.67-two-point-skip-logic'
+      github.head_ref == 'fix/v0.1.11.68-skip-focus-buffer-visual'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.67.apk
-          gh release create v0.1.11.67-two-point-skip-logic \
-            "apk/Soky_IPTV_Pro_v0.1.11.67.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.68.apk
+          gh release create v0.1.11.68-skip-focus-buffer-visual \
+            "apk/Soky_IPTV_Pro_v0.1.11.68.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.67 Two-Point Series Skips" \
-            --notes "v0.1.11.67 EXPERIMENTAL Simplifies manual skips to exactly two per-series marks: Intro END and Credits/Outro START. Skip Intro appears immediately in the first 10 seconds of an episode and seeks directly to its saved end mark, never backwards. Once playback reaches Credits/Outro START, Skip Credits / Next Episode (or Back to Title at series end) appears, distinctly labelled from Skip Intro. Netflix credits overlay keeps Watch Credits as a separate action. Removes redundant intro start and credits end options. Existing v64-v66 user marks are migrated locally, retaining old intro-end and credits-start times. Timeline highlights extend from video start to intro end and credits start to end. Both Netflix-like and original player styles; both VLC and Media3. Gold v59 untouched. Regression tests cover exact 10-second window, credits onset and series-wide timelines." --prerelease
+            --title "Soky IPTV Pro v0.1.11.68 Skip Focus and Buffering" \
+            --notes "v0.1.11.68 EXPERIMENTAL follow-up to v67. Playback action labels are Skip intro and Next episode, with Back to title on a final episode. Marker menu now uses Skip intro marker and Skip end credits marker names, keeping exactly two saved points. Focus handling updated for VLC and Media3 so that active skip prompts take priority over hidden/visible transport navigation; TV OK action on root fallback activates the visible skip button; Netflix-style credits panel has deterministic left/right navigation between Watch Credits and Next episode. Shared centered ring visual fills from real VLC buffering event percent or real Media3 percentage of video buffered, with clear labels, indeterminate if unknown. Both Netflix-like and original themes; no extra streams/decoders, no player timing changes, preserved gold v59. Hardware validation still required." --prerelease
