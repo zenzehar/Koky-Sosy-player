@@ -1083,7 +1083,7 @@ fun VodPlayerScreen(
         }
         if (skipIntroPromptVisible) {
             NetflixSkipPrompt(
-                label = "Skip Intro",
+                label = "Skip intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
@@ -1107,7 +1107,7 @@ fun VodPlayerScreen(
             } else {
                 NetflixSkipPrompt(
                     label = if (mediaKey.startsWith("ep:") && followingEpisode != null)
-                        "Next Episode" else "Back to Title",
+                        "Next episode" else "Back to title",
                     modifier = Modifier.align(Alignment.BottomEnd)
                         .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                     focusRequester = skipPromptFocus,
