@@ -3,40 +3,41 @@ package app.sokyiptv.player
 import android.content.Context
 import java.security.MessageDigest
 
-/** Explicit episode-time markers, persisted per provider and series, never auto-generated. */
-enum class SkipMark { INTRO_START, INTRO_END, CREDITS_START, CREDITS_END }
+/** Exactly two user-defined timestamps per provider/series; no inferred segments. */
+enum class SkipMark { INTRO_END, CREDITS_START }
 
 data class ManualSeriesSkips(
-    val introStartMs: Long = -1L,
+    /** Target of Skip Intro, presented only in the first 10 seconds. */
     val introEndMs: Long = -1L,
+    /** When to offer Skip Credits / Next Episode until playback ends. */
     val creditsStartMs: Long = -1L,
-    val creditsEndMs: Long = -1L,
 ) {
-    fun introValid() = introStartMs >= 0L && introEndMs > introStartMs + 999L
-    fun creditsValid() = creditsStartMs >= 0L && creditsEndMs > creditsStartMs + 999L
+    fun introValid() = introEndMs > 0L
+    fun creditsValid() = creditsStartMs >= 0L
+
+    /** Show immediately at video start for at most ten seconds, never seek backwards. */
     fun showIntro(nowMs: Long) =
-        introValid() && nowMs >= introStartMs && nowMs < introEndMs - 2_000L
-    fun showCredits(nowMs: Long) =
-        creditsValid() && nowMs >= creditsStartMs && nowMs < creditsEndMs
+        introValid() && nowMs >= 0L && nowMs < INTRO_PROMPT_MS && nowMs < introEndMs
+
+    /** Credits/outro is a single onset point, not a start/end interval. */
+    fun showCredits(nowMs: Long) = creditsValid() && nowMs >= creditsStartMs
+
     fun mark(mark: SkipMark, atMs: Long): ManualSeriesSkips {
         val at = atMs.coerceAtLeast(0L)
         return when (mark) {
-            SkipMark.INTRO_START -> copy(introStartMs = at)
             SkipMark.INTRO_END -> copy(introEndMs = at)
             SkipMark.CREDITS_START -> copy(creditsStartMs = at)
-            SkipMark.CREDITS_END -> copy(creditsEndMs = at)
         }
     }
-    fun clearIntro() = copy(introStartMs = -1L, introEndMs = -1L)
-    fun clearCredits() = copy(creditsStartMs = -1L, creditsEndMs = -1L)
-    fun display(): String = "Intro: " + range(introStartMs, introEndMs) +
-        " | Credits: " + range(creditsStartMs, creditsEndMs)
-    private fun range(a: Long, b: Long): String {
-        if (a < 0L && b < 0L) return "not set"
-        return clock(a) + " – " + clock(b) +
-            if (a >= 0L && b > a + 999L) "" else " (incomplete)"
-    }
+
+    fun clearIntro() = copy(introEndMs = -1L)
+    fun clearCredits() = copy(creditsStartMs = -1L)
+
+    fun display(): String =
+        "Intro ends: " + clock(introEndMs) + " | Credits/outro starts: " + clock(creditsStartMs)
+
     companion object {
+        const val INTRO_PROMPT_MS = 10_000L
         fun clock(ms: Long): String {
             if (ms < 0L) return "unset"
             val seconds = ms / 1000L
@@ -47,7 +48,12 @@ data class ManualSeriesSkips(
     }
 }
 
-/** User-entered markers only. The raw title, provider URL and credentials are never stored. */
+/**
+ * Single storage namespace, preserving existing v64-v66 series markers:
+ * the previous 4-item record was [intro start, intro end, credits start, credits end].
+ * Old intro end + credits start are retained; unused start/end are discarded.
+ * New records store ONLY the two meaningful timestamps.
+ */
 class ManualSeriesSkipStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(
         "soky_series_user_markers_v1", Context.MODE_PRIVATE
@@ -59,17 +65,19 @@ class ManualSeriesSkipStore(context: Context) {
     }
     fun read(series: String?): ManualSeriesSkips {
         if (series.isNullOrBlank()) return ManualSeriesSkips()
-        val value = prefs.getString(key(series), null)?.split(",")
+        val parts = prefs.getString(key(series), null)?.split(",")
             ?: return ManualSeriesSkips()
-        if (value.size != 4) return ManualSeriesSkips()
-        val values = value.map { it.toLongOrNull() ?: return ManualSeriesSkips() }
-        return ManualSeriesSkips(values[0], values[1], values[2], values[3])
+        val values = parts.map { it.toLongOrNull() ?: return ManualSeriesSkips() }
+        return when (values.size) {
+            2 -> ManualSeriesSkips(values[0], values[1])
+            4 -> ManualSeriesSkips(values[1], values[2])
+            else -> ManualSeriesSkips()
+        }
     }
     fun write(series: String?, marks: ManualSeriesSkips) {
         if (series.isNullOrBlank()) return
         prefs.edit().putString(key(series), listOf(
-            marks.introStartMs, marks.introEndMs,
-            marks.creditsStartMs, marks.creditsEndMs
+            marks.introEndMs, marks.creditsStartMs
         ).joinToString(",")).apply()
     }
 }
