@@ -147,6 +147,8 @@ fun VlcFallbackScreen(
     var failed by remember(streamUrl) { mutableStateOf(false) }
     var ended by remember(streamUrl) { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
+    var resumeRequestedAtMs by remember(streamUrl) { mutableLongStateOf(0L) }
+    var resumeRetryCount by remember(streamUrl) { mutableIntStateOf(0) }
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
@@ -185,14 +187,23 @@ fun VlcFallbackScreen(
     }
     fun setPlayback(shouldPlay: Boolean) {
         if (leaving.get() || nativeReleased.get()) return
-        // The user intent is authoritative during delayed/out-of-order native events.
-        // Setting the state immediately avoids a stale Playing callback undoing Pause.
-        if (paused == !shouldPlay) {
-            showControls()
-            return
-        }
+        val wasPaused = paused
+        // Never treat the UI state as proof of native playback: some TV devices
+        // reject/reschedule a resume while the UI already says "playing".
         paused = !shouldPlay
-        if (shouldPlay) player.play() else player.pause()
+        if (shouldPlay) {
+            if (wasPaused || !runCatching { player.isPlaying }.getOrDefault(false)) {
+                resumeRequestedAtMs = android.os.SystemClock.elapsedRealtime()
+                resumeRetryCount = 0
+                runCatching { player.play() }
+            }
+        } else {
+            resumeRequestedAtMs = 0L
+            resumeRetryCount = 0
+            if (!wasPaused || runCatching { player.isPlaying }.getOrDefault(false)) {
+                runCatching { player.pause() }
+            }
+        }
         showControls()
     }
     fun togglePlayback() = setPlayback(paused)
@@ -349,6 +360,21 @@ fun VlcFallbackScreen(
                 val nativePlaying = player.isPlaying
                 val health = diagHealth.sample(tick, nativeClockMs, nativePlaying, paused)
                 healthSnapshot = health
+                if (paused || nativePlaying && clockAdvancing) {
+                    resumeRequestedAtMs = 0L
+                } else if (resumeRequestedAtMs > 0L &&
+                    resumeRetryCount < 1 &&
+                    tick - resumeRequestedAtMs >= 2_500L &&
+                    ready && !failed && !ended && !suspendPlayback &&
+                    !diagHealth.networkBuffering && !initialSeekPending &&
+                    (!nativePlaying || health.state == VlcPlaybackHealth.State.STALLED)) {
+                    // ONE bounded reassertion of the requested Play state;
+                    // never restart the media, reopen the IPTV URL or spin retries.
+                    resumeRetryCount++
+                    resumeRequestedAtMs = tick
+                    runCatching { player.play() }
+                    PlaybackDiagnostics.event(context, "VLC_RESUME_REASSERT")
+                }
                 nativePlaybackActive = ready && nativePlaying && clockAdvancing &&
                     !paused && !suspendPlayback && !diagHealth.networkBuffering &&
                     health.state == VlcPlaybackHealth.State.PLAYING
@@ -457,9 +483,18 @@ fun VlcFallbackScreen(
     val skipCreditsPromptVisible = !ended && ready && !paused && !failed &&
         showEpisodeControls && !creditsDismissed && manualSkips.showCredits(positionMs)
     val playButtonBuffering = !paused && !ended && !failed &&
-        (!ready || healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING)
-    val playButtonBufferPercent = if (!ready) bufferEventPercent.takeIf { it in 0..100 }
-        else healthSnapshot.bufferPercent.takeIf { it in 0..100 }
+        (!ready || healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING ||
+            healthSnapshot.state == VlcPlaybackHealth.State.STALLED ||
+            (ready && !nativePlaybackActive && !scrubbing && !netflixSeeking))
+    // For the original theme too: show native VLC input-buffer progress
+    // during a genuine buffering event; 100% but no advancing video means
+    // stalled decoding, so use an indeterminate ring rather than a false 100%.
+    val nativeInputPercent = if (!ready) bufferEventPercent
+        else healthSnapshot.bufferPercent
+    val playButtonBufferPercent = nativeInputPercent.takeIf {
+        it in 0..99 || it == 100 &&
+            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING
+    }
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
     fun activateSkipPrompt() {
