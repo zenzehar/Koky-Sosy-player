@@ -27,56 +27,90 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
- * Bounded TV memory: 72 * 208 * 117 * 4 bytes, ~7 MB uncompressed. Each
- * preview corresponds to a *previously displayed* moment of the current title.
- * Unknown/non-seeked positions must not reuse the wrong scene image.
+ * Bounded TV memory: (48 playback + 24 proactively extracted) compact bitmaps,\n * ~7 MB uncompressed. Exact played frames and approximate storyboard\n * frames are stored separately so natural playback doesn't evict a storyboard.
  */
 internal class NetflixSeekFrameCache {
-    private val frames = LinkedHashMap<Long, Bitmap>(80, .75f, true)
-    private val capacity = 72
+    // A strict ~7 MiB budget: 48 recent played frames + 24 future storyboard frames.
+    // Prefetched frames survive playback without being evicted by the 1.65s sampler.
+    private val liveFrames = LinkedHashMap<Long, Bitmap>(50, .75f, true)
+    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(26, .75f, true)
+    private val liveCapacity = 48
+    private val storyboardCapacity = 24
+    private var storyboardDurationMs = 0L
+
     data class CapturedFrame(
         val timestampMs: Long,
         val image: ImageBitmap,
-        /** Accurate only for already-played frames within a few seconds. */
         val accurate: Boolean,
     )
+
     var revision by mutableIntStateOf(0)
         private set
 
     fun nearestFrame(positionMs: Long): CapturedFrame? {
-        // Compose tracks changes via revision, while bitmaps remain out of snapshots.
         @Suppress("UNUSED_VARIABLE") val observedRevision = revision
-        val match = frames.entries.minByOrNull { abs(it.key - positionMs) } ?: return null
-        // A labelled nearby historical frame is better than a permanently empty
-        // card, but never attribute a distant scene to the selected position.
-        if (abs(match.key - positionMs) > 12_000L) return null
-        return CapturedFrame(match.key, match.value.asImageBitmap(),
-            NetflixSeekPreviewPolicy.frameMatches(match.key, positionMs))
+        val live = liveFrames.entries.minByOrNull { abs(it.key - positionMs) }
+        val proactive = storyboardFrames.entries.minByOrNull { abs(it.key - positionMs) }
+        val nearest = when {
+            live == null -> proactive
+            proactive == null -> live
+            abs(live.key - positionMs) <= abs(proactive.key - positionMs) -> live
+            else -> proactive
+        } ?: return null
+        val distance = abs(nearest.key - positionMs)
+        // Only the sparse storyboard can cover unseen portions. The UI explicitly
+        // labels a non-exact cached scene with its actual timestamp.
+        val tolerance = if (storyboardFrames.containsKey(nearest.key))
+            ProactivePreviewPolicy.maxApproximateDistanceMs(storyboardDurationMs)
+        else 12_000L
+        if (distance > tolerance) return null
+        return CapturedFrame(nearest.key, nearest.value.asImageBitmap(),
+            NetflixSeekPreviewPolicy.frameMatches(nearest.key, positionMs))
     }
 
     fun thumbnail(positionMs: Long): ImageBitmap? =
         nearestFrame(positionMs)?.takeIf { it.accurate }?.image
 
+    fun hasFrameNear(targetMs: Long, toleranceMs: Long): Boolean =
+        liveFrames.keys.any { abs(it - targetMs) <= toleranceMs } ||
+            storyboardFrames.keys.any { abs(it - targetMs) <= toleranceMs }
+
     fun store(positionMs: Long, image: Bitmap) {
-        // Sample roughly every 1.5 s while decoding so ordinary short seeks
-        // and revisiting watched portions have reliable, genuine thumbnails.
-        if (positionMs < 0L || frames.keys.any { abs(it - positionMs) < 1_250L }) {
+        put(liveFrames, liveCapacity, positionMs, image, 1_250L)
+    }
+
+    fun storePrefetched(positionMs: Long, durationMs: Long, image: Bitmap) {
+        storyboardDurationMs = durationMs
+        put(storyboardFrames, storyboardCapacity, positionMs, image, 4_000L)
+    }
+
+    private fun put(
+        destination: LinkedHashMap<Long, Bitmap>,
+        capacity: Int,
+        positionMs: Long,
+        image: Bitmap,
+        spacingMs: Long,
+    ) {
+        if (positionMs < 0L || hasFrameNear(positionMs, spacingMs)) {
             image.recycle()
             return
         }
-        frames[positionMs] = image
-        while (frames.size > capacity) {
-            val oldest = frames.entries.iterator().next()
-            frames.remove(oldest.key)
+        destination[positionMs] = image
+        while (destination.size > capacity) {
+            val iterator = destination.entries.iterator()
+            val oldest = iterator.next()
+            iterator.remove()
             oldest.value.recycle()
         }
         revision++
     }
 
     fun clear() {
-        // Normally disposed with the player; avoid holding stale title frames.
-        frames.values.forEach { it.recycle() }
-        frames.clear()
+        liveFrames.values.forEach { it.recycle() }
+        storyboardFrames.values.forEach { it.recycle() }
+        liveFrames.clear()
+        storyboardFrames.clear()
+        storyboardDurationMs = 0L
         revision++
     }
 }
