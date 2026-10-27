@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.68-skip-focus-buffer-visual' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.69-seek-frame-buffer-button-default' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.68-skip-focus-buffer-visual'
+      github.head_ref == 'fix/v0.1.11.69-seek-frame-buffer-button-default'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.68.apk
-          gh release create v0.1.11.68-skip-focus-buffer-visual \
-            "apk/Soky_IPTV_Pro_v0.1.11.68.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.69.apk
+          gh release create v0.1.11.69-seek-frame-buffer-button-default \
+            "apk/Soky_IPTV_Pro_v0.1.11.69.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.68 Skip Focus and Buffering" \
-            --notes "v0.1.11.68 EXPERIMENTAL follow-up to v67. Playback action labels are Skip intro and Next episode, with Back to title on a final episode. Marker menu now uses Skip intro marker and Skip end credits marker names, keeping exactly two saved points. Focus handling updated for VLC and Media3 so that active skip prompts take priority over hidden/visible transport navigation; TV OK action on root fallback activates the visible skip button; Netflix-style credits panel has deterministic left/right navigation between Watch Credits and Next episode. Shared centered ring visual fills from real VLC buffering event percent or real Media3 percentage of video buffered, with clear labels, indeterminate if unknown. Both Netflix-like and original themes; no extra streams/decoders, no player timing changes, preserved gold v59. Hardware validation still required." --prerelease
+            --title "Soky IPTV Pro v0.1.11.69 Seek Frames and Loading Play Button" \
+            --notes "v0.1.11.69 EXPERIMENTAL: Netflix-like is the default UI style for fresh installs, preserving users explicitly saved selection. Seeking thumbnails now capture approximately every 1.65 seconds of active VLC or Media3 video rather than every 5.5 seconds, keep up to 120 small frames (about 12MB), retry transient PixelCopy failures rather than permanently disabling capture, and show genuine nearby cached frames clearly labelled with their actual timestamps. Previously unseen footage still cannot have exact thumbnail without a separate decoder or provider storyboard; neither extra IPTV requests nor decoders are introduced. Buffering now morphs the Play/Pause icon itself into a filling ring with actual reported percentage (or indeterminate spinner) in Netflix-like and original player styles; when controls fade, only the compact loading face remains centered. Removes separate large buffering card. Underlying VLC/Media3 seek/playback engines and series intro/credits markers unchanged. Protected v0.1.11.59 gold untouched; real TV verification needed." --prerelease
