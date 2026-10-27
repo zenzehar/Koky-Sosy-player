@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.59-duration-persistence-ts-mkv-scan' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.66-manual-marker-input-and-timelines' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.59-duration-persistence-ts-mkv-scan'
+      github.head_ref == 'fix/v0.1.11.66-manual-marker-input-and-timelines'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.59.apk
-          gh release create v0.1.11.59-duration-persistence-ts-mkv-scan \
-            "apk/Soky_IPTV_Pro_v0.1.11.59.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.66.apk
+          gh release create v0.1.11.66-manual-marker-input-and-timelines \
+            "apk/Soky_IPTV_Pro_v0.1.11.66.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.59 Duration Persistence and Scan" \
-            --notes "v0.1.11.59 EXPERIMENTAL TV TEST BUILD. Based on v58 (gold v54 unchanged). Fix two reported bugs: formerly only episodes already played displayed duration and Reset Progress erased those durations. Actual automatic inspection now supports MP4/HLS plus bounded MKV Info/Duration and finite seekable MPEG-TS PCR endpoint estimation. Each episode checked sequentially (4-second gaps); never start another player/decoder, never read more than 256KiB per request, cancel when actual VOD playback starts; visible status shows progress/found/unsupported. Exact verified MP4/MKV/HLS metadata updates only its own episode database row; approximate PCR runtimes and observed native playback lengths are kept in separate persistent small device-local provider-episode keyed hints that survive Reset Progress. Watch-history position, Cloud sync pause and player/seek behavior unchanged. Unsupported HTTP range or absent metadata leave duration unavailable, no guessed sibling duration. New unit tests for Matroska, MPEG-TS, stable reset-independent local hints and previous parsers. CI passing does not guarantee provider compatibility or playback stability. Debug-signed prerelease; do not merge to golden without real Android TV/Fire TV testing." --prerelease
+            --title "Soky IPTV Pro v0.1.11.66 Manual Markers and Timeline Overlays" \
+            --notes "v0.1.11.66 EXPERIMENTAL Fixes manual intro/credits marker dialog closing when releasing the same long-held OK key: it now opens only after the long key-up has been consumed, while short taps continue normally. Both Netflix-like and original cinematic player overlays now expose a paused Mark skips button for remotes with nonstandard long-press behavior. Intro (teal) and credits (amber) regions and start/end markers are painted on seekbars in VLC and Media3, for current and every later episode in the same source/series. Incomplete markers draw ticks only; cleared markers disappear. Keeps v65 Netflix trickplay thumbnail and timecode, no second stream or decoder, original player engine, audio/subtitle focus fix, protected v59 gold. Regression tests cover long-hold release and timeline range normalization. Not gold pending TV acceptance." --prerelease
