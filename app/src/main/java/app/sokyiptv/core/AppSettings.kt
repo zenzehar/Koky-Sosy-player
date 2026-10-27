@@ -144,8 +144,9 @@ class AppSettings private constructor(context: Context) {
     enum class PlayerUiStyle { CURRENT, NETFLIX_LIKE }
 
     private val _playerUiStyle = MutableStateFlow(
-        runCatching { PlayerUiStyle.valueOf(prefs.getString("player_ui_style", "CURRENT") ?: "CURRENT") }
-            .getOrDefault(PlayerUiStyle.CURRENT)
+        runCatching { PlayerUiStyle.valueOf(
+            prefs.getString("player_ui_style", "NETFLIX_LIKE") ?: "NETFLIX_LIKE"
+        ) }.getOrDefault(PlayerUiStyle.NETFLIX_LIKE)
     )
     val playerUiStyle: StateFlow<PlayerUiStyle> = _playerUiStyle.asStateFlow()
     fun setPlayerUiStyle(style: PlayerUiStyle) {
