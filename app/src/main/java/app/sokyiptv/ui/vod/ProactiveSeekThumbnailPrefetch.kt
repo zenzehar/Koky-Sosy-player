@@ -72,13 +72,19 @@ internal object ProactiveFrameExtractor {
             var shots = 0
             var cursor = 0
             var lastPreviewTarget = -1L
+            var consecutiveUnhealthyTicks = 0
 
             while (coroutineContext.isActive && shots < 24 && failures < 3 &&
                 slowFrames < 2 && cursor < targets.size) {
                 if (!canWork()) {
+                    // If the primary video starts buffering, release the
+                    // metadata connection within ~4.5s instead of occupying
+                    // a provider session while the main player is starving.
+                    if (++consecutiveUnhealthyTicks >= 5) break
                     delay(900L)
                     continue
                 }
+                consecutiveUnhealthyTicks = 0
 
                 // Real-time seek-preview requests take precedence over the
                 // scheduled evenly spaced storyboard. Conflate rapid D-pad
