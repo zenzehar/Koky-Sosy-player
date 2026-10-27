@@ -521,6 +521,13 @@ private fun NText(
     Row(
         modifier.onFocusChanged { focused = it.isFocused }
             .background(if (light) Color.White else Color.Transparent, shape)
+            // The previously permanent white background gave no visual clue
+            // when OK would ACTUALLY activate the skip action.
+            .border(
+                if (focused) 3.dp else if (emphasized) 2.dp else 0.dp,
+                if (focused) netflixRed else if (emphasized) netflixWhite else Color.Transparent,
+                shape,
+            )
             .clickable { onActivity(); onClick() }
             .padding(horizontal = 13.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -566,6 +573,7 @@ internal fun NetflixCreditsPrompt(
     val fallbackFocus = remember { FocusRequester() }
     val actionFocus = focusRequester ?: fallbackFocus
     val watchFocus = remember { FocusRequester() }
+    var watchFocused by remember { mutableStateOf(false) }
     LaunchedEffect(nextAvailable, isEpisode, actionFocus) {
         withFrameNanos { }
         withFrameNanos { }
@@ -591,6 +599,7 @@ internal fun NetflixCreditsPrompt(
     ) {
         NText("Watch Credits", modifier = Modifier
             .focusRequester(watchFocus)
+            .onFocusChanged { watchFocused = it.isFocused }
             .background(Color(0xC2505050), RoundedCornerShape(4.dp)),
             onClick = onContinue)
         NText(
@@ -598,7 +607,7 @@ internal fun NetflixCreditsPrompt(
             icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
             modifier = Modifier.focusRequester(actionFocus)
                 .background(Color.White, RoundedCornerShape(4.dp)),
-            onClick = onSkip, emphasized = true,
+            onClick = onSkip, emphasized = !watchFocused,
         )
     }
 }
