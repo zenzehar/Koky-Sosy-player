@@ -451,13 +451,27 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
+    val skipIntroPromptVisible = !ended && ready && !paused && !failed &&
+        showEpisodeControls && manualSkips.showIntro(positionMs)
+    val skipCreditsPromptVisible = !ended && ready && !paused && !failed &&
+        showEpisodeControls && !creditsDismissed && manualSkips.showCredits(positionMs)
+    val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
+    val skipPromptFocus = remember { FocusRequester() }
+    fun activateSkipPrompt() {
+        if (skipIntroPromptVisible) seekTo(manualSkips.introEndMs)
+        else if (skipCreditsPromptVisible) {
+            if (nextEpisodeAvailable) onNextEpisodeClick() else leaveVideo()
+        }
+    }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
-    LaunchedEffect(controlsVisible, netflix) {
+    LaunchedEffect(controlsVisible, netflix, skipPromptVisible) {
         withFrameNanos { }
         withFrameNanos { }
         runCatching {
-            if (controlsVisible) {
+            if (skipPromptVisible) {
+                skipPromptFocus.requestFocus()
+            } else if (controlsVisible) {
                 if (focusSeekOnReveal) {
                     seekFocus.requestFocus()
                     focusLevel = CinematicFocusLevel.SEEK
@@ -512,7 +526,20 @@ fun VlcFallbackScreen(
                     // Consume the matching KeyUp as well to prevent duplicate actions.
                     true
                 } else if (event.type != KeyEventType.KeyDown) false
-                else if (controlsVisible && netflix) {
+                else if (skipPromptVisible && rootOwnsFocus &&
+                    event.key in setOf(Key.DirectionCenter, Key.Enter)) {
+                    if (event.nativeKeyEvent.repeatCount == 0) activateSkipPrompt()
+                    true
+                } else if (skipPromptVisible && rootOwnsFocus &&
+                    event.key in setOf(Key.DirectionLeft, Key.DirectionRight,
+                        Key.DirectionUp, Key.DirectionDown)) {
+                    runCatching { skipPromptFocus.requestFocus() }
+                    true
+                } else if (skipPromptVisible) {
+                    // The overlaid Skip Intro/Next Episode action owns D-pad focus.
+                    // Do not intercept Up/Down to move the invisible transport row.
+                    false
+                } else if (controlsVisible && netflix) {
                     // Explicit recovery if the full-screen player root retained focus
                     // after the Netflix controls were composed. Without this, Left
                     // accidentally becomes the only key that escapes a focus trap.
@@ -614,26 +641,6 @@ fun VlcFallbackScreen(
                 }
             },
         )
-        if (!ready && !failed && !ended) {
-            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                if (bufferEventPercent in 0..99) {
-                    Spacer(Modifier.height(10.dp))
-                    Text("Loading $bufferEventPercent%", color = Color.White)
-                }
-            }
-        }
-        // This is LibVLC's REPORTED input-buffer percentage, not a fabricated
-        // whole-file download percentage. Never reveal hidden transport controls.
-        if (ready && !paused && !ended && !failed &&
-            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING) {
-            Column(Modifier.align(Alignment.Center).padding(top = 190.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(Modifier.height(7.dp))
-                Text("Buffering ${healthSnapshot.bufferPercent}%", color = Color.White)
-            }
-        }
         if (failed) {
             Column(
                 Modifier.align(Alignment.Center).padding(28.dp),
@@ -871,19 +878,31 @@ fun VlcFallbackScreen(
             }
             }
         }
-        // No detection, no chapters, no guesses. Missing markers produce no UI.
-        val showIntro = !ended && ready && !paused && !failed &&
-            showEpisodeControls && manualSkips.showIntro(positionMs)
-        val showCredits = !ended && ready && !paused && !failed &&
-            showEpisodeControls && !creditsDismissed &&
-            manualSkips.showCredits(positionMs)
-        if (showIntro) {
+        // Centre-screen percentage fill, above either player's chrome.
+        // VLC supplies actual native input-buffer percent; missing data stays indeterminate.
+        if (!ready && !failed && !ended) {
+            PlayerBufferPercentOverlay(
+                percent = bufferEventPercent.takeIf { it in 0..100 },
+                label = "Loading", netflix = netflix,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        } else if (ready && !paused && !ended && !failed &&
+            healthSnapshot.state == VlcPlaybackHealth.State.BUFFERING) {
+            PlayerBufferPercentOverlay(
+                percent = healthSnapshot.bufferPercent.takeIf { it in 0..100 },
+                label = "Buffering", netflix = netflix,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
+        // Only explicit saved series marks can display these prompts.
+        if (skipIntroPromptVisible) {
             NetflixSkipPrompt(
                 label = "Skip Intro",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+                focusRequester = skipPromptFocus,
             ) { seekTo(manualSkips.introEndMs) }
-        } else if (showCredits && netflix) {
+        } else if (skipCreditsPromptVisible && netflix) {
             NetflixCreditsPrompt(
                 isEpisode = showEpisodeControls, nextAvailable = nextEpisodeAvailable,
                 onContinue = { creditsDismissed = true },
@@ -892,13 +911,15 @@ fun VlcFallbackScreen(
                     else leaveVideo()
                 },
                 modifier = Modifier.align(Alignment.Center),
+                focusRequester = skipPromptFocus,
             )
-        } else if (showCredits) {
+        } else if (skipCreditsPromptVisible) {
             NetflixSkipPrompt(
                 label = if (showEpisodeControls && nextEpisodeAvailable)
-                    "Skip Credits · Next Episode" else "Skip Credits · Back to Title",
+                    "Next Episode" else "Back to Title",
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
+                focusRequester = skipPromptFocus,
             ) {
                 if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
                 else leaveVideo()
