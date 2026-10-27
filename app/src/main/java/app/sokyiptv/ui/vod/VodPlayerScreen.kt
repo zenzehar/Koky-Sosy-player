@@ -27,6 +27,7 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
@@ -837,7 +839,12 @@ fun VodPlayerScreen(
                     NetflixLikePlayerChrome(
                         title = title, isEpisode = mediaKey.startsWith("ep:"),
                         positionMs = positionMs, durationMs = durationMs, paused = paused,
-                        nextAvailable = followingEpisode != null, playFocus = barFocus,
+                        nextAvailable = followingEpisode != null,
+                        manualSkips = manualSkips,
+                        markersEnabled = paused && !seriesGroup.isNullOrBlank() &&
+                            mediaKey.startsWith("ep:"),
+                        onMarkers = { markerDialogVisible = true; reveal() },
+                        playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
                         thumbnailAt = seekFrames::thumbnail,
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
@@ -930,6 +937,7 @@ fun VodPlayerScreen(
                 ) {
                     Text(formatDuration(if (scrubbing) scrubValue.toLong() else positionMs), color = Color.White)
                     Spacer(Modifier.width(12.dp))
+                    Box(Modifier.weight(1f)) {
                     Slider(
                         value = (if (scrubbing) scrubValue else positionMs.toFloat())
                             .coerceIn(0f, timelineScale.maximumMs.toFloat()),
@@ -949,7 +957,7 @@ fun VodPlayerScreen(
                             activeTrackColor = CinemaBlue,
                             inactiveTrackColor = CinemaTrack,
                         ),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxWidth()
                             // Override the Slider's fraction-based TV arrow handling.
                             // Pointer dragging remains continuous, but remote arrows seek
                             // exactly 10,000 milliseconds per press, not a % of duration.
@@ -970,6 +978,20 @@ fun VodPlayerScreen(
                                 if (it.isFocused) focusLevel = CinematicFocusLevel.SEEK
                             },
                     )
+                    // Extra overlay stripe leaves Material3's existing Slider
+                    // gestures, visual thumb and focus handling completely intact.
+                    // It displays explicit shared series boundaries below the track.
+                    if (mediaKey.startsWith("ep:")) {
+                        Canvas(Modifier.matchParentSize()) {
+                            val x1 = 11.dp.toPx()
+                            val x2 = size.width - x1
+                            drawManualTimelineBands(
+                                manualSkips, timelineScale.maximumMs,
+                                x1, x2, size.height / 2f + 10.dp.toPx(), 5.dp.toPx()
+                            )
+                        }
+                    }
+                    }
                     Spacer(Modifier.width(12.dp))
                     Text(if (timelineScale.approximate) "~" + formatDuration(timelineScale.maximumMs)
                          else formatDuration(durationMs), color = Color.White)
@@ -1000,6 +1022,10 @@ fun VodPlayerScreen(
                             scope.launch { savePosition(); onNextEpisode(target) }
                         }
                     },
+                    onMarkers = if (mediaKey.startsWith("ep:") &&
+                        !seriesGroup.isNullOrBlank()) {
+                        { markerDialogVisible = true; reveal() }
+                    } else null,
                     pauseRequester = barFocus,
                     modifier = Modifier.align(Alignment.BottomCenter)
                         .padding(bottom = 74.dp),
