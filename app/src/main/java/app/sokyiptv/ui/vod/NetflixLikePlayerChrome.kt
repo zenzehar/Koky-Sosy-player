@@ -605,8 +605,7 @@ internal fun NetflixCreditsPrompt(
         NText(
             if (isEpisode && nextAvailable) "Next episode" else "Back to title",
             icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
-            modifier = Modifier.focusRequester(actionFocus)
-                .background(Color.White, RoundedCornerShape(4.dp)),
+            modifier = Modifier.focusRequester(actionFocus),
             onClick = onSkip, emphasized = !watchFocused,
         )
     }
