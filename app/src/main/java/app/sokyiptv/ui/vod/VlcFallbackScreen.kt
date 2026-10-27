@@ -402,13 +402,14 @@ fun VlcFallbackScreen(
         if (!netflix || !ready) return@LaunchedEffect
         var failures = 0
         while (isActive && !leaving.get() && !nativeReleased.get()) {
-            delay(5_500L)
-            if (paused || !ready || failed || ended || !player.isPlaying ||
-                !nativePlaybackActive) continue
+            delay(1_650L)
+            if (paused || !ready || failed || ended || !player.isPlaying) continue
             val timestamp = player.time.coerceAtLeast(0L)
             val still = NetflixSeekFrameCapture.sample(layout)
             if (still == null) {
-                if (++failures >= 5) break // Unsupported/protected video surface.
+                // Surface creation/resize or PixelCopy may fail transiently;
+                // keep trying rather than permanently disabling seek previews.
+                failures++
                 continue
             }
             if (kotlin.math.abs(player.time - timestamp) <= 1_400L) {
@@ -667,7 +668,7 @@ fun VlcFallbackScreen(
                     onMarkers = { markerPanelVisible = true; showControls() },
                     playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
-                    thumbnailAt = seekFrames::thumbnail,
+                    frameAt = seekFrames::nearestFrame,
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },
                     onBack = ::leaveVideo, onToggle = ::togglePlayback,
