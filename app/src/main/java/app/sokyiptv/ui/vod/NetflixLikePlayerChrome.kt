@@ -112,6 +112,7 @@ internal fun NetflixLikePlayerChrome(
     skipPromptVisible: Boolean = false,
     skipPromptFocus: FocusRequester? = null,
     frameAt: (Long) -> NetflixSeekFrameCache.CapturedFrame? = { null },
+    predictiveTrickplay: Boolean = false,
     previewStatus: String = "Preparing thumbnails…",
     onPreviewRequested: (Long) -> Unit = {},
     onSeekingChanged: (Boolean) -> Unit = {},
@@ -312,6 +313,16 @@ internal fun NetflixLikePlayerChrome(
                         }
                     }
                     .onPreviewKeyEvent { event ->
+                        // OK/Enter on the timeline toggles Play/Pause. Do not
+                        // commit a seek or steal its D-pad focus.
+                        if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.nativeKeyEvent.repeatCount == 0) {
+                                onActivity()
+                                onToggle()
+                            }
+                            return@onPreviewKeyEvent true
+                        }
                         val direction = when (event.key) {
                             Key.DirectionLeft -> SeekDirection.BACKWARD
                             Key.DirectionRight -> SeekDirection.FORWARD
@@ -395,12 +406,15 @@ internal fun NetflixLikePlayerChrome(
             val travel = (maxWidth - 47.dp - 53.dp - 111.dp).coerceAtLeast(0.dp)
             val start = (58.dp + travel * fraction - bubbleWidth / 2f)
                 .coerceIn(8.dp, (maxWidth - bubbleWidth - 8.dp).coerceAtLeast(8.dp))
-            // IMPORTANT: never debounce here. During long D-pad holds previewAt
-            // changes every 65ms; v73's 260ms effect was cancelled every time,
-            // so extraction was never told which unseen scene to prepare.
-            // The metadata worker itself rate-limits expensive decode requests.
-            LaunchedEffect(previewAt) { onPreviewRequested(previewAt) }
-            val frame = frameAt(previewAt)
+            // Fast hold requests use a thinner contact-sheet cadence but
+            // never alter the actual playback seek target or time label.
+            val previewSampleMs = if (predictiveTrickplay && heldDirection != null) {
+                val heldMs = SystemClock.uptimeMillis() - seekHeldAtMs
+                val granularity = NetflixPreviewPolicy.displayGranularity(heldMs)
+                (previewAt / granularity) * granularity
+            } else previewAt
+            LaunchedEffect(previewSampleMs) { onPreviewRequested(previewSampleMs) }
+            val frame = frameAt(previewSampleMs)
             Column(
                 modifier = Modifier.align(Alignment.BottomStart)
                     .padding(start = start, bottom = timelineBottom + 47.dp)

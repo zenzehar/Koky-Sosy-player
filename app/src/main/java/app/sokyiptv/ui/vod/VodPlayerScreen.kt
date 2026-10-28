@@ -165,14 +165,19 @@ fun VodPlayerScreen(
     val settings = remember { graph.settings }
     val autoplay by settings.seriesAutoplay.collectAsState()
     val uiStyle by settings.playerUiStyle.collectAsState()
+    val thumbnailMode by settings.thumbnailSeekMode.collectAsState()
+    val predictiveTrickplay =
+        thumbnailMode == AppSettings.ThumbnailSeekMode.NETFLIX_LIKE
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    val predictiveFrames = remember(mediaKey) { NetflixSeekFrameCache() }
     val passiveDisk = remember(mediaKey, streamUrl) {
         SeekThumbnailDiskCache(context.applicationContext, streamUrl)
     }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
+    DisposableEffect(predictiveFrames) { onDispose { predictiveFrames.clear() } }
     var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
     val markerStore = remember(context) { ManualSeriesSkipStore(context) }
     var manualSkips by remember(mediaKey, seriesGroup) {
@@ -685,14 +690,21 @@ fun VodPlayerScreen(
     }
 
     // The active Media3 path only; VLC owns its own bounded storyboard cache.
+    val thumbnailsHealthy = !usingVlc && !awaitingSeekPlayback &&
+        (state is PlayerController.State.Playing ||
+            (paused && controller.player.playbackState == Player.STATE_READY))
     ProactiveSeekThumbnailPrefetch(
         streamUrl = streamUrl, userAgent = userAgent,
-        netflix = netflix && !usingVlc && !growingRec,
+        netflix = netflix && !usingVlc && !growingRec && !predictiveTrickplay,
         durationMs = durationMs, positionMs = positionMs,
-        playbackHealthy = !usingVlc && !awaitingSeekPlayback &&
-            (state is PlayerController.State.Playing ||
-                (paused && controller.player.playbackState == Player.STATE_READY)),
+        playbackHealthy = thumbnailsHealthy,
         requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
+    )
+    NetflixTrickplayPrefetch(
+        streamUrl = streamUrl, userAgent = userAgent,
+        enabled = netflix && !usingVlc && !growingRec && predictiveTrickplay,
+        durationMs = durationMs, playbackHealthy = thumbnailsHealthy,
+        requestedPreviewMs = requestedPreviewMs, cache = predictiveFrames,
     )
 
     // Buffer percentage is Media3's whole-video buffered fraction, not an
@@ -1059,8 +1071,15 @@ fun VodPlayerScreen(
                         playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
                         skipPromptVisible = skipPromptVisible, skipPromptFocus = skipPromptFocus,
-                        frameAt = seekFrames::nearestFrame,
-                        previewStatus = seekFrames.previewStatus,
+                        frameAt = { timestamp ->
+                            if (predictiveTrickplay)
+                                predictiveFrames.nearestFrame(timestamp)
+                                    ?: seekFrames.nearestFrame(timestamp)
+                            else seekFrames.nearestFrame(timestamp)
+                        },
+                        predictiveTrickplay = predictiveTrickplay,
+                        previewStatus = if (predictiveTrickplay)
+                            predictiveFrames.previewStatus else seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },

@@ -17,8 +17,14 @@ import kotlin.math.abs
  * This v78 folder is independent from the approved v76 cache folder. Its name
  * contains no provider URL or credentials, only a SHA256-derived identifier.
  */
-internal class SeekThumbnailDiskCache(context: Context, streamUrl: String) {
-    private val root = File(context.applicationContext.cacheDir, "soky_trickplay_v78")
+internal class SeekThumbnailDiskCache(
+    context: Context,
+    streamUrl: String,
+    namespace: String = "soky_trickplay_v78",
+) {
+    // Mode-specific folders protect the existing v78 cache and allow quick
+    // switching in Settings without reusing an incompatible preview strategy.
+    private val root = File(context.applicationContext.cacheDir, namespace)
     private val identifier = MessageDigest.getInstance("SHA-256")
         .digest(streamUrl.toByteArray(Charsets.UTF_8)).take(20)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }

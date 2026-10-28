@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.78-disk-first-whole-video' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'feat/v0.1.11.79-netflix-thumbnail-modes' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.78-disk-first-whole-video'
+      github.head_ref == 'feat/v0.1.11.79-netflix-thumbnail-modes'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.78.apk
-          gh release create v0.1.11.78-disk-first-whole-video \
-            "apk/Soky_IPTV_Pro_v0.1.11.78.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.79.apk
+          gh release create v0.1.11.79-netflix-thumbnail-modes \
+            "apk/Soky_IPTV_Pro_v0.1.11.79.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.78 Disk-first Whole-video Seek Previews" \
-            --notes "v0.1.11.78 EXPERIMENTAL, clean rebuild exclusively from approved v0.1.11.76 GOLD (NOT from the rejected v77). The rejected PR #105 was closed. A disk-first five-second thumbnail index with no per-video 96/192/2880 frame-count limit is prepared progressively across the entire VOD, starting when the video is opened independent of playback timestamp, pause or buffering. A single low-priority Android media metadata retriever discovers duration when possible, then traverses the timeline in whole-film coarse-to-fine order. Prepared scenes are compact JPEGs in a new separate app-private cache (256MiB overall disk limit, seven-day retention), while a 32-frame preview RAM LRU plus 24 played frames serves the UI. The stream playing decoder is NEVER sought or replaced for thumbnails. Scrubbing reads pre-cached JPEGs from disk immediately with a retry loop when a new scene arrives. Actual cached-disk count is shown, not RAM occupancy. Existing v76 playback, intro/credits, seek engine and Play/Pause visuals unchanged. IPTV sources that block independent random-access decoding cannot yield yet-unwatched scenes; indexing degrades gracefully without affecting playback. Do not promote without physical Android TV / Firestick testing." --prerelease
+            --title "Soky IPTV Pro v0.1.11.79 Netflix-like Thumbnail Preview Mode" \
+            --notes "v0.1.11.79 EXPERIMENTAL TV TEST from v78, v76 gold untouched. Settings > Playback now has two separately selectable thumbnail-seek strategies: the existing Current disk-cached thumbnails preserved, and a new Netflix-like thumbnail seek preview selected by default. New mode uses an isolated app-private disk cache, reuse of already-prepared current-cache JPEG previews, whole-video storyboard landmarks, progressive 60/20/10/5-second sampling passes, scrubbing-target and nearby-scene priority with obsolete requests conflated, and a bounded 32-frame RAM window. Live playback decoder, buffers, intro/credits and resume behaviour remain unchanged. During long D-pad holds, sampled preview granularity adapts from 5 to 10 to 20 seconds while exact seek targets remain unaffected; any full index requires provider support for random-access frame extraction. Provider-prepared image sprite tracks are preferable but not assumed to exist; this is a technical approximation of Netflix behavior, not their proprietary implementation. Remote OK/Enter with seekbar focused now toggles pause/resume without committing a new seek in both VLC and Media3. Debug-signed APK; verify actual TV/Firestick focus, seek, playback and cache performance before approving." --prerelease

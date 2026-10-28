@@ -154,6 +154,27 @@ class AppSettings private constructor(context: Context) {
         _playerUiStyle.value = style
     }
 
+    /**
+     * Thumbnail source strategy is independent of the visual player controls.
+     * The accepted v78 disk-cache method stays available for comparison.
+     * New and existing installs default to the Netflix-like predictive strategy.
+     */
+    enum class ThumbnailSeekMode { CURRENT_DISK, NETFLIX_LIKE }
+
+    private val _thumbnailSeekMode = MutableStateFlow(
+        runCatching {
+            ThumbnailSeekMode.valueOf(
+                prefs.getString("thumbnail_seek_mode", "NETFLIX_LIKE") ?: "NETFLIX_LIKE"
+            )
+        }.getOrDefault(ThumbnailSeekMode.NETFLIX_LIKE)
+    )
+    val thumbnailSeekMode: StateFlow<ThumbnailSeekMode> = _thumbnailSeekMode.asStateFlow()
+
+    fun setThumbnailSeekMode(mode: ThumbnailSeekMode) {
+        prefs.edit().putString("thumbnail_seek_mode", mode.name).apply()
+        _thumbnailSeekMode.value = mode
+    }
+
     private val _seriesAutoplay = MutableStateFlow(prefs.getBoolean("series_auto_next", true))
     val seriesAutoplay: StateFlow<Boolean> = _seriesAutoplay.asStateFlow()
     fun setSeriesAutoplay(enabled: Boolean) {

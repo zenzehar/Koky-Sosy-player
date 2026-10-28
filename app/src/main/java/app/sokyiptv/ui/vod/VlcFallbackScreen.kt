@@ -113,6 +113,9 @@ fun VlcFallbackScreen(
     val preferences = remember { AppSettings.get(context) }
     val autoplay by preferences.seriesAutoplay.collectAsState()
     val style by preferences.playerUiStyle.collectAsState()
+    val thumbnailMode by preferences.thumbnailSeekMode.collectAsState()
+    val predictiveTrickplay =
+        thumbnailMode == AppSettings.ThumbnailSeekMode.NETFLIX_LIKE
     val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     var markerPanelVisible by remember(mediaKey) { mutableStateOf(false) }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
@@ -139,12 +142,14 @@ fun VlcFallbackScreen(
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    val predictiveFrames = remember(mediaKey) { NetflixSeekFrameCache() }
     val passiveDisk = remember(mediaKey, streamUrl) {
         SeekThumbnailDiskCache(context.applicationContext, streamUrl)
     }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
+    DisposableEffect(predictiveFrames) { onDispose { predictiveFrames.clear() } }
     var surfaceRebindPending by remember(streamUrl) { mutableStateOf(false) }
     var nativePlaybackActive by remember(streamUrl) { mutableStateOf(false) }
     var healthSnapshot by remember(streamUrl) {
@@ -542,18 +547,24 @@ fun VlcFallbackScreen(
         manualSkips.showCredits(positionMs, durationMs)
     // Start the optional low-priority storyboard after native video is stable.
     // Unsupported and live-like formats continue to use PixelCopy only.
+    val thumbnailsHealthy = ready && !suspendPlayback && !failed && !ended &&
+        (if (paused)
+            healthSnapshot.state != VlcPlaybackHealth.State.BUFFERING &&
+                healthSnapshot.state != VlcPlaybackHealth.State.STALLED
+         else nativePlaybackActive &&
+            healthSnapshot.state == VlcPlaybackHealth.State.PLAYING)
     ProactiveSeekThumbnailPrefetch(
-        streamUrl = streamUrl, userAgent = userAgent, netflix = netflix,
+        streamUrl = streamUrl, userAgent = userAgent,
+        netflix = netflix && !predictiveTrickplay,
         durationMs = durationMs, positionMs = positionMs,
-        // Paused scrubbing is safe for low-priority preview extraction too:
-        // no primary decoder frames are being requested while paused.
-        playbackHealthy = ready && !suspendPlayback && !failed && !ended &&
-            (if (paused)
-                healthSnapshot.state != VlcPlaybackHealth.State.BUFFERING &&
-                    healthSnapshot.state != VlcPlaybackHealth.State.STALLED
-             else nativePlaybackActive &&
-                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING),
+        playbackHealthy = thumbnailsHealthy,
         requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
+    )
+    NetflixTrickplayPrefetch(
+        streamUrl = streamUrl, userAgent = userAgent,
+        enabled = netflix && predictiveTrickplay,
+        durationMs = durationMs, playbackHealthy = thumbnailsHealthy,
+        requestedPreviewMs = requestedPreviewMs, cache = predictiveFrames,
     )
 
     val playButtonBuffering = !paused && !ended && !failed &&
@@ -866,8 +877,15 @@ fun VlcFallbackScreen(
                     playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
                     skipPromptVisible = skipPromptVisible, skipPromptFocus = skipPromptFocus,
-                    frameAt = seekFrames::nearestFrame,
-                    previewStatus = seekFrames.previewStatus,
+                    frameAt = { timestamp ->
+                        if (predictiveTrickplay)
+                            predictiveFrames.nearestFrame(timestamp)
+                                ?: seekFrames.nearestFrame(timestamp)
+                        else seekFrames.nearestFrame(timestamp)
+                    },
+                    predictiveTrickplay = predictiveTrickplay,
+                    previewStatus = if (predictiveTrickplay)
+                        predictiveFrames.previewStatus else seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },
