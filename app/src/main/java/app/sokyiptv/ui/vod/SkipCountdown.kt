@@ -37,18 +37,24 @@ internal fun rememberSkipCountdown(
 ): Long {
     var elapsed by remember(mediaKey, kind) { mutableLongStateOf(0L) }
     val currentTimeout by rememberUpdatedState(onTimeout)
-    LaunchedEffect(mediaKey, kind, offered, activelyPlaying) {
-        if (!offered || !activelyPlaying || elapsed >= SkipCountdownPolicy.LENGTH_MS)
-            return@LaunchedEffect
+    val currentOffered by rememberUpdatedState(offered)
+    val currentPlaying by rememberUpdatedState(activelyPlaying)
+    // A SINGLE coroutine survives buffering/playing transitions. Previous
+    // LaunchedEffect keys restarted at every health/clock transition; on TV
+    // those interruptions could prevent the timeout callback from firing.
+    LaunchedEffect(mediaKey, kind) {
+        var fired = false
         var last = SystemClock.elapsedRealtime()
-        while (isActive && elapsed < SkipCountdownPolicy.LENGTH_MS) {
+        while (isActive && !fired) {
             delay(80L)
             val now = SystemClock.elapsedRealtime()
-            elapsed = SkipCountdownPolicy.advance(elapsed, now - last, playing = true)
+            val delta = (now - last).coerceIn(0L, 250L)
             last = now
-            if (elapsed >= SkipCountdownPolicy.LENGTH_MS) {
+            if (!currentOffered || !currentPlaying) continue
+            elapsed = SkipCountdownPolicy.advance(elapsed, delta, true)
+            if (elapsed >= SkipCountdownPolicy.LENGTH_MS && currentOffered) {
+                fired = true
                 currentTimeout()
-                break
             }
         }
     }

@@ -85,7 +85,7 @@ import app.sokyiptv.player.TvSeekPolicy
 import kotlin.math.max
 import kotlin.math.min
 
-private val netflixRed = Color(0xFFE50914)
+private val netflixRed = Color(0xFFC7D1D8) // quiet neutral progress / seek accent
 private val netflixWhite = Color.White
 
 /**
@@ -109,6 +109,8 @@ internal fun NetflixLikePlayerChrome(
     playFocus: FocusRequester,
     timelineFocus: FocusRequester,
     tracksFocus: FocusRequester,
+    skipPromptVisible: Boolean = false,
+    skipPromptFocus: FocusRequester? = null,
     frameAt: (Long) -> NetflixSeekFrameCache.CapturedFrame? = { null },
     previewStatus: String = "Preparing thumbnails…",
     onPreviewRequested: (Long) -> Unit = {},
@@ -171,6 +173,13 @@ internal fun NetflixLikePlayerChrome(
                 Key.DirectionRight -> NetflixDirection.RIGHT
                 else -> null
             } ?: return@onPreviewKeyEvent false
+            // Up always returns to a visible skip prompt from ANY Netflix
+            // transport control; previously the D-pad focus graph trapped it.
+            if (skipPromptVisible && direction == NetflixDirection.UP) {
+                skipPromptFocus?.let { runCatching { it.requestFocus() } }
+                onActivity()
+                return@onPreviewKeyEvent true
+            }
             // Timeline owns Left and Right for real +/-10s and hold-to-accelerate.
             if (activeTarget == NetflixTarget.TIMELINE &&
                 direction in setOf(NetflixDirection.LEFT, NetflixDirection.RIGHT))
@@ -348,21 +357,22 @@ internal fun NetflixLikePlayerChrome(
                     val left = 11.dp.toPx()
                     val right = size.width - left
                     val middle = size.height / 2f
-                    drawLine(Color(0xFF646464), Offset(left, middle),
+                    drawLine(Color(0xFF68747E), Offset(left, middle),
                         Offset(right, middle), 3.dp.toPx(), cap = StrokeCap.Round)
                     val fraction = if (durationMs > 0L)
                         (displayMs.toDouble() / durationMs).toFloat().coerceIn(0f, 1f) else 0f
                     val playhead = left + (right-left) * fraction
                     drawLine(netflixRed, Offset(left, middle), Offset(playhead, middle),
-                        4.dp.toPx(), cap = StrokeCap.Round)
+                        3.dp.toPx(), cap = StrokeCap.Round)
                     drawManualTimelineBands(
                         manualSkips, durationMs, left, right, middle, 7.dp.toPx()
                     )
-                    drawCircle(netflixRed,
-                        (if (seekFocused) 11 else 9).dp.toPx(),
+                    // Smaller, understated playhead; no oversize bright halo.
+                    drawCircle(Color(0xFFF0F3F4),
+                        (if (seekFocused) 6.5f else 5f).dp.toPx(),
                         Offset(playhead, middle))
-                    if (seekFocused) drawCircle(netflixWhite,
-                        12.dp.toPx(), Offset(playhead, middle),
+                    if (seekFocused) drawCircle(Color(0xFF77858E),
+                        8.dp.toPx(), Offset(playhead, middle),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
                 }
             }
@@ -385,12 +395,11 @@ internal fun NetflixLikePlayerChrome(
             val travel = (maxWidth - 47.dp - 53.dp - 111.dp).coerceAtLeast(0.dp)
             val start = (58.dp + travel * fraction - bubbleWidth / 2f)
                 .coerceIn(8.dp, (maxWidth - bubbleWidth - 8.dp).coerceAtLeast(8.dp))
-            // Conflate rapid remote scrubbing into one targeted extraction
-            // request, while the passive/prepared thumbnails draw immediately.
-            LaunchedEffect(previewAt) {
-                delay(260L)
-                onPreviewRequested(previewAt)
-            }
+            // IMPORTANT: never debounce here. During long D-pad holds previewAt
+            // changes every 65ms; v73's 260ms effect was cancelled every time,
+            // so extraction was never told which unseen scene to prepare.
+            // The metadata worker itself rate-limits expensive decode requests.
+            LaunchedEffect(previewAt) { onPreviewRequested(previewAt) }
             val frame = frameAt(previewAt)
             Column(
                 modifier = Modifier.align(Alignment.BottomStart)
@@ -503,7 +512,7 @@ private fun NIcon(
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
             .background(
-                if (focused) netflixWhite.copy(alpha = if (opacityUnfocused < 1f) .06f else .17f)
+                if (focused) Color(0xFF99A8B5).copy(alpha = if (opacityUnfocused < 1f) .08f else .16f)
                 else Color.Transparent,
                 RoundedCornerShape(8.dp),
             )
@@ -534,14 +543,14 @@ private fun NText(
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(7.dp)
     val base = when {
-        focused -> Color(0xF02B3B44)
-        emphasized -> Color(0xD9222D37)
-        else -> Color(0xC518222C)
+        focused -> Color(0xF0343C45)
+        emphasized -> Color(0xD920262D)
+        else -> Color(0xC5181D23)
     }
     val outline = when {
-        focused -> Color(0xFF86E5D5)
-        emphasized -> Color(0x8889CBC3)
-        else -> Color(0x44D4E4E9)
+        focused -> Color(0xFFCFD7DC)
+        emphasized -> Color(0x888994A0)
+        else -> Color(0x446D7882)
     }
     Row(
         modifier.onFocusChanged { focused = it.isFocused }
@@ -550,7 +559,7 @@ private fun NText(
             .drawBehind {
                 countdownFraction?.let { fraction ->
                     drawRect(
-                        color = Color(0xB0328782),
+                        color = Color(0xB067747F),
                         size = Size(size.width * fraction.coerceIn(0f, 1f), size.height),
                     )
                 }
@@ -563,7 +572,7 @@ private fun NText(
     ) {
         if (icon != null) Icon(icon, null, tint = Color(0xFFE8F6F2),
             modifier = Modifier.size(22.dp))
-        Text(label, color = Color(0xFFF2F7F6),
+        Text(label, color = Color(0xFFEBEFF2),
             fontSize = 16.sp,
             fontWeight = if (focused || emphasized) FontWeight.SemiBold else FontWeight.Medium)
     }
@@ -582,6 +591,8 @@ internal fun NetflixTimedSkipPrompt(
     focusRequester: FocusRequester? = null,
     onCancel: () -> Unit,
     onSkip: () -> Unit,
+    onLeave: () -> Unit = {},
+    onFocusChanged: (Boolean) -> Unit = {},
 ) {
     val fallbackFocus = remember { FocusRequester() }
     val actionFocus = focusRequester ?: fallbackFocus
@@ -592,9 +603,11 @@ internal fun NetflixTimedSkipPrompt(
         runCatching { actionFocus.requestFocus() }
     }
     Row(
-        modifier.onPreviewKeyEvent { event ->
+        modifier.onFocusChanged { onFocusChanged(it.hasFocus) }
+            .onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown) false
             else when (event.key) {
+                Key.DirectionDown -> { onLeave(); true }
                 Key.DirectionLeft -> {
                     runCatching { cancelFocus.requestFocus() }
                     true
@@ -644,6 +657,8 @@ internal fun NetflixCreditsPrompt(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     elapsedMs: Long = 0L,
+    onLeave: () -> Unit = {},
+    onFocusChanged: (Boolean) -> Unit = {},
 ) {
     NetflixTimedSkipPrompt(
         label = if (isEpisode && nextAvailable) "Next episode" else "Back to title",
@@ -653,6 +668,8 @@ internal fun NetflixCreditsPrompt(
         focusRequester = focusRequester,
         onCancel = onContinue,
         onSkip = onSkip,
+        onLeave = onLeave,
+        onFocusChanged = onFocusChanged,
     )
 }
 
