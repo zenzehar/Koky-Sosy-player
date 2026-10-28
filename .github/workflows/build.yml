@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'feat/v0.1.11.71-proactive-seek-thumbnails' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.72-demand-aware-seek-previews' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'feat/v0.1.11.71-proactive-seek-thumbnails'
+      github.head_ref == 'fix/v0.1.11.72-demand-aware-seek-previews'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.71.apk
-          gh release create v0.1.11.71-proactive-seek-thumbnails \
-            "apk/Soky_IPTV_Pro_v0.1.11.71.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.72.apk
+          gh release create v0.1.11.72-demand-aware-seek-previews \
+            "apk/Soky_IPTV_Pro_v0.1.11.72.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.71 Proactive Seek Thumbnails" \
-            --notes "v0.1.11.71 EXPERIMENTAL proactive seeking-thumbnail prefetch. For supported Android 8.1+ progressive HTTP VOD such as .mp4/.mkv, wait for stable playback before opening at most one low-priority metadata retriever connection, prefetch up to 24 distributed keyframes, prioritize likely destinations and seek-preview targets, pause new extraction when buffering, and stop on repeated failure or slow response. Approximate storyboard scenes explicitly show their frame time, never pretend a nearby keyframe is the exact requested video moment. Strict ~7 MB cache: 48 real played screenshots plus 24 future frames; prefetch frames survive normal playback eviction. HLS/TS, unknown streams, old Android and unsupported/provider-limited streams remain on safe passive screenshots. No second VLC or ExoPlayer and main decoder is never sought to generate previews. This optional metadata connection may be unsuitable for IPTV providers that forbid simultaneous requests; users should validate on hardware. Includes prior v70 playback-resume and skip focus fixes; v59 gold stays protected." --prerelease
+            --title "Soky IPTV Pro v0.1.11.72 Demand-Aware Seek Previews" \
+            --notes "v0.1.11.72 EXPERIMENTAL seek thumbnail repair from v71 temporary milestone: prefetch 20 small frames when healthy; prioritize active D-pad target; enable best-effort MPEG-TS VOD and recognized numeric Xtream extensionless movie/series paths; after first batch, support four capped debounced 3-frame request sessions; paused currently visible frame capture; descriptive no-thumbnail status. Max 48 played and 24 storyboard 208x117 bitmaps, one optional metadata retriever session, never seek the active decoder, remain paused while buffering, terminate if provider refuses additional access. HLS/live/DRM/unsupported source may still have no unseen-position thumbnails. v59 GOLD and v71 temporary milestone preserved, debug-signed hardware test only." --prerelease

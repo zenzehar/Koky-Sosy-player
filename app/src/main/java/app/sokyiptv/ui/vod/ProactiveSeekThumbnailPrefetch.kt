@@ -1,5 +1,6 @@
 package app.sokyiptv.ui.vod
 
+import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.os.SystemClock
@@ -17,19 +18,16 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
 /**
- * One *optional* low-priority metadata connection for compatible progressive VOD.
- *
- * No second ExoPlayer/VLC instance, no repositioning the active decoder, no
- * streaming URL logging, and no background job after playback exits.
- *
- * Some providers disallow a second HTTP connection or do not support ranged
- * progressive metadata retrieval. Their failures immediately fall back to the
- * safe passive PixelCopy sampler.
+ * One optional low-priority metadata connection at a time, no second video player.
+ * Never seek or stop the active decoder to generate a preview.
+ * Providers may refuse simultaneous HTTP connections or range requests.
  */
 internal object ProactiveFrameExtractor {
     private val onlyOne = Mutex()
 
-    suspend fun prefetch(
+    data class Result(val supported: Boolean, val frames: Int)
+
+    suspend fun extract(
         streamUrl: String,
         userAgent: String,
         cache: NetflixSeekFrameCache,
@@ -37,78 +35,68 @@ internal object ProactiveFrameExtractor {
         initialPositionMs: Long,
         canWork: () -> Boolean,
         previewTarget: () -> Long,
-    ) = onlyOne.withLock {
-        // Do not reserve a decoder when the user is still loading/buffering.
-        var stableCount = 0
-        while (coroutineContext.isActive && stableCount < 3) {
-            delay(1_000L)
-            stableCount = if (canWork()) stableCount + 1 else 0
+        demandOnly: Boolean,
+    ): Result = onlyOne.withLock {
+        // Do not compete with startup or a buffering main stream.
+        var good = 0
+        var waited = 0
+        while (coroutineContext.isActive && good < 3 && waited++ < 30) {
+            delay(900L)
+            good = if (canWork()) good + 1 else 0
         }
-        if (!coroutineContext.isActive) return@withLock
+        if (!coroutineContext.isActive || good < 3) return@withLock Result(true, 0)
 
+        cache.previewStatus = if (demandOnly) "Finding selected scene…" else "Preparing future scenes…"
         val retriever = try {
             withContext(Dispatchers.IO) {
-                MediaMetadataRetriever().also { retriever ->
+                MediaMetadataRetriever().also { media ->
                     try {
                         val headers = if (userAgent.isNotBlank())
                             mapOf("User-Agent" to userAgent) else emptyMap()
-                        retriever.setDataSource(streamUrl, headers)
+                        media.setDataSource(streamUrl, headers)
                     } catch (error: Exception) {
-                        retriever.release()
+                        media.release()
                         throw error
                     }
                 }
             }
         } catch (_: Exception) {
-            // Unsupported container, provider rejects extra connection, etc.
-            return@withLock
+            // Extractor exceptions may contain provider credentials; never log them.
+            cache.previewStatus = "Preview blocked or unsupported by this provider"
+            return@withLock Result(false, 0)
         }
 
+        var frames = 0
+        var failures = 0
+        var slowFrames = 0
+        var unhealthy = 0
+        val attempted = HashSet<Long>()
+        val targets = if (demandOnly)
+            ProactivePreviewPolicy.requestedFrames(initialPositionMs, durationMs)
+        else ProactivePreviewPolicy.storyboard(durationMs, initialPositionMs).take(20)
+        var next = 0
+        val limit = if (demandOnly) 3 else 20
         try {
-            val targets = ProactivePreviewPolicy.storyboard(durationMs, initialPositionMs)
-            val attempted = HashSet<Long>()
-            var failures = 0
-            var slowFrames = 0
-            var shots = 0
-            var cursor = 0
-            var lastPreviewTarget = -1L
-            var consecutiveUnhealthyTicks = 0
-
-            while (coroutineContext.isActive && shots < 24 && failures < 3 &&
-                slowFrames < 2 && cursor < targets.size) {
+            while (coroutineContext.isActive && frames < limit &&
+                failures < 3 && slowFrames < 2 && next < targets.size) {
                 if (!canWork()) {
-                    // If the primary video starts buffering, release the
-                    // metadata connection within ~4.5s instead of occupying
-                    // a provider session while the main player is starving.
-                    if (++consecutiveUnhealthyTicks >= 5) break
-                    delay(900L)
+                    if (++unhealthy >= 4) break // main player has absolute priority
+                    delay(750L)
                     continue
                 }
-                consecutiveUnhealthyTicks = 0
+                unhealthy = 0
 
-                // Real-time seek-preview requests take precedence over the
-                // scheduled evenly spaced storyboard. Conflate rapid D-pad
-                // moves rather than enqueueing old seek positions.
+                // Prefer the most recently selected scrub target over the prefetch queue.
                 val requested = previewTarget()
-                val priority = requested in 2_000L until durationMs &&
-                    requested != lastPreviewTarget &&
-                    !cache.hasFrameNear(requested, 2_400L)
-                val target = if (priority) {
-                    lastPreviewTarget = requested
-                    requested
-                } else {
-                    val pending = targets.getOrNull(cursor) ?: break
-                    cursor++
-                    pending
-                }
-                if (target in attempted || cache.hasFrameNear(target, 2_400L)) continue
-                attempted.add(target)
+                val priority = !demandOnly && requested in 2_000L until durationMs &&
+                    !cache.hasFrameNear(requested, 4_000L) && requested !in attempted
+                val target = if (priority) requested else targets[next++]
+                if (!attempted.add(target) || cache.hasFrameNear(target, 4_000L)) continue
 
-                val start = SystemClock.elapsedRealtime()
-                val bitmap = try {
+                val started = SystemClock.elapsedRealtime()
+                val image: Bitmap? = try {
                     withContext(Dispatchers.IO) {
-                        // API 27+ decodes/scales at source; unlike getFrameAtTime,
-                        // this avoids retaining a 4K full-resolution bitmap.
+                        // API 27+ scales in native code rather than allocating a 4K bitmap.
                         retriever.getScaledFrameAtTime(
                             target * 1_000L,
                             MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
@@ -116,35 +104,38 @@ internal object ProactiveFrameExtractor {
                         )
                     }
                 } catch (_: Exception) { null }
-                val costMs = SystemClock.elapsedRealtime() - start
-                if (costMs > 2_400L) slowFrames++ else slowFrames = 0
-
-                if (bitmap == null) {
-                    failures++
-                } else if (coroutineContext.isActive) {
-                    // All cache changes and Compose revisions happen on Main.
-                    cache.storePrefetched(target, durationMs, bitmap)
-                    shots++
+                val elapsed = SystemClock.elapsedRealtime() - started
+                if (elapsed > 2_400L) slowFrames++ else slowFrames = 0
+                if (image == null) failures++
+                else if (coroutineContext.isActive) {
+                    // These are nearest sync keyframes, not exact-frame guarantees.
+                    cache.storePrefetched(target, durationMs, image)
+                    frames++
                     failures = 0
-                } else bitmap.recycle()
-
-                // Preserve playback priority and avoid continuous native work.
-                delay(if (costMs > 900L) 1_800L else 1_100L)
+                } else image.recycle()
+                delay(if (elapsed > 900L) 1_500L else 900L)
             }
         } finally {
-            // Cancellation can't interrupt a native frame extraction immediately,
-            // but release on IO as soon as the call returns.
+            // Native getScaledFrameAtTime cannot be cancelled mid-call.
             withContext(NonCancellable + Dispatchers.IO) {
                 runCatching { retriever.release() }
             }
         }
+        cache.previewStatus = when {
+            frames > 0 -> "Tap or hold seek to refine other scenes"
+            failures >= 3 || slowFrames >= 2 -> "Provider could not supply more seek thumbnails"
+            else -> "Cached scenes available; other times may need loading"
+        }
+        // A decoder that returned no frames repeatedly is not a viable
+        // preview source. Avoid four more provider connections in that case.
+        Result(!(frames == 0 && (failures >= 3 || slowFrames >= 2)), frames)
     }
 }
 
 /**
- * Mounted only for the actively selected renderer (VLC or Media3).
- * Reading latest snapshot-backed callbacks avoids cancelling and reopening
- * the extractor on every playhead tick or transient buffering transition.
+ * Keep a single screen-scoped worker AFTER the initial storyboard is complete.
+ * Unlike v71, a later D-pad seek can request fresh thumbnails with a capped
+ * on-demand session; debouncing prevents a new HTTP session on every keypress.
  */
 @Composable
 internal fun ProactiveSeekThumbnailPrefetch(
@@ -160,25 +151,54 @@ internal fun ProactiveSeekThumbnailPrefetch(
     val latestDuration by rememberUpdatedState(durationMs)
     val latestPosition by rememberUpdatedState(positionMs)
     val latestHealthy by rememberUpdatedState(playbackHealthy)
-    val latestRequested by rememberUpdatedState(requestedPreviewMs)
+    val latestRequest by rememberUpdatedState(requestedPreviewMs)
 
     LaunchedEffect(streamUrl, userAgent, netflix, cache) {
-        if (!netflix || !ProactivePreviewPolicy.eligible(streamUrl, Build.VERSION.SDK_INT))
+        if (!netflix) return@LaunchedEffect
+        if (!ProactivePreviewPolicy.eligible(streamUrl, Build.VERSION.SDK_INT)) {
+            cache.previewStatus = "This stream supports only already-played snapshots"
             return@LaunchedEffect
-        // Startup playback has the highest priority; do not initiate extra
-        // provider traffic until the main stream has settled.
-        delay(8_000L)
-        while (coroutineContext.isActive && latestDuration < 60_000L) delay(1_000L)
+        }
+        delay(2_500L)
+        while (coroutineContext.isActive && latestDuration < 60_000L) delay(750L)
         if (!coroutineContext.isActive) return@LaunchedEffect
 
-        ProactiveFrameExtractor.prefetch(
-            streamUrl = streamUrl,
-            userAgent = userAgent,
-            cache = cache,
-            durationMs = latestDuration,
-            initialPositionMs = latestPosition,
+        val initial = ProactiveFrameExtractor.extract(
+            streamUrl, userAgent, cache, latestDuration, latestPosition,
             canWork = { latestHealthy },
-            previewTarget = { latestRequested },
+            previewTarget = { latestRequest }, demandOnly = false,
         )
+        if (!initial.supported) return@LaunchedEffect
+
+        var observed = -1L
+        var changedAt = SystemClock.elapsedRealtime()
+        var handled = -1L
+        var sessions = 0
+        while (coroutineContext.isActive) {
+            delay(250L)
+            val wanted = latestRequest
+            val now = SystemClock.elapsedRealtime()
+            if (wanted != observed) { observed = wanted; changedAt = now }
+            if (wanted < 2_000L || wanted >= latestDuration ||
+                now - changedAt < 650L || wanted == handled || !latestHealthy) continue
+            if (cache.hasFrameNear(wanted, 4_000L)) {
+                handled = wanted
+                continue
+            }
+            if (sessions >= 4) {
+                cache.previewStatus = "Further scenes require seeking into the video"
+                handled = wanted
+                continue
+            }
+            handled = wanted
+            sessions++
+            val result = ProactiveFrameExtractor.extract(
+                streamUrl, userAgent, cache, latestDuration, wanted,
+                canWork = { latestHealthy },
+                previewTarget = { latestRequest }, demandOnly = true,
+            )
+            if (!result.supported) return@LaunchedEffect
+            delay(2_500L) // provider cooldown before any new metadata connection
+        }
     }
 }

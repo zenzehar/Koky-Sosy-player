@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -47,6 +48,10 @@ internal class NetflixSeekFrameCache {
 
     var revision by mutableIntStateOf(0)
         private set
+
+    // Never include stream URLs or credentials in a visible status.
+    var previewStatus by mutableStateOf("Preparing thumbnails…")
+        internal set
 
     fun nearestFrame(positionMs: Long): CapturedFrame? {
         @Suppress("UNUSED_VARIABLE") val observedRevision = revision
@@ -116,6 +121,7 @@ internal class NetflixSeekFrameCache {
         liveFrames.clear()
         storyboardFrames.clear()
         storyboardDurationMs = 0L
+        previewStatus = "Preparing thumbnails…"
         revision++
     }
 }

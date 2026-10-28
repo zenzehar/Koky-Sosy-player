@@ -69,6 +69,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -106,6 +107,7 @@ internal fun NetflixLikePlayerChrome(
     timelineFocus: FocusRequester,
     tracksFocus: FocusRequester,
     frameAt: (Long) -> NetflixSeekFrameCache.CapturedFrame? = { null },
+    previewStatus: String = "Preparing thumbnails…",
     onPreviewRequested: (Long) -> Unit = {},
     onSeekingChanged: (Boolean) -> Unit = {},
     onActivity: () -> Unit,
@@ -410,7 +412,7 @@ internal fun NetflixLikePlayerChrome(
                         )
                         if (!frame.accurate) {
                             Text(
-                                (if (frame.storyboard) "Storyboard near: " else "Nearby frame: ") +
+                                (if (frame.storyboard) "Approx. scene near: " else "Nearby frame: ") +
                                     nClock(frame.timestampMs),
                                 modifier = Modifier.align(Alignment.BottomCenter)
                                     .fillMaxWidth()
@@ -420,8 +422,9 @@ internal fun NetflixLikePlayerChrome(
                             )
                         }
                     } else {
-                        Text("No cached scene at this time", color = Color.White.copy(alpha = .6f),
-                            fontSize = 12.sp)
+                        Text(previewStatus, color = Color.White.copy(alpha = .7f),
+                            fontSize = 12.sp, textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(8.dp))
                     }
                 }
                 Row(

@@ -448,6 +448,21 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Capture the CURRENT displayed video frame even while paused. This does
+    // not seek, restart or allocate a second player.
+    LaunchedEffect(requestedPreviewMs, videoLayout, netflix, ready) {
+        val requested = requestedPreviewMs
+        val layout = videoLayout ?: return@LaunchedEffect
+        if (!netflix || !ready || requested < 0L || leaving.get() || nativeReleased.get() ||
+            seekFrames.hasFrameNear(requested, 4_000L)) return@LaunchedEffect
+        val actual = player.time.coerceAtLeast(0L)
+        if (kotlin.math.abs(actual - requested) > 4_000L) return@LaunchedEffect
+        val still = NetflixSeekFrameCapture.sample(layout) ?: return@LaunchedEffect
+        if (kotlin.math.abs(player.time - actual) <= 1_400L)
+            seekFrames.store(actual, still)
+        else still.recycle()
+    }
+
     // A completed seek deserves one timely REAL scene capture. The periodic
     // sampler alone could miss the destination by several seconds.
     LaunchedEffect(thumbnailPostSeekTargetMs, videoLayout, netflix, ready) {
@@ -506,9 +521,14 @@ fun VlcFallbackScreen(
     ProactiveSeekThumbnailPrefetch(
         streamUrl = streamUrl, userAgent = userAgent, netflix = netflix,
         durationMs = durationMs, positionMs = positionMs,
-        playbackHealthy = ready && nativePlaybackActive && !paused &&
-            !suspendPlayback && !failed && !ended &&
-            healthSnapshot.state == VlcPlaybackHealth.State.PLAYING,
+        // Paused scrubbing is safe for low-priority preview extraction too:
+        // no primary decoder frames are being requested while paused.
+        playbackHealthy = ready && !suspendPlayback && !failed && !ended &&
+            (if (paused)
+                healthSnapshot.state != VlcPlaybackHealth.State.BUFFERING &&
+                    healthSnapshot.state != VlcPlaybackHealth.State.STALLED
+             else nativePlaybackActive &&
+                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING),
         requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
     )
 
@@ -742,6 +762,7 @@ fun VlcFallbackScreen(
                     playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
                     frameAt = seekFrames::nearestFrame,
+                    previewStatus = seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },
