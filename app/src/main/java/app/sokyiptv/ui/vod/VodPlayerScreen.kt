@@ -321,6 +321,8 @@ fun VodPlayerScreen(
     var durationMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
+    var classicPendingTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
+    var classicSubmittedAtMs by remember(mediaKey) { mutableLongStateOf(0L) }
     // Visual bar follows only the reported duration; never an extrapolated end.
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
 
@@ -812,6 +814,18 @@ fun VodPlayerScreen(
             nextAfterCredits()
     }
 
+    LaunchedEffect(classicPendingTargetMs, classicSubmittedAtMs,
+        positionMs, awaitingSeekPlayback) {
+        if (classicPendingTargetMs < 0L) return@LaunchedEffect
+        val remain = (classicSubmittedAtMs + SeekbarOkPolicy.MIN_CONFIRMATION_MS -
+            android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        if (remain > 0L) delay(remain)
+        if (SeekbarOkPolicy.caughtUp(classicPendingTargetMs, positionMs,
+                awaitingSeekPlayback, classicSubmittedAtMs,
+                android.os.SystemClock.uptimeMillis()))
+            classicPendingTargetMs = -1L
+    }
+
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
     // here — otherwise a single hiccup would pin the transport bar on screen for the rest of the watch.
@@ -1078,6 +1092,7 @@ fun VodPlayerScreen(
                             else seekFrames.nearestFrame(timestamp)
                         },
                         predictiveTrickplay = predictiveTrickplay,
+                        playbackSettling = awaitingSeekPlayback || playButtonBuffering,
                         previewStatus = if (predictiveTrickplay)
                             predictiveFrames.previewStatus else seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
@@ -1180,6 +1195,8 @@ fun VodPlayerScreen(
                             controller.player.seekTo(scrubValue.toLong())
                             positionMs = media3SeekClock.requested(scrubValue.toLong(), now)
                             thumbnailPostSeekTargetMs = scrubValue.toLong()
+                            classicPendingTargetMs = scrubValue.toLong()
+                            classicSubmittedAtMs = android.os.SystemClock.uptimeMillis()
                             scrubbing = false
                             interaction++
                         },
@@ -1197,8 +1214,23 @@ fun VodPlayerScreen(
                                     event.key == Key.Enter) {
                                     if (event.type == KeyEventType.KeyDown &&
                                         event.nativeKeyEvent.repeatCount == 0) {
-                                        scrubbing = false
-                                        setPlaybackIntent(paused)
+                                        val target = if (scrubbing) scrubValue.toLong()
+                                            else classicPendingTargetMs
+                                        val action = SeekbarOkPolicy.action(
+                                            target, positionMs, scrubbing,
+                                            awaitingSeekPlayback, classicSubmittedAtMs,
+                                            android.os.SystemClock.uptimeMillis(),
+                                        )
+                                        if (action == SeekbarOkPolicy.Action.COMMIT_SEEK) {
+                                            classicPendingTargetMs = target
+                                            classicSubmittedAtMs =
+                                                android.os.SystemClock.uptimeMillis()
+                                            seekAt(target)
+                                        } else {
+                                            classicPendingTargetMs = -1L
+                                            scrubbing = false
+                                            setPlaybackIntent(paused)
+                                        }
                                     }
                                     return@onPreviewKeyEvent true
                                 }
@@ -1208,7 +1240,11 @@ fun VodPlayerScreen(
                                     else -> null
                                 }
                                 if (direction != null) {
-                                    if (event.type == KeyEventType.KeyDown) seekTenSeconds(direction)
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        seekTenSeconds(direction)
+                                        classicPendingTargetMs = scrubValue.toLong()
+                                        classicSubmittedAtMs = android.os.SystemClock.uptimeMillis()
+                                    }
                                     true
                                 } else false
                             }

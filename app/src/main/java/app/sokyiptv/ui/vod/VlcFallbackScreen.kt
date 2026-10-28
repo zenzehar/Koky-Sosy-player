@@ -167,6 +167,8 @@ fun VlcFallbackScreen(
     var durationMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
+    var classicPendingTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
+    var classicSubmittedAtMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var seekOriginMs by remember { mutableLongStateOf(0L) }
     var seekHoldStartedAtMs by remember { mutableLongStateOf(0L) }
     var seekHeldDirection by remember { mutableStateOf<SeekDirection?>(null) }
@@ -502,6 +504,19 @@ fun VlcFallbackScreen(
             paused = true
             controlsVisible = true
         }
+    }
+
+    // A native seek can update the UI clock before its decoded frame is ready.
+    // Keep the selected target confirmable with OK until actual playback settles.
+    LaunchedEffect(classicPendingTargetMs, classicSubmittedAtMs,
+        positionMs, nativePlaybackActive, paused) {
+        if (classicPendingTargetMs < 0L) return@LaunchedEffect
+        val remaining = (classicSubmittedAtMs + SeekbarOkPolicy.MIN_CONFIRMATION_MS -
+            android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        if (remaining > 0L) delay(remaining)
+        if (SeekbarOkPolicy.caughtUp(classicPendingTargetMs, positionMs,
+                !paused && !nativePlaybackActive, classicSubmittedAtMs,
+                android.os.SystemClock.uptimeMillis())) classicPendingTargetMs = -1L
     }
 
     // Drive long-press preview from monotonic time, regardless of remote repeat rate.
@@ -884,6 +899,7 @@ fun VlcFallbackScreen(
                         else seekFrames.nearestFrame(timestamp)
                     },
                     predictiveTrickplay = predictiveTrickplay,
+                    playbackSettling = !paused && !nativePlaybackActive,
                     previewStatus = if (predictiveTrickplay)
                         predictiveFrames.previewStatus else seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
@@ -976,6 +992,8 @@ fun VlcFallbackScreen(
                                             true
                                         } else if (event.type == KeyEventType.KeyUp) {
                                             if (scrubbing) {
+                                                classicPendingTargetMs = previewMs
+                                                classicSubmittedAtMs = android.os.SystemClock.uptimeMillis()
                                                 seekTo(previewMs)
                                                 scrubbing = false
                                             }
@@ -986,6 +1004,8 @@ fun VlcFallbackScreen(
                                         event.type == KeyEventType.KeyDown &&
                                             event.key == Key.DirectionDown -> {
                                             if (scrubbing) {
+                                                classicPendingTargetMs = previewMs
+                                                classicSubmittedAtMs = android.os.SystemClock.uptimeMillis()
                                                 seekTo(previewMs)
                                                 scrubbing = false
                                                 seekHeldDirection = null
@@ -995,14 +1015,30 @@ fun VlcFallbackScreen(
                                             true
                                         }
                                         (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
-                                            // Middle key on seekbar toggles playback; never
-                                            // commits the scrub position, even if held.
+                                            // If the red cursor has moved and the
+                                            // decoder has not caught up, OK confirms
+                                            // that seek. Once caught up, OK is Play/Pause.
                                             if (event.type == KeyEventType.KeyDown &&
                                                 event.nativeKeyEvent.repeatCount == 0) {
+                                                val target = if (scrubbing) previewMs
+                                                    else classicPendingTargetMs
+                                                val action = SeekbarOkPolicy.action(
+                                                    target, positionMs, scrubbing,
+                                                    !paused && !nativePlaybackActive,
+                                                    classicSubmittedAtMs,
+                                                    android.os.SystemClock.uptimeMillis(),
+                                                )
+                                                if (action == SeekbarOkPolicy.Action.COMMIT_SEEK) {
+                                                    classicPendingTargetMs = target
+                                                    classicSubmittedAtMs =
+                                                        android.os.SystemClock.uptimeMillis()
+                                                    seekTo(target)
+                                                } else {
+                                                    classicPendingTargetMs = -1L
+                                                    togglePlayback()
+                                                }
                                                 scrubbing = false
                                                 seekHeldDirection = null
-                                                previewMs = positionMs
-                                                togglePlayback()
                                             }
                                             true
                                         }
