@@ -73,23 +73,28 @@ internal object ProactiveFrameExtractor {
         val attempted = HashSet<Long>()
         val targets = if (demandOnly)
             ProactivePreviewPolicy.requestedFrames(initialPositionMs, durationMs)
-        else ProactivePreviewPolicy.storyboard(durationMs, initialPositionMs).take(24)
+        else ProactivePreviewPolicy.detailedStoryboard(durationMs, initialPositionMs)
         var next = 0
-        val limit = if (demandOnly) 3 else 32
+        val limit = if (demandOnly) 3 else 96
         var requests = 0
         var lastRequested = -1L
         var lastRequestAt = 0L
-        val maxLifetimeAt = SystemClock.elapsedRealtime() + 120_000L
+        // Never exceed one bounded session. Long-running VOD sources still
+        // get continuous playback priority and a strict memory limit.
+        val maxLifetimeAt = SystemClock.elapsedRealtime() + 240_000L
         try {
             // Keep the *same* metadata connection alive after initial storyboard
             // completion. Later D-pad selections are handled here instead of
             // paying setDataSource + 3 health ticks for every new timestamp.
             while (coroutineContext.isActive && frames < limit &&
-                requests < 40 && failures < 3 && slowFrames < 2 &&
+                requests < 120 && failures < 3 && slowFrames < 2 &&
                 SystemClock.elapsedRealtime() < maxLifetimeAt) {
                 if (!canWork()) {
-                    if (++unhealthy >= 4) break // main player has absolute priority
-                    delay(750L)
+                    // Pause all remote preview work while the primary decoder
+                    // is buffering. Allow it to recover rather than discarding
+                    // a partially completed whole-video contact sheet.
+                    if (++unhealthy >= 24) break
+                    delay(500L)
                     continue
                 }
                 unhealthy = 0
@@ -119,7 +124,7 @@ internal object ProactiveFrameExtractor {
                         retriever.getScaledFrameAtTime(
                             target * 1_000L,
                             MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                            208, 117,
+                            160, 90,
                         )
                     }
                 } catch (_: Exception) { null }
@@ -132,7 +137,9 @@ internal object ProactiveFrameExtractor {
                     frames++
                     failures = 0
                 } else image.recycle()
-                delay(if (elapsed > 900L) 700L else 250L)
+                // Avoid competing with video decode but keep the contact sheet
+                // moving promptly on sources that support independent frames.
+                delay(if (elapsed > 900L) 450L else 120L)
             }
         } finally {
             // Native getScaledFrameAtTime cannot be cancelled mid-call.
@@ -141,7 +148,7 @@ internal object ProactiveFrameExtractor {
             }
         }
         cache.previewStatus = when {
-            frames > 0 -> "Tap or hold seek to refine other scenes"
+            frames > 0 -> "Precached ${frames} additional scene previews"
             failures >= 3 || slowFrames >= 2 -> "Provider could not supply more seek thumbnails"
             else -> "Cached scenes available; other times may need loading"
         }
@@ -178,7 +185,7 @@ internal fun ProactiveSeekThumbnailPrefetch(
             cache.previewStatus = "This stream supports only already-played snapshots"
             return@LaunchedEffect
         }
-        delay(1_500L)
+        delay(700L)
         while (coroutineContext.isActive && latestDuration < 60_000L) delay(750L)
         if (!coroutineContext.isActive) return@LaunchedEffect
 
@@ -217,7 +224,7 @@ internal fun ProactiveSeekThumbnailPrefetch(
                 previewTarget = { latestRequest }, demandOnly = true,
             )
             if (!result.supported) return@LaunchedEffect
-            delay(2_500L) // provider cooldown before any new metadata connection
+            delay(1_500L) // provider cooldown before any new metadata connection
         }
     }
 }

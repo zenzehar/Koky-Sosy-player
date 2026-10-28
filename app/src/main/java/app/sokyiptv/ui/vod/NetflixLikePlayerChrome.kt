@@ -367,13 +367,11 @@ internal fun NetflixLikePlayerChrome(
                     drawManualTimelineBands(
                         manualSkips, durationMs, left, right, middle, 7.dp.toPx()
                     )
-                    // Smaller, understated playhead; no oversize bright halo.
-                    drawCircle(Color(0xFFF0F3F4),
+                    // Frameless red dot, no focus halo. Only a modest size
+                    // difference signals D-pad focus; keep all decoration off.
+                    drawCircle(Color(0xFFE50914),
                         (if (seekFocused) 6.5f else 5f).dp.toPx(),
                         Offset(playhead, middle))
-                    if (seekFocused) drawCircle(Color(0xFF77858E),
-                        8.dp.toPx(), Offset(playhead, middle),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
                 }
             }
             Text(if (durationMs > 0L) nClock(durationMs) else "--:--",
@@ -512,7 +510,9 @@ private fun NIcon(
     Box(
         modifier.onFocusChanged { focused = it.isFocused }
             .background(
-                if (focused) Color(0xFF99A8B5).copy(alpha = if (opacityUnfocused < 1f) .08f else .16f)
+                if (buffering) Color.Transparent
+                else if (focused) Color(0xFF99A8B5).copy(alpha =
+                    if (opacityUnfocused < 1f) .08f else .16f)
                 else Color.Transparent,
                 RoundedCornerShape(8.dp),
             )

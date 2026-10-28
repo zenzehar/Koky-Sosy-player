@@ -20,6 +20,14 @@ class SkipCountdownPolicyTest {
         assertEquals(0, SkipCountdownPolicy.remainingSeconds(10_000L))
     }
 
+    @Test fun completedCountdownDispatchesOnlyWhileOfferedAndNotCancelled() {
+        assertFalse(SkipCountdownPolicy.shouldActivate(9_999L, true, false))
+        assertTrue(SkipCountdownPolicy.shouldActivate(10_000L, true, false))
+        assertTrue(SkipCountdownPolicy.shouldActivate(10_080L, true, false))
+        assertFalse(SkipCountdownPolicy.shouldActivate(10_000L, false, false))
+        assertFalse(SkipCountdownPolicy.shouldActivate(10_000L, true, true))
+    }
+
     @Test fun introNeverTargetsOutroEvenWithInconsistentSeriesMarkers() {
         val good = ManualSeriesSkips(introEndMs = 75_000L, creditsStartMs = 1_200_000L)
         assertEquals(75_000L, good.safeIntroTarget(1_500_000L))

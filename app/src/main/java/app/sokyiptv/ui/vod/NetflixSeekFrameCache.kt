@@ -28,15 +28,14 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
- * Bounded TV memory: (48 playback + 24 proactively extracted) compact bitmaps,\n * ~7 MB uncompressed. Exact played frames and approximate storyboard\n * frames are stored separately so natural playback doesn't evict a storyboard.
+ * Bounded Android TV memory: 24 live 208x117 + 96 predecoded 160x90\n * scenes, approximately 7.5 MiB uncompressed in total. Frames for unseen\n * times are prepared independently of the active playback surface.
  */
 internal class NetflixSeekFrameCache {
-    // A strict ~7 MiB budget: 48 recent played frames + 24 future storyboard frames.
-    // Prefetched frames survive playback without being evicted by the 1.65s sampler.
-    private val liveFrames = LinkedHashMap<Long, Bitmap>(50, .75f, true)
-    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(26, .75f, true)
-    private val liveCapacity = 48
-    private val storyboardCapacity = 24
+    // Keep separate budgets so live playback can't evict future frames.
+    private val liveFrames = LinkedHashMap<Long, Bitmap>(26, .75f, true)
+    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(100, .75f, true)
+    private val liveCapacity = 24
+    private val storyboardCapacity = 96
     private var storyboardDurationMs = 0L
 
     data class CapturedFrame(
@@ -88,7 +87,9 @@ internal class NetflixSeekFrameCache {
 
     fun storePrefetched(positionMs: Long, durationMs: Long, image: Bitmap) {
         storyboardDurationMs = durationMs
-        put(storyboardFrames, storyboardCapacity, positionMs, image, 4_000L)
+        put(storyboardFrames, storyboardCapacity, positionMs, image,
+            (durationMs / 300L).coerceIn(500L, 4_000L))
+        previewStatus = "Precached ${storyboardFrames.size}/96 scenes"
     }
 
     private fun put(
