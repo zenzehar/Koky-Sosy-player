@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.72-demand-aware-seek-previews' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.73-safe-intro-credits-autoskip' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.72-demand-aware-seek-previews'
+      github.head_ref == 'fix/v0.1.11.73-safe-intro-credits-autoskip'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.72.apk
-          gh release create v0.1.11.72-demand-aware-seek-previews \
-            "apk/Soky_IPTV_Pro_v0.1.11.72.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.73.apk
+          gh release create v0.1.11.73-safe-intro-credits-autoskip \
+            "apk/Soky_IPTV_Pro_v0.1.11.73.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.72 Demand-Aware Seek Previews" \
-            --notes "v0.1.11.72 EXPERIMENTAL seek thumbnail repair from v71 temporary milestone: prefetch 20 small frames when healthy; prioritize active D-pad target; enable best-effort MPEG-TS VOD and recognized numeric Xtream extensionless movie/series paths; after first batch, support four capped debounced 3-frame request sessions; paused currently visible frame capture; descriptive no-thumbnail status. Max 48 played and 24 storyboard 208x117 bitmaps, one optional metadata retriever session, never seek the active decoder, remain paused while buffering, terminate if provider refuses additional access. HLS/live/DRM/unsupported source may still have no unseen-position thumbnails. v59 GOLD and v71 temporary milestone preserved, debug-signed hardware test only." --prerelease
+            --title "Soky IPTV Pro v0.1.11.73 Safe Intro and Credits Auto-Skip" \
+            --notes "v0.1.11.73 EXPERIMENTAL TV test. Fixes cross-episode playback-position carryover causing next episode to resume near the previous episode's outro. Intro and credits markers are independent; intro can seek only to validated INTRO END, never to credits; impossible and out-of-duration marker combinations are ignored. Intro and Next episode countdowns fill smoothly inside the action button over 10 seconds of active playback, stop on buffer/pause, auto-trigger once unless Watch intro or Watch credits is chosen. Both VLC and Media3 and both player styles use the same policy. Graphite/soft-teal focus accents replace harsh white/red menu and skip button backgrounds; TV D-pad cancellation stays available. Retains v72 experimental thumbnail work and VLC-first playback. Gold v59, v71 temporary and v72 experimental snapshots remain untouched. Debug signed; validate on real Android TV and Firestick before promotion." --prerelease

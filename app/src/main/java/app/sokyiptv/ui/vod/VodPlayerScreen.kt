@@ -181,6 +181,8 @@ fun VodPlayerScreen(
         manualSkips = updated
     }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
+    var introDismissed by remember(mediaKey) { mutableStateOf(false) }
+    var introOffered by remember(mediaKey) { mutableStateOf(false) }
     var markerDialogVisible by remember(mediaKey) { mutableStateOf(false) }
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
@@ -236,7 +238,7 @@ fun VodPlayerScreen(
         previousEpisode = id?.let { graph.catalogRepository.previousEpisode(it) }
         followingEpisode = id?.let { graph.catalogRepository.nextEpisode(it) }
     }
-    var paused by remember { mutableStateOf(false) }
+    var paused by remember(mediaKey) { mutableStateOf(false) }
     var media3Diagnostic by remember { mutableStateOf<String?>(null) }
     fun showMedia3Diagnostic() {
         PlaybackDiagnostics.event(context, "REPORT", persistNow = true)
@@ -305,8 +307,8 @@ fun VodPlayerScreen(
     var resumeFromMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var vodPanel by remember { mutableStateOf(VodPanel.NONE) }
     val panelFocus = remember { FocusRequester() }
-    var positionMs by remember { mutableLongStateOf(0L) }
-    var durationMs by remember { mutableLongStateOf(0L) }
+    var positionMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var durationMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
     // Visual bar follows only the reported duration; never an extrapolated end.
@@ -328,9 +330,9 @@ fun VodPlayerScreen(
     // Only hidden-to-visible horizontal input focuses the seek timeline.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     // Keep rapid absolute-time taps anchored while Media3's native clock settles.
-    val media3SeekClock = remember(controller) { VlcSeekClock() }
-    val postSeekGate = remember(controller) { PostSeekPlaybackGate() }
-    var awaitingSeekPlayback by remember(controller) { mutableStateOf(false) }
+    val media3SeekClock = remember(mediaKey, controller) { VlcSeekClock() }
+    val postSeekGate = remember(mediaKey, controller) { PostSeekPlaybackGate() }
+    var awaitingSeekPlayback by remember(mediaKey, controller) { mutableStateOf(false) }
     val onMarkerLongPress = rememberManualMarkerLongPress(
         enabled = !usingVlc && paused && !seriesGroup.isNullOrBlank() &&
             mediaKey.startsWith("ep:") &&
@@ -693,23 +695,52 @@ fun VodPlayerScreen(
     val playButtonBufferPercent = if (playButtonBuffering && !growingRec && durationMs > 0L)
         controller.player.bufferedPercentage.takeIf { it in 1..99 } else null
 
-    // Prompts stay fully navigable whether transport controls are visible or hidden.
+    // Latch the intro prompt ONLY at the start of this episode. A previous
+    // episode's credits timestamp must never be reused as the new start.
+    val validIntroTarget = manualSkips.safeIntroTarget(durationMs)
+    val earlyIntro = !usingVlc && resumeLoaded && resumeFromMs < 10_000L &&
+        mediaKey.startsWith("ep:") && state is PlayerController.State.Playing &&
+        validIntroTarget != null && positionMs in 0L until 10_000L &&
+        positionMs < validIntroTarget
+    LaunchedEffect(mediaKey, earlyIntro) {
+        if (earlyIntro) introOffered = true
+    }
     val skipIntroPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
-        !paused && state !is PlayerController.State.Error &&
-        manualSkips.showIntro(positionMs)
+        introOffered && !introDismissed && state !is PlayerController.State.Error &&
+        validIntroTarget != null && positionMs < validIntroTarget
     val skipCreditsPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
-        !paused && state !is PlayerController.State.Error && !creditsDismissed &&
-        manualSkips.showCredits(positionMs)
+        !skipIntroPromptVisible && state !is PlayerController.State.Error &&
+        !creditsDismissed && manualSkips.showCredits(positionMs, durationMs)
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
-    fun activateSkipPrompt() {
-        if (skipIntroPromptVisible) seekAt(manualSkips.introEndMs)
-        else if (skipCreditsPromptVisible) {
-            val candidate = followingEpisode
-            if (candidate != null) scope.launch { savePosition(); onNextEpisode(candidate) }
-            else onBack()
-        }
+    fun skipIntroNow() {
+        if (introDismissed) return
+        introDismissed = true
+        validIntroTarget?.takeIf { positionMs < it }?.let(::seekAt)
     }
+    fun nextAfterCredits() {
+        if (creditsDismissed) return
+        creditsDismissed = true
+        val next = followingEpisode
+        if (next != null) scope.launch { savePosition(); onNextEpisode(next) }
+        else onBack()
+    }
+    fun activateSkipPrompt() {
+        if (skipIntroPromptVisible) skipIntroNow()
+        else if (skipCreditsPromptVisible) nextAfterCredits()
+    }
+    val countdownActive = !usingVlc && !paused && !awaitingSeekPlayback &&
+        !scrubbing && !netflixSeeking && vodPanel == VodPanel.NONE &&
+        !markerDialogVisible && state is PlayerController.State.Playing &&
+        controller.player.playbackState == Player.STATE_READY
+    val introCountdown = rememberSkipCountdown(
+        mediaKey, "intro", skipIntroPromptVisible, countdownActive,
+        onTimeout = ::skipIntroNow,
+    )
+    val creditsCountdown = rememberSkipCountdown(
+        mediaKey, "credits", skipCreditsPromptVisible, countdownActive,
+        onTimeout = ::nextAfterCredits,
+    )
 
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
     // and out of Buffering as it rides the write head, so for that case Buffering counts as "playing"
@@ -1164,36 +1195,37 @@ fun VodPlayerScreen(
             )
         }
         if (skipIntroPromptVisible) {
-            NetflixSkipPrompt(
-                label = "Skip intro",
+            NetflixTimedSkipPrompt(
+                label = "Skip intro", cancelLabel = "Watch intro",
+                elapsedMs = introCountdown,
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
-            ) { seekAt(manualSkips.introEndMs) }
+                onCancel = { introDismissed = true },
+                onSkip = ::skipIntroNow,
+            )
         } else if (skipCreditsPromptVisible) {
-            val nextAction: () -> Unit = {
-                val candidate = followingEpisode
-                if (mediaKey.startsWith("ep:") && candidate != null) {
-                    scope.launch { savePosition(); onNextEpisode(candidate) }
-                } else onBack()
-            }
             if (netflix) {
                 NetflixCreditsPrompt(
                     isEpisode = mediaKey.startsWith("ep:"),
                     nextAvailable = followingEpisode != null,
                     onContinue = { creditsDismissed = true },
-                    onSkip = nextAction,
+                    onSkip = ::nextAfterCredits,
                     modifier = Modifier.align(Alignment.Center),
                     focusRequester = skipPromptFocus,
+                    elapsedMs = creditsCountdown,
                 )
             } else {
-                NetflixSkipPrompt(
+                NetflixTimedSkipPrompt(
                     label = if (mediaKey.startsWith("ep:") && followingEpisode != null)
                         "Next episode" else "Back to title",
+                    cancelLabel = "Watch credits",
+                    elapsedMs = creditsCountdown,
                     modifier = Modifier.align(Alignment.BottomEnd)
                         .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                     focusRequester = skipPromptFocus,
-                    onClick = nextAction,
+                    onCancel = { creditsDismissed = true },
+                    onSkip = ::nextAfterCredits,
                 )
             }
         }
