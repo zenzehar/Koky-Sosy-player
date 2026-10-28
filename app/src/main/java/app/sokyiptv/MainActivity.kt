@@ -633,13 +633,19 @@ private fun SokyIptvApp(isTelevision: Boolean) {
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "SokyIPTV/0.1 (Android)" },
                     onBack = { navController.popBackStack() },
-                    onNextEpisode = { next ->
+                    onNextEpisode = nextEpisode@{ next ->
+                        // Only a real playable next episode may advance the player.
+                        // Never pop the current destination merely because credits began.
+                        if (next.streamUrl.isBlank()) return@nextEpisode
                         val label = "S%02dE%02d - %s".format(next.season, next.episodeNumber, next.title)
-                        navController.navigate(
-                            Routes.vodPlayer("ep:${next.id}", next.streamUrl,
-                                label, "SokyIPTV/0.1 (Android)"),
-                        ) {
-                            popUpTo(Routes.VOD_PLAYER) { inclusive = true }
+                        val target = Routes.vodPlayer(
+                            "ep:${next.id}", next.streamUrl, label, "SokyIPTV/0.1 (Android)"
+                        )
+                        navController.navigate(target) {
+                            // Replace this exact player destination, not an ambiguous
+                            // route pattern; otherwise a timed skip can reveal the
+                            // underlying series/title screen instead of the next video.
+                            popUpTo(entry.destination.id) { inclusive = true }
                             launchSingleTop = true
                         }
                     },

@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.73-safe-intro-credits-autoskip' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.74-trickplay-focus-and-auto-skip' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.73-safe-intro-credits-autoskip'
+      github.head_ref == 'fix/v0.1.11.74-trickplay-focus-and-auto-skip'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.73.apk
-          gh release create v0.1.11.73-safe-intro-credits-autoskip \
-            "apk/Soky_IPTV_Pro_v0.1.11.73.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.74.apk
+          gh release create v0.1.11.74-trickplay-focus-and-auto-skip \
+            "apk/Soky_IPTV_Pro_v0.1.11.74.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.73 Safe Intro and Credits Auto-Skip" \
-            --notes "v0.1.11.73 EXPERIMENTAL TV test. Fixes cross-episode playback-position carryover causing next episode to resume near the previous episode's outro. Intro and credits markers are independent; intro can seek only to validated INTRO END, never to credits; impossible and out-of-duration marker combinations are ignored. Intro and Next episode countdowns fill smoothly inside the action button over 10 seconds of active playback, stop on buffer/pause, auto-trigger once unless Watch intro or Watch credits is chosen. Both VLC and Media3 and both player styles use the same policy. Graphite/soft-teal focus accents replace harsh white/red menu and skip button backgrounds; TV D-pad cancellation stays available. Retains v72 experimental thumbnail work and VLC-first playback. Gold v59, v71 temporary and v72 experimental snapshots remain untouched. Debug signed; validate on real Android TV and Firestick before promotion." --prerelease
+            --title "Soky IPTV Pro v0.1.11.74 Seek Previews, Focus and Reliable Auto-Skip" \
+            --notes "v0.1.11.74 EXPERIMENTAL Android TV prerelease. Repairs continuously held D-pad seeking: request preview timestamps immediately (v73 260ms per-timestamp debounce cancelled requests), keep one supported-source metadata retriever for rapid demand seeking, widen truthful approximate storyboard coverage and fix cache candidate selection when a close but rejected live frame previously obscured a valid storyboard. Preview cannot be guaranteed for unseen scenes when IPTV providers block secondary metadata connections. Rebuild 10-second auto-skip timer as an uninterrupted episode-scoped coroutine that advances only while playing and fires once; intro jumps only to intro-end. Credits action moves to a CONFIRMED playable next episode, never back to title on absent next; navigator replaces exact current player destination. D-pad Up returns to skip buttons, Down exits to controls, Left Right toggle action/cancellation. Reduce Netflix-like seek cursor from 9/11dp to 5/6.5dp and replace harsh red/teal focus colours with quiet graphite/silver. VLC playback/seek engine untouched. v59 GOLD, v71 temporary and v72/v73 experiments preserved. Unit tests and real TV QA needed." --prerelease

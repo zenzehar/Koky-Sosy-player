@@ -31,12 +31,13 @@ class ProactivePreviewPolicyTest {
             "https://provider.example/unknown/123", 35))
     }
 
-    @Test fun storyboardIsBoundedDistributedAndPrioritizesNearFuture() {
+    @Test fun storyboardIsBoundedAndCoversWholeDurationFirst() {
         val total = 7_200_000L
         val plan = ProactivePreviewPolicy.storyboard(total, 1_000_000L)
         assertEquals(24, plan.size)
-        assertEquals(1_030_000L, plan[0])
-        assertEquals(1_060_000L, plan[1])
+        assertEquals(3_600_000L, plan[0])
+        assertEquals(1_800_000L, plan[1])
+        assertEquals(5_400_000L, plan[2])
         assertTrue(plan.any { it in 3_000_000L..4_000_000L })
         assertTrue(plan.any { it > 6_000_000L })
         assertTrue(plan.all { it in 2_000L until total })
@@ -53,8 +54,8 @@ class ProactivePreviewPolicyTest {
     }
 
     @Test fun approximateThumbnailDistanceIsClampedForDeviceUsability() {
-        assertEquals(12_000L, ProactivePreviewPolicy.maxApproximateDistanceMs(60_000L))
-        assertEquals(155_000L, ProactivePreviewPolicy.maxApproximateDistanceMs(7_200_000L))
-        assertEquals(180_000L, ProactivePreviewPolicy.maxApproximateDistanceMs(32_000_000L))
+        assertEquals(40_000L, ProactivePreviewPolicy.maxApproximateDistanceMs(60_000L))
+        assertEquals(240_000L, ProactivePreviewPolicy.maxApproximateDistanceMs(7_200_000L))
+        assertEquals(240_000L, ProactivePreviewPolicy.maxApproximateDistanceMs(32_000_000L))
     }
 }

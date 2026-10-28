@@ -25,10 +25,11 @@ internal object ProactivePreviewPolicy {
     fun storyboard(durationMs: Long, fromMs: Long): List<Long> {
         if (durationMs < 60_000L) return emptyList()
         val last = (durationMs - 2_000L).coerceAtLeast(0L)
+        // Cover the entire episode before filling in local details.
         val priority = listOf(
-            fromMs + 30_000L, fromMs + 60_000L, fromMs + 120_000L,
-            durationMs / 4, durationMs / 2, durationMs * 3 / 4,
+            durationMs / 2, durationMs / 4, durationMs * 3 / 4,
             durationMs / 10, durationMs * 9 / 10,
+            fromMs + 30_000L, fromMs + 90_000L, fromMs - 30_000L,
         )
         val evenlySpaced = (1..24).map { i -> durationMs * i / 25L }
         val result = ArrayList<Long>(24)
@@ -51,5 +52,5 @@ internal object ProactivePreviewPolicy {
 
     /** A sparse storyboard is explicitly an approximate scene, not an exact seek frame. */
     fun maxApproximateDistanceMs(durationMs: Long): Long =
-        (durationMs / 48L + 5_000L).coerceIn(12_000L, 180_000L)
+        (durationMs / 14L + 8_000L).coerceIn(40_000L, 240_000L)
 }

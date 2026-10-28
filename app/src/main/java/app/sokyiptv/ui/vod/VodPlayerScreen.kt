@@ -183,6 +183,8 @@ fun VodPlayerScreen(
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     var introDismissed by remember(mediaKey) { mutableStateOf(false) }
     var introOffered by remember(mediaKey) { mutableStateOf(false) }
+    var skipPromptHasFocus by remember(mediaKey) { mutableStateOf(false) }
+    var skipPromptUserLeft by remember(mediaKey) { mutableStateOf(false) }
     var markerDialogVisible by remember(mediaKey) { mutableStateOf(false) }
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
@@ -709,8 +711,9 @@ fun VodPlayerScreen(
         introOffered && !introDismissed && state !is PlayerController.State.Error &&
         validIntroTarget != null && positionMs < validIntroTarget
     val skipCreditsPromptVisible = !usingVlc && mediaKey.startsWith("ep:") &&
-        !skipIntroPromptVisible && state !is PlayerController.State.Error &&
-        !creditsDismissed && manualSkips.showCredits(positionMs, durationMs)
+        followingEpisode != null && !skipIntroPromptVisible &&
+        state !is PlayerController.State.Error && !creditsDismissed &&
+        manualSkips.showCredits(positionMs, durationMs)
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
     fun skipIntroNow() {
@@ -719,11 +722,11 @@ fun VodPlayerScreen(
         validIntroTarget?.takeIf { positionMs < it }?.let(::seekAt)
     }
     fun nextAfterCredits() {
+        // Countdown is *next episode only*; NEVER exit to title on missing next.
         if (creditsDismissed) return
+        val next = followingEpisode ?: return
         creditsDismissed = true
-        val next = followingEpisode
-        if (next != null) scope.launch { savePosition(); onNextEpisode(next) }
-        else onBack()
+        scope.launch { savePosition(); onNextEpisode(next) }
     }
     fun activateSkipPrompt() {
         if (skipIntroPromptVisible) skipIntroNow()
@@ -731,7 +734,7 @@ fun VodPlayerScreen(
     }
     val countdownActive = !usingVlc && !paused && !awaitingSeekPlayback &&
         !scrubbing && !netflixSeeking && vodPanel == VodPanel.NONE &&
-        !markerDialogVisible && state is PlayerController.State.Playing &&
+        !markerDialogVisible && controller.player.isPlaying &&
         controller.player.playbackState == Player.STATE_READY
     val introCountdown = rememberSkipCountdown(
         mediaKey, "intro", skipIntroPromptVisible, countdownActive,
@@ -755,12 +758,15 @@ fun VodPlayerScreen(
         }
     }
 
+    LaunchedEffect(skipIntroPromptVisible, skipCreditsPromptVisible) {
+        if (skipPromptVisible) skipPromptUserLeft = false
+    }
     // One reliable focus handoff after controls have entered the Compose focus tree.
     // Never re-request focus on navigation events: that would steal it from D-pad moves.
     LaunchedEffect(controlsVisible, vodPanel, netflix, skipPromptVisible) {
         withFrameNanos { }
         withFrameNanos { }
-        if (skipPromptVisible) {
+        if (skipPromptVisible && !skipPromptUserLeft) {
             runCatching { skipPromptFocus.requestFocus() }
         } else if (controlsVisible) {
             runCatching {
@@ -857,6 +863,12 @@ fun VodPlayerScreen(
                     event.type == KeyEventType.KeyDown && skipPromptVisible && rootOwnsFocus &&
                         event.key in setOf(Key.DirectionCenter, Key.Enter) -> {
                         if (event.nativeKeyEvent.repeatCount == 0) activateSkipPrompt()
+                        true
+                    }
+                    event.type == KeyEventType.KeyDown && skipPromptVisible &&
+                        !skipPromptHasFocus && event.key == Key.DirectionUp -> {
+                        skipPromptUserLeft = false
+                        runCatching { skipPromptFocus.requestFocus() }
                         true
                     }
                     event.type == KeyEventType.KeyDown && skipPromptVisible && rootOwnsFocus &&
@@ -991,6 +1003,7 @@ fun VodPlayerScreen(
                         onMarkers = { markerDialogVisible = true; reveal() },
                         playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
+                        skipPromptVisible = skipPromptVisible, skipPromptFocus = skipPromptFocus,
                         frameAt = seekFrames::nearestFrame,
                         previewStatus = seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
@@ -1203,6 +1216,15 @@ fun VodPlayerScreen(
                 focusRequester = skipPromptFocus,
                 onCancel = { introDismissed = true },
                 onSkip = ::skipIntroNow,
+                onFocusChanged = { skipPromptHasFocus = it },
+                onLeave = {
+                    skipPromptUserLeft = true
+                    reveal()
+                    scope.launch {
+                        withFrameNanos { }
+                        runCatching { timelineFocus.requestFocus() }
+                    }
+                },
             )
         } else if (skipCreditsPromptVisible) {
             if (netflix) {
@@ -1214,6 +1236,15 @@ fun VodPlayerScreen(
                     modifier = Modifier.align(Alignment.Center),
                     focusRequester = skipPromptFocus,
                     elapsedMs = creditsCountdown,
+                    onFocusChanged = { skipPromptHasFocus = it },
+                    onLeave = {
+                        skipPromptUserLeft = true
+                        reveal()
+                        scope.launch {
+                            withFrameNanos { }
+                            runCatching { timelineFocus.requestFocus() }
+                        }
+                    },
                 )
             } else {
                 NetflixTimedSkipPrompt(
@@ -1226,6 +1257,15 @@ fun VodPlayerScreen(
                     focusRequester = skipPromptFocus,
                     onCancel = { creditsDismissed = true },
                     onSkip = ::nextAfterCredits,
+                    onFocusChanged = { skipPromptHasFocus = it },
+                    onLeave = {
+                        skipPromptUserLeft = true
+                        reveal()
+                        scope.launch {
+                            withFrameNanos { }
+                            runCatching { timelineFocus.requestFocus() }
+                        }
+                    },
                 )
             }
         }

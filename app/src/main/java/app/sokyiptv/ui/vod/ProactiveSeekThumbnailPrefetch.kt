@@ -40,11 +40,11 @@ internal object ProactiveFrameExtractor {
         // Do not compete with startup or a buffering main stream.
         var good = 0
         var waited = 0
-        while (coroutineContext.isActive && good < 3 && waited++ < 30) {
-            delay(900L)
+        while (coroutineContext.isActive && good < 2 && waited++ < 36) {
+            delay(500L)
             good = if (canWork()) good + 1 else 0
         }
-        if (!coroutineContext.isActive || good < 3) return@withLock Result(true, 0)
+        if (!coroutineContext.isActive || good < 2) return@withLock Result(true, 0)
 
         cache.previewStatus = if (demandOnly) "Finding selected scene…" else "Preparing future scenes…"
         val retriever = try {
@@ -73,12 +73,20 @@ internal object ProactiveFrameExtractor {
         val attempted = HashSet<Long>()
         val targets = if (demandOnly)
             ProactivePreviewPolicy.requestedFrames(initialPositionMs, durationMs)
-        else ProactivePreviewPolicy.storyboard(durationMs, initialPositionMs).take(20)
+        else ProactivePreviewPolicy.storyboard(durationMs, initialPositionMs).take(24)
         var next = 0
-        val limit = if (demandOnly) 3 else 20
+        val limit = if (demandOnly) 3 else 32
+        var requests = 0
+        var lastRequested = -1L
+        var lastRequestAt = 0L
+        val maxLifetimeAt = SystemClock.elapsedRealtime() + 120_000L
         try {
+            // Keep the *same* metadata connection alive after initial storyboard
+            // completion. Later D-pad selections are handled here instead of
+            // paying setDataSource + 3 health ticks for every new timestamp.
             while (coroutineContext.isActive && frames < limit &&
-                failures < 3 && slowFrames < 2 && next < targets.size) {
+                requests < 40 && failures < 3 && slowFrames < 2 &&
+                SystemClock.elapsedRealtime() < maxLifetimeAt) {
                 if (!canWork()) {
                     if (++unhealthy >= 4) break // main player has absolute priority
                     delay(750L)
@@ -88,10 +96,21 @@ internal object ProactiveFrameExtractor {
 
                 // Prefer the most recently selected scrub target over the prefetch queue.
                 val requested = previewTarget()
+                val tick = SystemClock.elapsedRealtime()
                 val priority = !demandOnly && requested in 2_000L until durationMs &&
+                    requested != lastRequested && tick - lastRequestAt >= 110L &&
                     !cache.hasFrameNear(requested, 4_000L) && requested !in attempted
-                val target = if (priority) requested else targets[next++]
+                val target = when {
+                    priority -> {
+                        lastRequested = requested
+                        lastRequestAt = tick
+                        requested
+                    }
+                    next < targets.size -> targets[next++]
+                    else -> { delay(130L); continue }
+                }
                 if (!attempted.add(target) || cache.hasFrameNear(target, 4_000L)) continue
+                requests++
 
                 val started = SystemClock.elapsedRealtime()
                 val image: Bitmap? = try {
@@ -113,7 +132,7 @@ internal object ProactiveFrameExtractor {
                     frames++
                     failures = 0
                 } else image.recycle()
-                delay(if (elapsed > 900L) 1_500L else 900L)
+                delay(if (elapsed > 900L) 700L else 250L)
             }
         } finally {
             // Native getScaledFrameAtTime cannot be cancelled mid-call.
@@ -159,7 +178,7 @@ internal fun ProactiveSeekThumbnailPrefetch(
             cache.previewStatus = "This stream supports only already-played snapshots"
             return@LaunchedEffect
         }
-        delay(2_500L)
+        delay(1_500L)
         while (coroutineContext.isActive && latestDuration < 60_000L) delay(750L)
         if (!coroutineContext.isActive) return@LaunchedEffect
 

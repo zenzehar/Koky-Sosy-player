@@ -118,6 +118,8 @@ fun VlcFallbackScreen(
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
     var introDismissed by remember(mediaKey) { mutableStateOf(false) }
     var introOffered by remember(mediaKey) { mutableStateOf(false) }
+    var skipPromptHasFocus by remember(mediaKey) { mutableStateOf(false) }
+    var skipPromptUserLeft by remember(mediaKey) { mutableStateOf(false) }
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
@@ -528,8 +530,8 @@ fun VlcFallbackScreen(
     val skipIntroPromptVisible = showEpisodeControls && !introDismissed &&
         introOffered && !failed && !ended && ready &&
         validIntroTarget != null && positionMs < validIntroTarget
-    val skipCreditsPromptVisible = showEpisodeControls && !creditsDismissed &&
-        !skipIntroPromptVisible && !failed && !ended && ready &&
+    val skipCreditsPromptVisible = showEpisodeControls && nextEpisodeAvailable &&
+        !creditsDismissed && !skipIntroPromptVisible && !failed && !ended && ready &&
         manualSkips.showCredits(positionMs, durationMs)
     // Start the optional low-priority storyboard after native video is stable.
     // Unsupported and live-like formats continue to use PixelCopy only.
@@ -570,18 +572,23 @@ fun VlcFallbackScreen(
         validIntroTarget?.takeIf { positionMs < it }?.let(::seekTo)
     }
     fun nextAfterCredits() {
-        if (creditsDismissed) return
+        // NEVER exit to the series/title page on a countdown. If there is no
+        // confirmed next episode, leave credits playing normally.
+        if (creditsDismissed || !nextEpisodeAvailable) return
         creditsDismissed = true
-        if (nextEpisodeAvailable) onNextEpisodeClick() else leaveVideo()
+        onNextEpisodeClick()
     }
     fun activateSkipPrompt() {
         if (skipIntroPromptVisible) skipIntroNow()
         else if (skipCreditsPromptVisible) nextAfterCredits()
     }
-    val countdownActive = ready && nativePlaybackActive && !paused &&
+    val countdownActive = ready && !paused &&
         !failed && !ended && !suspendPlayback && !scrubbing && !netflixSeeking &&
         !trackPanelVisible && !markerPanelVisible &&
-        healthSnapshot.state == VlcPlaybackHealth.State.PLAYING
+        runCatching { player.isPlaying }.getOrDefault(false) &&
+        !diagHealth.networkBuffering &&
+        healthSnapshot.state != VlcPlaybackHealth.State.BUFFERING &&
+        healthSnapshot.state != VlcPlaybackHealth.State.STALLED
     val introCountdown = rememberSkipCountdown(
         mediaKey, "intro", skipIntroPromptVisible, countdownActive,
         onTimeout = ::skipIntroNow,
@@ -590,13 +597,16 @@ fun VlcFallbackScreen(
         mediaKey, "credits", skipCreditsPromptVisible, countdownActive,
         onTimeout = ::nextAfterCredits,
     )
+    LaunchedEffect(skipIntroPromptVisible, skipCreditsPromptVisible) {
+        if (skipPromptVisible) skipPromptUserLeft = false
+    }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
     LaunchedEffect(controlsVisible, netflix, skipPromptVisible) {
         withFrameNanos { }
         withFrameNanos { }
         runCatching {
-            if (skipPromptVisible) {
+            if (skipPromptVisible && !skipPromptUserLeft) {
                 skipPromptFocus.requestFocus()
             } else if (controlsVisible) {
                 if (focusSeekOnReveal) {
@@ -656,6 +666,11 @@ fun VlcFallbackScreen(
                 else if (skipPromptVisible && rootOwnsFocus &&
                     event.key in setOf(Key.DirectionCenter, Key.Enter)) {
                     if (event.nativeKeyEvent.repeatCount == 0) activateSkipPrompt()
+                    true
+                } else if (skipPromptVisible && !skipPromptHasFocus &&
+                    event.key == Key.DirectionUp) {
+                    skipPromptUserLeft = false
+                    runCatching { skipPromptFocus.requestFocus() }
                     true
                 } else if (skipPromptVisible && rootOwnsFocus &&
                     event.key in setOf(Key.DirectionLeft, Key.DirectionRight,
@@ -796,6 +811,7 @@ fun VlcFallbackScreen(
                     onMarkers = { markerPanelVisible = true; showControls() },
                     playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
+                    skipPromptVisible = skipPromptVisible, skipPromptFocus = skipPromptFocus,
                     frameAt = seekFrames::nearestFrame,
                     previewStatus = seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
@@ -1032,6 +1048,15 @@ fun VlcFallbackScreen(
                 focusRequester = skipPromptFocus,
                 onCancel = { introDismissed = true },
                 onSkip = ::skipIntroNow,
+                onFocusChanged = { skipPromptHasFocus = it },
+                onLeave = {
+                    skipPromptUserLeft = true
+                    showControls()
+                    scope.launch {
+                        withFrameNanos { }
+                        runCatching { seekFocus.requestFocus() }
+                    }
+                },
             )
         } else if (skipCreditsPromptVisible && netflix) {
             NetflixCreditsPrompt(
@@ -1041,6 +1066,15 @@ fun VlcFallbackScreen(
                 modifier = Modifier.align(Alignment.Center),
                 focusRequester = skipPromptFocus,
                 elapsedMs = creditsCountdown,
+                onFocusChanged = { skipPromptHasFocus = it },
+                onLeave = {
+                    skipPromptUserLeft = true
+                    showControls()
+                    scope.launch {
+                        withFrameNanos { }
+                        runCatching { seekFocus.requestFocus() }
+                    }
+                },
             )
         } else if (skipCreditsPromptVisible) {
             NetflixTimedSkipPrompt(
@@ -1053,6 +1087,15 @@ fun VlcFallbackScreen(
                 focusRequester = skipPromptFocus,
                 onCancel = { creditsDismissed = true },
                 onSkip = ::nextAfterCredits,
+                onFocusChanged = { skipPromptHasFocus = it },
+                onLeave = {
+                    skipPromptUserLeft = true
+                    showControls()
+                    scope.launch {
+                        withFrameNanos { }
+                        runCatching { seekFocus.requestFocus() }
+                    }
+                },
             )
         }
         if (trackPanelVisible && !leaving.get() && !nativeReleased.get()) {

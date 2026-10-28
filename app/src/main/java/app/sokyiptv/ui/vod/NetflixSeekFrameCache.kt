@@ -56,24 +56,23 @@ internal class NetflixSeekFrameCache {
     fun nearestFrame(positionMs: Long): CapturedFrame? {
         @Suppress("UNUSED_VARIABLE") val observedRevision = revision
         val live = liveFrames.entries.minByOrNull { abs(it.key - positionMs) }
+            ?.takeIf { abs(it.key - positionMs) <= 12_000L }
         val proactive = storyboardFrames.entries.minByOrNull { abs(it.key - positionMs) }
-        val nearest = when {
-            live == null -> proactive
-            proactive == null -> live
-            abs(live.key - positionMs) <= abs(proactive.key - positionMs) -> live
-            else -> proactive
-        } ?: return null
-        val distance = abs(nearest.key - positionMs)
-        // Only the sparse storyboard can cover unseen portions. The UI explicitly
-        // labels a non-exact cached scene with its actual timestamp.
-        val tolerance = if (storyboardFrames.containsKey(nearest.key))
-            ProactivePreviewPolicy.maxApproximateDistanceMs(storyboardDurationMs)
-        else 12_000L
-        if (distance > tolerance) return null
-        val isStoryboard = storyboardFrames.containsKey(nearest.key)
+            ?.takeIf { abs(it.key - positionMs) <=
+                ProactivePreviewPolicy.maxApproximateDistanceMs(storyboardDurationMs) }
+        // BUG FIX: do not choose the closest *ineligible* live frame before
+        // considering a usable storyboard. That left a blank card during rapid
+        // seeks even though a prepared future frame was already in the cache.
+        val selected = when {
+            live == null -> proactive to true
+            proactive == null -> live to false
+            abs(live.key - positionMs) <= abs(proactive.key - positionMs) -> live to false
+            else -> proactive to true
+        }
+        val nearest = selected.first ?: return null
         return CapturedFrame(nearest.key, nearest.value.asImageBitmap(),
-            !isStoryboard && NetflixSeekPreviewPolicy.frameMatches(nearest.key, positionMs),
-            storyboard = isStoryboard)
+            !selected.second && NetflixSeekPreviewPolicy.frameMatches(nearest.key, positionMs),
+            storyboard = selected.second)
     }
 
     fun thumbnail(positionMs: Long): ImageBitmap? =
