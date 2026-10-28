@@ -112,6 +112,8 @@ internal fun NetflixLikePlayerChrome(
     skipPromptVisible: Boolean = false,
     skipPromptFocus: FocusRequester? = null,
     frameAt: (Long) -> NetflixSeekFrameCache.CapturedFrame? = { null },
+    predictiveTrickplay: Boolean = false,
+    playbackSettling: Boolean = false,
     previewStatus: String = "Preparing thumbnails…",
     onPreviewRequested: (Long) -> Unit = {},
     onSeekingChanged: (Boolean) -> Unit = {},
@@ -137,7 +139,27 @@ internal fun NetflixLikePlayerChrome(
     var seekFocused by remember { mutableStateOf(false) }
     var buttonSeekPreviewMs by remember { mutableLongStateOf(-1L) }
     var activeTarget by remember { mutableStateOf(NetflixTarget.PLAY) }
-    val displayMs = if (scrubbing) seekPreviewMs else positionMs
+    var selectedSeekTargetMs by remember { mutableLongStateOf(-1L) }
+    var seekSubmittedAtMs by remember { mutableLongStateOf(0L) }
+    val nowUptimeMs = SystemClock.uptimeMillis()
+    val pendingTarget = selectedSeekTargetMs.takeIf { it >= 0L &&
+        !SeekbarOkPolicy.caughtUp(it, positionMs, playbackSettling,
+            seekSubmittedAtMs, nowUptimeMs) }
+    val displayMs = when {
+        scrubbing -> seekPreviewMs
+        pendingTarget != null -> pendingTarget
+        else -> positionMs
+    }
+    LaunchedEffect(selectedSeekTargetMs, positionMs, playbackSettling, seekSubmittedAtMs) {
+        if (selectedSeekTargetMs < 0L) return@LaunchedEffect
+        val remain = (seekSubmittedAtMs + SeekbarOkPolicy.MIN_CONFIRMATION_MS -
+            SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        if (remain > 0L) delay(remain)
+        if (SeekbarOkPolicy.caughtUp(selectedSeekTargetMs, positionMs,
+                playbackSettling, seekSubmittedAtMs, SystemClock.uptimeMillis())) {
+            selectedSeekTargetMs = -1L
+        }
+    }
 
     // TV remotes do not always send repeated D-pad DOWN events while held.
     // Progress based on monotonic elapsed time, without issuing ANY player seek
@@ -312,6 +334,36 @@ internal fun NetflixLikePlayerChrome(
                         }
                     }
                     .onPreviewKeyEvent { event ->
+                        // Remote OK confirms an unsettled selection immediately.
+                        // Once playback catches the cursor it means Play/Pause.
+                        if (event.key == Key.DirectionCenter || event.key == Key.Enter) {
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.nativeKeyEvent.repeatCount == 0) {
+                                onActivity()
+                                val selected = if (scrubbing) seekPreviewMs else selectedSeekTargetMs
+                                val action = SeekbarOkPolicy.action(
+                                    selectedMs = selected,
+                                    reportedPlaybackMs = positionMs,
+                                    activelySelecting = scrubbing,
+                                    seekStillSettling = playbackSettling,
+                                    submittedAtUptimeMs = seekSubmittedAtMs,
+                                    nowUptimeMs = SystemClock.uptimeMillis(),
+                                )
+                                if (action == SeekbarOkPolicy.Action.COMMIT_SEEK) {
+                                    heldDirection = null
+                                    scrubbing = false
+                                    onSeekingChanged(false)
+                                    selectedSeekTargetMs = selected
+                                    seekSubmittedAtMs = SystemClock.uptimeMillis()
+                                    buttonSeekPreviewMs = selected
+                                    onSeek(selected)
+                                } else {
+                                    selectedSeekTargetMs = -1L
+                                    onToggle()
+                                }
+                            }
+                            return@onPreviewKeyEvent true
+                        }
                         val direction = when (event.key) {
                             Key.DirectionLeft -> SeekDirection.BACKWARD
                             Key.DirectionRight -> SeekDirection.FORWARD
@@ -323,7 +375,8 @@ internal fun NetflixLikePlayerChrome(
                                 if (durationMs <= 0L) return@onPreviewKeyEvent true
                                 if (event.nativeKeyEvent.repeatCount == 0 ||
                                     heldDirection != direction) {
-                                    seekOriginMs = if (scrubbing) seekPreviewMs else positionMs
+                                    seekOriginMs = if (scrubbing) seekPreviewMs
+                                        else pendingTarget ?: positionMs
                                     seekHeldAtMs = SystemClock.uptimeMillis()
                                     heldDirection = direction
                                     seekPreviewMs = TvSeekPolicy.tap(
@@ -341,6 +394,8 @@ internal fun NetflixLikePlayerChrome(
                                 scrubbing = false
                                 onSeekingChanged(false)
                                 if (shouldCommit && durationMs > 0L) {
+                                    selectedSeekTargetMs = target
+                                    seekSubmittedAtMs = SystemClock.uptimeMillis()
                                     buttonSeekPreviewMs = target
                                     onSeek(target)
                                 }
@@ -350,7 +405,7 @@ internal fun NetflixLikePlayerChrome(
                         }
                     }
                     .semantics {
-                        contentDescription = "Timeline. Left and right seek ten seconds; hold to accelerate."
+                        contentDescription = "Timeline. Left and right move or seek ten seconds. OK confirms a pending seek, otherwise pauses or resumes."
                     }
                     .focusable(),
                 contentAlignment = Alignment.Center,
@@ -382,12 +437,13 @@ internal fun NetflixLikePlayerChrome(
         // Netflix-style trickplay card follows the playhead, not the centre of
         // the screen. A snapshot is shown only for a time-matching decoded frame.
         // Without provider-supplied storyboards, unseen positions have no image.
-        val previewOn = seekFocused || scrubbing || buttonSeekPreviewMs >= 0L
+        val previewOn = seekFocused || scrubbing ||
+            buttonSeekPreviewMs >= 0L || pendingTarget != null
         if (previewOn && durationMs > 0L) {
             val previewAt = when {
                 scrubbing -> seekPreviewMs
                 buttonSeekPreviewMs >= 0L -> buttonSeekPreviewMs
-                else -> positionMs
+                else -> pendingTarget ?: positionMs
             }.coerceIn(0L, durationMs)
             val fraction = (previewAt.toDouble() / durationMs).toFloat()
                 .coerceIn(0f, 1f)
@@ -395,12 +451,15 @@ internal fun NetflixLikePlayerChrome(
             val travel = (maxWidth - 47.dp - 53.dp - 111.dp).coerceAtLeast(0.dp)
             val start = (58.dp + travel * fraction - bubbleWidth / 2f)
                 .coerceIn(8.dp, (maxWidth - bubbleWidth - 8.dp).coerceAtLeast(8.dp))
-            // IMPORTANT: never debounce here. During long D-pad holds previewAt
-            // changes every 65ms; v73's 260ms effect was cancelled every time,
-            // so extraction was never told which unseen scene to prepare.
-            // The metadata worker itself rate-limits expensive decode requests.
-            LaunchedEffect(previewAt) { onPreviewRequested(previewAt) }
-            val frame = frameAt(previewAt)
+            // Fast hold requests use a thinner contact-sheet cadence but
+            // never alter the actual playback seek target or time label.
+            val previewSampleMs = if (predictiveTrickplay && heldDirection != null) {
+                val heldMs = SystemClock.uptimeMillis() - seekHeldAtMs
+                val granularity = NetflixPreviewPolicy.displayGranularity(heldMs)
+                (previewAt / granularity) * granularity
+            } else previewAt
+            LaunchedEffect(previewSampleMs) { onPreviewRequested(previewSampleMs) }
+            val frame = frameAt(previewSampleMs)
             Column(
                 modifier = Modifier.align(Alignment.BottomStart)
                     .padding(start = start, bottom = timelineBottom + 47.dp)

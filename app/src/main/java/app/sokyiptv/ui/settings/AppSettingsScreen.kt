@@ -73,6 +73,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val resumeLast by settings.resumeLastChannel.collectAsState()
     val autoNext by settings.seriesAutoplay.collectAsState()
     val playerUiStyle by settings.playerUiStyle.collectAsState()
+    val thumbnailSeekMode by settings.thumbnailSeekMode.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -310,6 +311,28 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             ThemeOption("Netflix-like style", playerUiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE) {
                 settings.setPlayerUiStyle(AppSettings.PlayerUiStyle.NETFLIX_LIKE)
             }
+            Spacer(Modifier.height(14.dp))
+            Text("Thumbnail seek preview", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Choose how preview images are prepared when scrubbing. This does not change playback or the player layout.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ThemeOption(
+                "Netflix-like thumbnail seek preview (default)",
+                thumbnailSeekMode == AppSettings.ThumbnailSeekMode.NETFLIX_LIKE,
+            ) { settings.setThumbnailSeekMode(AppSettings.ThumbnailSeekMode.NETFLIX_LIKE) }
+            ThemeOption(
+                "Current disk-cached thumbnail preview",
+                thumbnailSeekMode == AppSettings.ThumbnailSeekMode.CURRENT_DISK,
+            ) { settings.setThumbnailSeekMode(AppSettings.ThumbnailSeekMode.CURRENT_DISK) }
+            Text(
+                "Netflix-like: predictive broad-to-fine storyboard and current-seek priority, using a separate disk cache. " +
+                    "Current: the existing five-second whole-video disk index. " +
+                    "Both depend on provider support for unseen-scene extraction.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text("Automatic intro and credits recognition learns from playback visuals on this device. Skip appears only with sufficient visual evidence; it never assumes fixed intro lengths.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

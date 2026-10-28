@@ -165,14 +165,19 @@ fun VodPlayerScreen(
     val settings = remember { graph.settings }
     val autoplay by settings.seriesAutoplay.collectAsState()
     val uiStyle by settings.playerUiStyle.collectAsState()
+    val thumbnailMode by settings.thumbnailSeekMode.collectAsState()
+    val predictiveTrickplay =
+        thumbnailMode == AppSettings.ThumbnailSeekMode.NETFLIX_LIKE
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    val predictiveFrames = remember(mediaKey) { NetflixSeekFrameCache() }
     val passiveDisk = remember(mediaKey, streamUrl) {
         SeekThumbnailDiskCache(context.applicationContext, streamUrl)
     }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
+    DisposableEffect(predictiveFrames) { onDispose { predictiveFrames.clear() } }
     var seriesGroup by remember(mediaKey) { mutableStateOf<String?>(null) }
     val markerStore = remember(context) { ManualSeriesSkipStore(context) }
     var manualSkips by remember(mediaKey, seriesGroup) {
@@ -316,6 +321,8 @@ fun VodPlayerScreen(
     var durationMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableFloatStateOf(0f) }
+    var classicPendingTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
+    var classicSubmittedAtMs by remember(mediaKey) { mutableLongStateOf(0L) }
     // Visual bar follows only the reported duration; never an extrapolated end.
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
 
@@ -685,14 +692,21 @@ fun VodPlayerScreen(
     }
 
     // The active Media3 path only; VLC owns its own bounded storyboard cache.
+    val thumbnailsHealthy = !usingVlc && !awaitingSeekPlayback &&
+        (state is PlayerController.State.Playing ||
+            (paused && controller.player.playbackState == Player.STATE_READY))
     ProactiveSeekThumbnailPrefetch(
         streamUrl = streamUrl, userAgent = userAgent,
-        netflix = netflix && !usingVlc && !growingRec,
+        netflix = netflix && !usingVlc && !growingRec && !predictiveTrickplay,
         durationMs = durationMs, positionMs = positionMs,
-        playbackHealthy = !usingVlc && !awaitingSeekPlayback &&
-            (state is PlayerController.State.Playing ||
-                (paused && controller.player.playbackState == Player.STATE_READY)),
+        playbackHealthy = thumbnailsHealthy,
         requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
+    )
+    NetflixTrickplayPrefetch(
+        streamUrl = streamUrl, userAgent = userAgent,
+        enabled = netflix && !usingVlc && !growingRec && predictiveTrickplay,
+        durationMs = durationMs, playbackHealthy = thumbnailsHealthy,
+        requestedPreviewMs = requestedPreviewMs, cache = predictiveFrames,
     )
 
     // Buffer percentage is Media3's whole-video buffered fraction, not an
@@ -798,6 +812,18 @@ fun VodPlayerScreen(
         if (SkipCountdownPolicy.shouldActivate(
                 creditsCountdown, skipCreditsPromptVisible, creditsDismissed))
             nextAfterCredits()
+    }
+
+    LaunchedEffect(classicPendingTargetMs, classicSubmittedAtMs,
+        positionMs, awaitingSeekPlayback) {
+        if (classicPendingTargetMs < 0L) return@LaunchedEffect
+        val remain = (classicSubmittedAtMs + SeekbarOkPolicy.MIN_CONFIRMATION_MS -
+            android.os.SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        if (remain > 0L) delay(remain)
+        if (SeekbarOkPolicy.caughtUp(classicPendingTargetMs, positionMs,
+                awaitingSeekPlayback, classicSubmittedAtMs,
+                android.os.SystemClock.uptimeMillis()))
+            classicPendingTargetMs = -1L
     }
 
     // Auto-hide when playing and not paused/scrubbing and no picker open. A growing recording dips in
@@ -1059,8 +1085,16 @@ fun VodPlayerScreen(
                         playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
                         skipPromptVisible = skipPromptVisible, skipPromptFocus = skipPromptFocus,
-                        frameAt = seekFrames::nearestFrame,
-                        previewStatus = seekFrames.previewStatus,
+                        frameAt = { timestamp ->
+                            if (predictiveTrickplay)
+                                predictiveFrames.nearestFrame(timestamp)
+                                    ?: seekFrames.nearestFrame(timestamp)
+                            else seekFrames.nearestFrame(timestamp)
+                        },
+                        predictiveTrickplay = predictiveTrickplay,
+                        playbackSettling = awaitingSeekPlayback || playButtonBuffering,
+                        previewStatus = if (predictiveTrickplay)
+                            predictiveFrames.previewStatus else seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },
@@ -1161,6 +1195,8 @@ fun VodPlayerScreen(
                             controller.player.seekTo(scrubValue.toLong())
                             positionMs = media3SeekClock.requested(scrubValue.toLong(), now)
                             thumbnailPostSeekTargetMs = scrubValue.toLong()
+                            classicPendingTargetMs = scrubValue.toLong()
+                            classicSubmittedAtMs = android.os.SystemClock.uptimeMillis()
                             scrubbing = false
                             interaction++
                         },
@@ -1174,13 +1210,41 @@ fun VodPlayerScreen(
                             // Pointer dragging remains continuous, but remote arrows seek
                             // exactly 10,000 milliseconds per press, not a % of duration.
                             .onPreviewKeyEvent { event ->
+                                if (event.key == Key.DirectionCenter ||
+                                    event.key == Key.Enter) {
+                                    if (event.type == KeyEventType.KeyDown &&
+                                        event.nativeKeyEvent.repeatCount == 0) {
+                                        val target = if (scrubbing) scrubValue.toLong()
+                                            else classicPendingTargetMs
+                                        val action = SeekbarOkPolicy.action(
+                                            target, positionMs, scrubbing,
+                                            awaitingSeekPlayback, classicSubmittedAtMs,
+                                            android.os.SystemClock.uptimeMillis(),
+                                        )
+                                        if (action == SeekbarOkPolicy.Action.COMMIT_SEEK) {
+                                            classicPendingTargetMs = target
+                                            classicSubmittedAtMs =
+                                                android.os.SystemClock.uptimeMillis()
+                                            seekAt(target)
+                                        } else {
+                                            classicPendingTargetMs = -1L
+                                            scrubbing = false
+                                            setPlaybackIntent(paused)
+                                        }
+                                    }
+                                    return@onPreviewKeyEvent true
+                                }
                                 val direction = when (event.key) {
                                     Key.DirectionLeft -> SeekDirection.BACKWARD
                                     Key.DirectionRight -> SeekDirection.FORWARD
                                     else -> null
                                 }
                                 if (direction != null) {
-                                    if (event.type == KeyEventType.KeyDown) seekTenSeconds(direction)
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        seekTenSeconds(direction)
+                                        classicPendingTargetMs = scrubValue.toLong()
+                                        classicSubmittedAtMs = android.os.SystemClock.uptimeMillis()
+                                    }
                                     true
                                 } else false
                             }
