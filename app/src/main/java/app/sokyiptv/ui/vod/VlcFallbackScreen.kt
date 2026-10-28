@@ -994,13 +994,14 @@ fun VlcFallbackScreen(
                                             showControls()
                                             true
                                         }
-                                        event.type == KeyEventType.KeyDown &&
-                                            (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
-                                            if (scrubbing) {
-                                                seekTo(previewMs)
+                                        (event.key == Key.DirectionCenter || event.key == Key.Enter) -> {
+                                            // Middle key on seekbar toggles playback; never
+                                            // commits the scrub position, even if held.
+                                            if (event.type == KeyEventType.KeyDown &&
+                                                event.nativeKeyEvent.repeatCount == 0) {
                                                 scrubbing = false
                                                 seekHeldDirection = null
-                                            } else if (event.nativeKeyEvent.repeatCount == 0) {
+                                                previewMs = positionMs
                                                 togglePlayback()
                                             }
                                             true

@@ -1193,6 +1193,15 @@ fun VodPlayerScreen(
                             // Pointer dragging remains continuous, but remote arrows seek
                             // exactly 10,000 milliseconds per press, not a % of duration.
                             .onPreviewKeyEvent { event ->
+                                if (event.key == Key.DirectionCenter ||
+                                    event.key == Key.Enter) {
+                                    if (event.type == KeyEventType.KeyDown &&
+                                        event.nativeKeyEvent.repeatCount == 0) {
+                                        scrubbing = false
+                                        setPlaybackIntent(paused)
+                                    }
+                                    return@onPreviewKeyEvent true
+                                }
                                 val direction = when (event.key) {
                                     Key.DirectionLeft -> SeekDirection.BACKWARD
                                     Key.DirectionRight -> SeekDirection.FORWARD
