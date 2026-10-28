@@ -330,9 +330,9 @@ fun VodPlayerScreen(
     // Only hidden-to-visible horizontal input focuses the seek timeline.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     // Keep rapid absolute-time taps anchored while Media3's native clock settles.
-    val media3SeekClock = remember(controller) { VlcSeekClock() }
-    val postSeekGate = remember(controller) { PostSeekPlaybackGate() }
-    var awaitingSeekPlayback by remember(controller) { mutableStateOf(false) }
+    val media3SeekClock = remember(mediaKey, controller) { VlcSeekClock() }
+    val postSeekGate = remember(mediaKey, controller) { PostSeekPlaybackGate() }
+    var awaitingSeekPlayback by remember(mediaKey, controller) { mutableStateOf(false) }
     val onMarkerLongPress = rememberManualMarkerLongPress(
         enabled = !usingVlc && paused && !seriesGroup.isNullOrBlank() &&
             mediaKey.startsWith("ep:") &&
