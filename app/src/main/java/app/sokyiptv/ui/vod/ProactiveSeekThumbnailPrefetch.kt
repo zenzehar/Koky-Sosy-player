@@ -40,16 +40,12 @@ internal object ProactiveFrameExtractor {
         previewTarget: () -> Long,
         demandOnly: Boolean,
     ): Result = onlyOne.withLock {
-        // Do not compete with startup or a buffering main stream.
-        var good = 0
-        var waited = 0
-        while (coroutineContext.isActive && good < 2 && waited++ < 36) {
-            delay(500L)
-            good = if (canWork()) good + 1 else 0
-        }
-        if (!coroutineContext.isActive || good < 2) return@withLock Result(true, 0)
-
-        cache.previewStatus = if (demandOnly) "Finding selected scene…" else "Preparing future scenes…"
+        // Start preparing the WHOLE movie once duration is known. Do not wait
+        // for playback position, 'isPlaying', or startup/buffering health.
+        // Health affects pacing only, never whether the preview queue runs.
+        if (!coroutineContext.isActive) return@withLock Result(true, 0)
+        cache.previewStatus = if (demandOnly)
+            "Preparing selected seek scene…" else "Indexing full-video preview timeline…"
         val retriever = try {
             withContext(Dispatchers.IO) {
                 MediaMetadataRetriever().also { media ->
@@ -69,60 +65,85 @@ internal object ProactiveFrameExtractor {
             return@withLock Result(false, 0)
         }
 
+        // Metadata often reports duration before the playback engine.
+        // This allows whole-video indexing even while video buffers.
+        val effectiveDuration = if (durationMs >= 60_000L) durationMs else
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull()
+                }.getOrNull() ?: 0L
+            }
+        if (effectiveDuration < 60_000L) {
+            cache.previewStatus = "Waiting for video duration…"
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { retriever.release() }
+            }
+            return@withLock Result(true, 0)
+        }
         var frames = 0
         var failures = 0
         var slowFrames = 0
-        var unhealthy = 0
         val attempted = HashSet<Long>()
         val targets = if (demandOnly)
-            ProactivePreviewPolicy.requestedFrames(initialPositionMs, durationMs)
-        else ProactivePreviewPolicy.tenSecondStoryboard(durationMs, initialPositionMs)
+            ProactivePreviewPolicy.requestedFrames(initialPositionMs, effectiveDuration)
+        else ProactivePreviewPolicy.fiveSecondStoryboard(effectiveDuration, 0L)
         var next = 0
         val limit = if (demandOnly) 3 else targets.size
         var requests = 0
+        var idleSince = 0L
+        if (!demandOnly) {
+            cache.updateFullVideoIndex(disk.preparedCount(), targets.size)
+        }
         var lastRequested = -1L
         var lastRequestAt = 0L
         // Never exceed one bounded session. Long-running VOD sources still
         // get continuous playback priority and a strict memory limit.
         val maxLifetimeAt = SystemClock.elapsedRealtime() +
-            if (demandOnly) 90_000L else 900_000L
+            if (demandOnly) 120_000L else 3_600_000L
         try {
             // Keep the *same* metadata connection alive after initial storyboard
             // completion. Later D-pad selections are handled here instead of
             // paying setDataSource + 3 health ticks for every new timestamp.
             while (coroutineContext.isActive && frames < limit &&
-                requests < targets.size + 40 && failures < 4 && slowFrames < 4 &&
+                requests < targets.size + 96 && failures < 4 && slowFrames < 4 &&
                 SystemClock.elapsedRealtime() < maxLifetimeAt) {
-                if (!canWork()) {
-                    // Pause all remote preview work while the primary decoder
-                    // is buffering. Allow it to recover rather than discarding
-                    // a partially completed whole-video contact sheet.
-                    if (++unhealthy >= 60) break
-                    delay(500L)
-                    continue
-                }
-                unhealthy = 0
+                // v76 halted extraction on BUFFERING. v77 continues indexing
+                // even before frames first arrive and during buffering, but
+                // uses a much gentler pace while video is unhealthy.
+                val videoHealthy = canWork()
 
                 // Prefer the most recently selected scrub target over the prefetch queue.
                 val requested = previewTarget()
                 val tick = SystemClock.elapsedRealtime()
-                val priority = !demandOnly && requested in 2_000L until durationMs &&
-                    requested != lastRequested && tick - lastRequestAt >= 110L &&
-                    !cache.hasFrameNear(requested, 4_000L) && requested !in attempted
+                val alignedRequest = ((requested + 2_500L) / 5_000L) * 5_000L
+                val priority = !demandOnly && alignedRequest in 5_000L until effectiveDuration &&
+                    alignedRequest != lastRequested && tick - lastRequestAt >= 85L &&
+                    !disk.contains(alignedRequest) &&
+                    !cache.hasFrameNear(alignedRequest, 2_000L) &&
+                    alignedRequest !in attempted
                 val target = when {
                     priority -> {
-                        lastRequested = requested
+                        lastRequested = alignedRequest
                         lastRequestAt = tick
-                        requested
+                        alignedRequest
                     }
                     next < targets.size -> targets[next++]
-                    else -> { delay(130L); continue }
+                    else -> {
+                        if (idleSince == 0L) idleSince = tick
+                        if (tick - idleSince >= 3_000L) break
+                        delay(130L); continue
+                    }
                 }
+                idleSince = 0L
                 if (!attempted.add(target)) continue
                 // Prefer already-prepared disk scenes rather than starting a
                 // fresh metadata seek. The read loop independently hydrates
                 // these frames into the in-memory LRU during remote scrubbing.
-                if (disk.contains(target) || cache.hasFrameNear(target, 4_000L)) continue
+                // A nearby RAM frame is NOT proof that this exact five-second
+                // disk bucket is prepared. v76 skipped many grid positions
+                // because of a nearby but non-persisted playback screenshot.
+                if (disk.contains(target)) continue
                 requests++
 
                 val started = SystemClock.elapsedRealtime()
@@ -143,14 +164,24 @@ internal object ProactiveFrameExtractor {
                     // These are nearest sync keyframes, not exact-frame guarantees.
                     // Persist before giving the bitmap to the bounded memory
                     // cache, which may recycle duplicates during insertion.
-                    disk.save(target, image)
-                    cache.storePrefetched(target, durationMs, image)
+                    val saved = disk.save(target, image)
+                    cache.storePrefetched(target, effectiveDuration, image)
                     frames++
                     failures = 0
+                    if (!demandOnly && saved && frames % 16 == 0) {
+                        cache.updateFullVideoIndex(disk.preparedCount(), targets.size)
+                    }
                 } else image.recycle()
-                // Avoid competing with video decode but keep the contact sheet
-                // moving promptly on sources that support independent frames.
-                delay(if (elapsed > 900L) 650L else 180L)
+                // Adaptive low-priority scheduling: quickly build the index
+                // on fast range-capable providers; slow down (but never halt)
+                // during buffering or slow remote reads.
+                val pacingMs = when {
+                    !videoHealthy -> 750L
+                    elapsed > 1_800L -> 300L
+                    elapsed > 650L -> 140L
+                    else -> 40L
+                }
+                delay(pacingMs)
             }
         } finally {
             // Native getScaledFrameAtTime cannot be cancelled mid-call.
@@ -158,10 +189,13 @@ internal object ProactiveFrameExtractor {
                 runCatching { retriever.release() }
             }
         }
-        cache.previewStatus = when {
-            frames > 0 -> "Cached ${frames} new 10-second scene previews"
-            failures >= 3 || slowFrames >= 2 -> "Provider could not supply more seek thumbnails"
-            else -> "Cached scenes available; other times may need loading"
+        if (!demandOnly) {
+            cache.updateFullVideoIndex(disk.preparedCount(), targets.size)
+            if (failures >= 4 || slowFrames >= 4) {
+                cache.previewStatus = "Some previews unavailable from this provider · ${cache.indexedScenes}/${targets.size} cached"
+            }
+        } else if (frames == 0) {
+            cache.previewStatus = "Selected scene not available from this provider"
         }
         // A decoder that returned no frames repeatedly is not a viable
         // preview source. Avoid four more provider connections in that case.
@@ -200,13 +234,20 @@ internal fun ProactiveSeekThumbnailPrefetch(
     LaunchedEffect(cache, disk, netflix) {
         if (!netflix) return@LaunchedEffect
         var lastLoaded = -1L
+        var lastCheckAt = 0L
         while (coroutineContext.isActive) {
             delay(55L)
             val requested = latestRequest
-            if (requested < 0L || requested == lastLoaded) continue
+            if (requested < 0L) continue
+            val now = SystemClock.elapsedRealtime()
+            // When the scene was not yet cached, retry while the D-pad holds
+            // steady. v76 made only one attempt per selection, so a frame
+            // generated a moment later never appeared until another keypress.
+            if (requested == lastLoaded && now - lastCheckAt < 400L) continue
             lastLoaded = requested
-            if (cache.hasFrameNear(requested, 4_000L)) continue
-            disk.loadNear(requested)?.let { scene ->
+            lastCheckAt = now
+            if (cache.hasFrameNear(requested, 3_500L)) continue
+            disk.loadNear(requested, 10_000L)?.let { scene ->
                 if (coroutineContext.isActive) {
                     cache.storePrefetched(scene.timestampMs,
                         latestDuration.coerceAtLeast(60_000L), scene.bitmap)
@@ -221,16 +262,26 @@ internal fun ProactiveSeekThumbnailPrefetch(
             cache.previewStatus = "This stream supports only already-played snapshots"
             return@LaunchedEffect
         }
-        delay(700L)
-        while (coroutineContext.isActive && latestDuration < 60_000L) delay(750L)
-        if (!coroutineContext.isActive) return@LaunchedEffect
-
-        val initial = ProactiveFrameExtractor.extract(
+        // Start immediately, BEFORE playback necessarily has a duration or
+        // renders the first frame. If metadata lacks duration, retry once
+        // VLC/Media3 reports it; never wait for healthy playback.
+        cache.previewStatus = "Preparing full-video previews…"
+        var initial = ProactiveFrameExtractor.extract(
             streamUrl, userAgent, cache, disk, latestDuration, latestPosition,
             canWork = { latestHealthy },
             previewTarget = { latestRequest }, demandOnly = false,
         )
         if (!initial.supported) return@LaunchedEffect
+        if (initial.frames == 0 && latestDuration < 60_000L) {
+            while (coroutineContext.isActive && latestDuration < 60_000L) delay(150L)
+            if (!coroutineContext.isActive) return@LaunchedEffect
+            initial = ProactiveFrameExtractor.extract(
+                streamUrl, userAgent, cache, disk, latestDuration, latestPosition,
+                canWork = { latestHealthy },
+                previewTarget = { latestRequest }, demandOnly = false,
+            )
+            if (!initial.supported) return@LaunchedEffect
+        }
 
         var observed = -1L
         var changedAt = SystemClock.elapsedRealtime()
@@ -242,7 +293,7 @@ internal fun ProactiveSeekThumbnailPrefetch(
             val now = SystemClock.elapsedRealtime()
             if (wanted != observed) { observed = wanted; changedAt = now }
             if (wanted < 2_000L || wanted >= latestDuration ||
-                now - changedAt < 650L || wanted == handled || !latestHealthy) continue
+                now - changedAt < 350L || wanted == handled) continue
             if (cache.hasFrameNear(wanted, 4_000L)) {
                 handled = wanted
                 continue
@@ -260,7 +311,7 @@ internal fun ProactiveSeekThumbnailPrefetch(
                 previewTarget = { latestRequest }, demandOnly = true,
             )
             if (!result.supported) return@LaunchedEffect
-            delay(1_500L) // provider cooldown before any new metadata connection
+            delay(600L) // provider cooldown before any new metadata connection
         }
     }
 }

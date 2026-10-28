@@ -28,14 +28,16 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
- * Bounded Android TV memory: 24 live 208x117 + 96 predecoded 160x90\n * scenes, approximately 7.5 MiB uncompressed in total. Frames for unseen\n * times are prepared independently of the active playback surface.
+ * Bounded Android TV memory: 24 live 208x117 and 192 predecoded 160x90
+ * scenes (roughly 13.5 MiB at ARGB_8888 worst case). On-disk cached scenes
+ * are managed independently, and are NOT subject to this in-RAM LRU limit.
  */
 internal class NetflixSeekFrameCache {
     // Keep separate budgets so live playback can't evict future frames.
     private val liveFrames = LinkedHashMap<Long, Bitmap>(26, .75f, true)
-    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(100, .75f, true)
+    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(200, .75f, true)
     private val liveCapacity = 24
-    private val storyboardCapacity = 96
+    private val storyboardCapacity = 192
     private var storyboardDurationMs = 0L
 
     data class CapturedFrame(
@@ -51,6 +53,19 @@ internal class NetflixSeekFrameCache {
     // Never include stream URLs or credentials in a visible status.
     var previewStatus by mutableStateOf("Preparing thumbnails…")
         internal set
+
+    var indexedScenes by mutableIntStateOf(0)
+        private set
+    var totalPlannedScenes by mutableIntStateOf(0)
+        private set
+
+    fun updateFullVideoIndex(completed: Int, planned: Int) {
+        indexedScenes = completed.coerceAtLeast(0)
+        totalPlannedScenes = planned.coerceAtLeast(0)
+        previewStatus = if (planned > 0)
+            "Cached ${indexedScenes}/${totalPlannedScenes} scenes on disk · 5s grid"
+        else "Preparing full-video preview index…"
+    }
 
     fun nearestFrame(positionMs: Long): CapturedFrame? {
         @Suppress("UNUSED_VARIABLE") val observedRevision = revision
@@ -89,7 +104,8 @@ internal class NetflixSeekFrameCache {
         storyboardDurationMs = durationMs
         put(storyboardFrames, storyboardCapacity, positionMs, image,
             (durationMs / 300L).coerceIn(500L, 4_000L))
-        previewStatus = "Precached ${storyboardFrames.size}/96 scenes"
+        // Do NOT overwrite the whole-video progress with RAM LRU occupancy.
+        // The 192-scene memory window is not the number of scenes on disk.
     }
 
     private fun put(
@@ -121,6 +137,8 @@ internal class NetflixSeekFrameCache {
         liveFrames.clear()
         storyboardFrames.clear()
         storyboardDurationMs = 0L
+        indexedScenes = 0
+        totalPlannedScenes = 0
         previewStatus = "Preparing thumbnails…"
         revision++
     }

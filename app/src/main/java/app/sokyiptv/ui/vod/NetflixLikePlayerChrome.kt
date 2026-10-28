@@ -450,6 +450,19 @@ internal fun NetflixLikePlayerChrome(
                     Text("-" + nClock(durationMs - previewAt),
                         color = Color.White.copy(alpha = .70f), fontSize = 14.sp)
                 }
+                // Count scenes on disk, not the smaller RAM preview window.
+                // This verifies full-video indexing is progressing beyond 96.
+                if (previewStatus.startsWith("Cached ") ||
+                    previewStatus.startsWith("Some previews")) {
+                    Text(
+                        previewStatus,
+                        color = Color.White.copy(alpha = .66f),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                    )
+                }
             }
         }
         Row(

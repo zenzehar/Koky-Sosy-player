@@ -73,6 +73,24 @@ class ProactivePreviewPolicyTest {
         assertTrue(longVideo.all { it in 2_000L until 21_600_000L })
     }
 
+    @Test fun fiveSecondIndexDoublesPreviousDensityAndCoversEntireFilm() {
+        val twoHours = 7_200_000L
+        val five = ProactivePreviewPolicy.fiveSecondStoryboard(twoHours, 0L)
+        val resumedAtMiddle = ProactivePreviewPolicy.fiveSecondStoryboard(twoHours, 3_600_000L)
+        assertEquals(1439, five.size)
+        assertEquals(five, resumedAtMiddle) // Not dependent on resume position
+        assertEquals(five.size, five.distinct().size)
+        assertTrue(five.all { it % 5_000L == 0L })
+        assertTrue((1L..1439L).all { it * 5_000L in five })
+        // The first 24 are spread across the whole film, not just the start.
+        assertTrue(five.take(24).any { it in 3_000_000L..4_000_000L })
+        assertTrue(five.take(24).any { it > 6_000_000L })
+        val longMovie = ProactivePreviewPolicy.fiveSecondStoryboard(21_600_000L)
+        assertTrue(longMovie.size <= 2880)
+        assertTrue(longMovie.all { it % 5_000L == 0L })
+        assertTrue(ProactivePreviewPolicy.fiveSecondStoryboard(30_000L).isEmpty())
+    }
+
     @Test fun requestedFramesPrioritizeSelectedTimestampAndStaySmall() {
         assertEquals(listOf(200_000L, 225_000L, 175_000L),
             ProactivePreviewPolicy.requestedFrames(200_000L, 1_720_000L))
