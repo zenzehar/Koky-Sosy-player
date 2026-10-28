@@ -639,6 +639,23 @@ fun VodPlayerScreen(
         }
     }
 
+    // Capture the CURRENT displayed frame during paused scrub as well.
+    // The main decoder position and pause/play state are not changed.
+    LaunchedEffect(requestedPreviewMs, netflixVideoView, usingVlc, netflix) {
+        val requested = requestedPreviewMs
+        val video = netflixVideoView ?: return@LaunchedEffect
+        if (usingVlc || !netflix || requested < 0L ||
+            seekFrames.hasFrameNear(requested, 4_000L)) return@LaunchedEffect
+        val p = controller.player
+        if (p.playbackState != Player.STATE_READY) return@LaunchedEffect
+        val actual = p.currentPosition.coerceAtLeast(0L)
+        if (kotlin.math.abs(actual - requested) > 4_000L) return@LaunchedEffect
+        val still = NetflixSeekFrameCapture.sample(video) ?: return@LaunchedEffect
+        if (kotlin.math.abs(p.currentPosition - actual) <= 1_400L)
+            seekFrames.store(actual, still)
+        else still.recycle()
+    }
+
     // Prioritize a single new screenshot just AFTER a seek finishes rendering.
     // No network request or additional player: this is the active decoder output.
     LaunchedEffect(thumbnailPostSeekTargetMs, netflixVideoView, usingVlc, netflix) {
@@ -943,6 +960,7 @@ fun VodPlayerScreen(
                         playFocus = barFocus,
                         timelineFocus = timelineFocus, tracksFocus = netflixTracksFocus,
                         frameAt = seekFrames::nearestFrame,
+                        previewStatus = seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
                         onSeekingChanged = { netflixSeeking = it; interaction++ },
                         onActivity = { interaction++ },

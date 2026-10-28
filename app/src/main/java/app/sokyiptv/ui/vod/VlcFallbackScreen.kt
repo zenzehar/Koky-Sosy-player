@@ -448,6 +448,21 @@ fun VlcFallbackScreen(
         }
     }
 
+    // Capture the CURRENT displayed video frame even while paused. This does
+    // not seek, restart or allocate a second player.
+    LaunchedEffect(requestedPreviewMs, videoLayout, netflix, ready) {
+        val requested = requestedPreviewMs
+        val layout = videoLayout ?: return@LaunchedEffect
+        if (!netflix || !ready || requested < 0L || leaving.get() || nativeReleased.get() ||
+            seekFrames.hasFrameNear(requested, 4_000L)) return@LaunchedEffect
+        val actual = player.time.coerceAtLeast(0L)
+        if (kotlin.math.abs(actual - requested) > 4_000L) return@LaunchedEffect
+        val still = NetflixSeekFrameCapture.sample(layout) ?: return@LaunchedEffect
+        if (kotlin.math.abs(player.time - actual) <= 1_400L)
+            seekFrames.store(actual, still)
+        else still.recycle()
+    }
+
     // A completed seek deserves one timely REAL scene capture. The periodic
     // sampler alone could miss the destination by several seconds.
     LaunchedEffect(thumbnailPostSeekTargetMs, videoLayout, netflix, ready) {
@@ -742,6 +757,7 @@ fun VlcFallbackScreen(
                     playFocus = pauseFocus,
                     timelineFocus = seekFocus, tracksFocus = trackFocus,
                     frameAt = seekFrames::nearestFrame,
+                    previewStatus = seekFrames.previewStatus,
                     onPreviewRequested = { requestedPreviewMs = it },
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },

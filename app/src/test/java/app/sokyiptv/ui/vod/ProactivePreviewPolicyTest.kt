@@ -13,8 +13,16 @@ class ProactivePreviewPolicyTest {
             "http://provider.example/MOVIE/123.mkv", 33))
         assertFalse(ProactivePreviewPolicy.eligible(
             "https://provider.example/hls/123.m3u8", 35))
-        assertFalse(ProactivePreviewPolicy.eligible(
+        assertTrue(ProactivePreviewPolicy.eligible(
             "https://provider.example/movie/123.ts", 35))
+        assertTrue(ProactivePreviewPolicy.eligible(
+            "https://provider.example/series/demo/pass/12345", 35))
+        assertTrue(ProactivePreviewPolicy.eligible(
+            "https://provider.example/vod/demo/pass/9098?token=secret", 35))
+        assertFalse(ProactivePreviewPolicy.eligible(
+            "https://provider.example/live/demo/pass/9098.ts", 35))
+        assertFalse(ProactivePreviewPolicy.eligible(
+            "https://provider.example/series/demo/pass/abc", 35))
         assertFalse(ProactivePreviewPolicy.eligible(
             "https://provider.example/movie/123.mp4", 26))
         assertFalse(ProactivePreviewPolicy.eligible(
@@ -34,6 +42,14 @@ class ProactivePreviewPolicyTest {
         assertTrue(plan.all { it in 2_000L until total })
         assertEquals(plan.size, plan.distinct().size)
         assertTrue(ProactivePreviewPolicy.storyboard(30_000L, 0L).isEmpty())
+    }
+
+    @Test fun requestedFramesPrioritizeSelectedTimestampAndStaySmall() {
+        assertEquals(listOf(200_000L, 225_000L, 175_000L),
+            ProactivePreviewPolicy.requestedFrames(200_000L, 1_720_000L))
+        assertTrue(ProactivePreviewPolicy.requestedFrames(0L, 30_000L).isEmpty())
+        assertEquals(listOf(2_000L, 26_000L),
+            ProactivePreviewPolicy.requestedFrames(1_000L, 60_000L))
     }
 
     @Test fun approximateThumbnailDistanceIsClampedForDeviceUsability() {

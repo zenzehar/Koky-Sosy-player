@@ -10,8 +10,15 @@ internal object ProactivePreviewPolicy {
     fun eligible(url: String, sdk: Int): Boolean {
         if (sdk < 27 || !(url.startsWith("https://", true) || url.startsWith("http://", true))) return false
         val path = url.substringBefore('?').substringBefore('#').lowercase()
-        return listOf(".mp4", ".m4v", ".mov", ".mkv", ".webm")
-            .any { path.endsWith(it) }
+        // HLS manifests and live streams are not independently seekable VOD.
+        if (path.endsWith(".m3u8") || path.endsWith(".mpd") || path.contains("/live/")) return false
+        if (listOf(".mp4", ".m4v", ".mov", ".mkv", ".webm", ".ts", ".mpeg", ".mpg")
+                .any { path.endsWith(it) }) return true
+        // Recognise numeric Xtream-style extensionless movie/series VOD paths.
+        // Never probe arbitrary extensionless or local URLs.
+        val tail = path.substringAfterLast('/')
+        return (path.contains("/series/") || path.contains("/movie/") || path.contains("/vod/")) &&
+            tail.isNotEmpty() && tail.all { it.isDigit() }
     }
 
     /** At most 24 previews, spreading the first few across likely seeking destinations. */
@@ -32,6 +39,14 @@ internal object ProactivePreviewPolicy {
             if (result.size == 24) break
         }
         return result
+    }
+
+    /** A small group around the selected scrub point, avoiding full-video scans. */
+    fun requestedFrames(atMs: Long, durationMs: Long): List<Long> {
+        if (durationMs < 60_000L || atMs < 0L) return emptyList()
+        val last = (durationMs - 2_000L).coerceAtLeast(0L)
+        return listOf(atMs, atMs + 25_000L, atMs - 25_000L)
+            .map { it.coerceIn(2_000L, last) }.distinct()
     }
 
     /** A sparse storyboard is explicitly an approximate scene, not an exact seek frame. */
