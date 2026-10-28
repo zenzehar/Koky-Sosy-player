@@ -678,8 +678,9 @@ fun VodPlayerScreen(
         streamUrl = streamUrl, userAgent = userAgent,
         netflix = netflix && !usingVlc && !growingRec,
         durationMs = durationMs, positionMs = positionMs,
-        playbackHealthy = !usingVlc && !paused && !awaitingSeekPlayback &&
-            state is PlayerController.State.Playing,
+        playbackHealthy = !usingVlc && !awaitingSeekPlayback &&
+            (state is PlayerController.State.Playing ||
+                (paused && controller.player.playbackState == Player.STATE_READY)),
         requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
     )
 

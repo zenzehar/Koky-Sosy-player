@@ -521,9 +521,14 @@ fun VlcFallbackScreen(
     ProactiveSeekThumbnailPrefetch(
         streamUrl = streamUrl, userAgent = userAgent, netflix = netflix,
         durationMs = durationMs, positionMs = positionMs,
-        playbackHealthy = ready && nativePlaybackActive && !paused &&
-            !suspendPlayback && !failed && !ended &&
-            healthSnapshot.state == VlcPlaybackHealth.State.PLAYING,
+        // Paused scrubbing is safe for low-priority preview extraction too:
+        // no primary decoder frames are being requested while paused.
+        playbackHealthy = ready && !suspendPlayback && !failed && !ended &&
+            (if (paused)
+                healthSnapshot.state != VlcPlaybackHealth.State.BUFFERING &&
+                    healthSnapshot.state != VlcPlaybackHealth.State.STALLED
+             else nativePlaybackActive &&
+                healthSnapshot.state == VlcPlaybackHealth.State.PLAYING),
         requestedPreviewMs = requestedPreviewMs, cache = seekFrames,
     )
 
