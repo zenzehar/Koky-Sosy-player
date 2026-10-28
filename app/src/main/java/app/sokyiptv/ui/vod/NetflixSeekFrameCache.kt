@@ -28,14 +28,16 @@ import kotlin.coroutines.resume
 import kotlin.math.abs
 
 /**
- * Bounded Android TV memory: 24 live 208x117 + 96 predecoded 160x90\n * scenes, approximately 7.5 MiB uncompressed in total. Frames for unseen\n * times are prepared independently of the active playback surface.
+ * This is a SMALL on-screen RAM window (24 playback + 32 preview images).
+ * Full-video caching is handled separately by the five-second JPEG disk
+ * index. The number 32 is never a cap on total prepared thumbnails.
  */
 internal class NetflixSeekFrameCache {
     // Keep separate budgets so live playback can't evict future frames.
     private val liveFrames = LinkedHashMap<Long, Bitmap>(26, .75f, true)
-    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(100, .75f, true)
+    private val storyboardFrames = LinkedHashMap<Long, Bitmap>(40, .75f, true)
     private val liveCapacity = 24
-    private val storyboardCapacity = 96
+    private val storyboardCapacity = 32
     private var storyboardDurationMs = 0L
 
     data class CapturedFrame(
@@ -51,6 +53,18 @@ internal class NetflixSeekFrameCache {
     // Never include stream URLs or credentials in a visible status.
     var previewStatus by mutableStateOf("Preparing thumbnails…")
         internal set
+
+    // Counts files prepared on disk, never the RAM LRU's occupancy.
+    var diskPrepared by mutableIntStateOf(0)
+        private set
+    var diskExpected by mutableIntStateOf(0)
+        private set
+
+    fun updateDiskProgress(prepared: Int, expected: Int) {
+        diskPrepared = prepared.coerceAtLeast(0)
+        diskExpected = expected.coerceAtLeast(0)
+        previewStatus = "Disk thumbnails: ${diskPrepared}/${diskExpected} · 5s intervals"
+    }
 
     fun nearestFrame(positionMs: Long): CapturedFrame? {
         @Suppress("UNUSED_VARIABLE") val observedRevision = revision
@@ -89,7 +103,7 @@ internal class NetflixSeekFrameCache {
         storyboardDurationMs = durationMs
         put(storyboardFrames, storyboardCapacity, positionMs, image,
             (durationMs / 300L).coerceIn(500L, 4_000L))
-        previewStatus = "Precached ${storyboardFrames.size}/96 scenes"
+        // Never report RAM occupancy as the number of cached video scenes.
     }
 
     private fun put(
@@ -121,6 +135,8 @@ internal class NetflixSeekFrameCache {
         liveFrames.clear()
         storyboardFrames.clear()
         storyboardDurationMs = 0L
+        diskPrepared = 0
+        diskExpected = 0
         previewStatus = "Preparing thumbnails…"
         revision++
     }
