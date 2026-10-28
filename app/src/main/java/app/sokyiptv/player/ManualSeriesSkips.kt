@@ -19,8 +19,26 @@ data class ManualSeriesSkips(
     fun showIntro(nowMs: Long) =
         introValid() && nowMs >= 0L && nowMs < INTRO_PROMPT_MS && nowMs < introEndMs
 
-    /** Credits/outro is a single onset point, not a start/end interval. */
-    fun showCredits(nowMs: Long) = creditsValid() && nowMs >= creditsStartMs
+    /**
+     * Shared series marks may be outside the duration of another episode.
+     * Never seek to the outro instead of the intro, or seek beyond the media.
+     */
+    fun safeIntroTarget(durationMs: Long): Long? =
+        introEndMs.takeIf {
+            introValid() && durationMs > 0L && it < durationMs - 2_000L &&
+                (!creditsValid() || it < creditsStartMs)
+        }
+
+    /** Never offer an outro before the intro mark or beyond the episode. */
+    fun showCredits(nowMs: Long, durationMs: Long): Boolean =
+        creditsValid() && durationMs > 0L && creditsStartMs < durationMs &&
+            (!introValid() || creditsStartMs > introEndMs) &&
+            nowMs >= creditsStartMs && nowMs < durationMs
+
+    /** Legacy one-argument predicate retained for existing callers. */
+    fun showCredits(nowMs: Long): Boolean =
+        creditsValid() && (!introValid() || creditsStartMs > introEndMs) &&
+            nowMs >= creditsStartMs
 
     fun mark(mark: SkipMark, atMs: Long): ManualSeriesSkips {
         val at = atMs.coerceAtLeast(0L)

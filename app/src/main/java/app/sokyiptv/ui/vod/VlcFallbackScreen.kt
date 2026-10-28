@@ -116,6 +116,8 @@ fun VlcFallbackScreen(
     val netflix = style == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     var markerPanelVisible by remember(mediaKey) { mutableStateOf(false) }
     var creditsDismissed by remember(mediaKey) { mutableStateOf(false) }
+    var introDismissed by remember(mediaKey) { mutableStateOf(false) }
+    var introOffered by remember(mediaKey) { mutableStateOf(false) }
     var trackPanelVisible by remember(streamUrl) { mutableStateOf(false) }
     var bufferEventPercent by remember(streamUrl) { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
@@ -148,11 +150,11 @@ fun VlcFallbackScreen(
     var ready by remember(streamUrl) { mutableStateOf(false) }
     var failed by remember(streamUrl) { mutableStateOf(false) }
     var ended by remember(streamUrl) { mutableStateOf(false) }
-    var paused by remember { mutableStateOf(false) }
+    var paused by remember(mediaKey) { mutableStateOf(false) }
     var resumeRequestedAtMs by remember(streamUrl) { mutableLongStateOf(0L) }
     var resumeRetryCount by remember(streamUrl) { mutableIntStateOf(0) }
-    var positionMs by remember { mutableLongStateOf(0L) }
-    var durationMs by remember { mutableLongStateOf(0L) }
+    var positionMs by remember(mediaKey) { mutableLongStateOf(0L) }
+    var durationMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var scrubbing by remember { mutableStateOf(false) }
     var previewMs by remember { mutableLongStateOf(0L) }
     var seekOriginMs by remember { mutableLongStateOf(0L) }
@@ -161,7 +163,7 @@ fun VlcFallbackScreen(
     var timelineFocused by remember { mutableStateOf(false) }
     // Fixed stream-declared seekbar duration: tail probes never expand its endpoint.
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
-    var initialSeekPending by remember { mutableStateOf(initialPositionMs > 0L) }
+    var initialSeekPending by remember(mediaKey) { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
     var netflixSeeking by remember(mediaKey) { mutableStateOf(false) }
     var interaction by remember { mutableIntStateOf(0) }
@@ -512,10 +514,23 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
-    val skipIntroPromptVisible = !ended && ready && !paused && !failed &&
-        showEpisodeControls && manualSkips.showIntro(positionMs)
-    val skipCreditsPromptVisible = !ended && ready && !paused && !failed &&
-        showEpisodeControls && !creditsDismissed && manualSkips.showCredits(positionMs)
+    // The two series marks are strictly different destinations: intro is the
+    // ONLY seek destination at episode start. Never reuse a previous episode's
+    // playback clock or use a credits marker as an intro target.
+    val validIntroTarget = manualSkips.safeIntroTarget(durationMs)
+    val earlyIntro = showEpisodeControls && initialPositionMs < 10_000L &&
+        !initialSeekPending && ready && !failed && !ended &&
+        validIntroTarget != null && positionMs in 0L until 10_000L &&
+        positionMs < validIntroTarget
+    LaunchedEffect(mediaKey, earlyIntro) {
+        if (earlyIntro) introOffered = true
+    }
+    val skipIntroPromptVisible = showEpisodeControls && !introDismissed &&
+        introOffered && !failed && !ended && ready &&
+        validIntroTarget != null && positionMs < validIntroTarget
+    val skipCreditsPromptVisible = showEpisodeControls && !creditsDismissed &&
+        !skipIntroPromptVisible && !failed && !ended && ready &&
+        manualSkips.showCredits(positionMs, durationMs)
     // Start the optional low-priority storyboard after native video is stable.
     // Unsupported and live-like formats continue to use PixelCopy only.
     ProactiveSeekThumbnailPrefetch(
@@ -549,12 +564,32 @@ fun VlcFallbackScreen(
     }
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
-    fun activateSkipPrompt() {
-        if (skipIntroPromptVisible) seekTo(manualSkips.introEndMs)
-        else if (skipCreditsPromptVisible) {
-            if (nextEpisodeAvailable) onNextEpisodeClick() else leaveVideo()
-        }
+    fun skipIntroNow() {
+        if (introDismissed) return
+        introDismissed = true
+        validIntroTarget?.takeIf { positionMs < it }?.let(::seekTo)
     }
+    fun nextAfterCredits() {
+        if (creditsDismissed) return
+        creditsDismissed = true
+        if (nextEpisodeAvailable) onNextEpisodeClick() else leaveVideo()
+    }
+    fun activateSkipPrompt() {
+        if (skipIntroPromptVisible) skipIntroNow()
+        else if (skipCreditsPromptVisible) nextAfterCredits()
+    }
+    val countdownActive = ready && nativePlaybackActive && !paused &&
+        !failed && !ended && !suspendPlayback && !scrubbing && !netflixSeeking &&
+        !trackPanelVisible && !markerPanelVisible &&
+        healthSnapshot.state == VlcPlaybackHealth.State.PLAYING
+    val introCountdown = rememberSkipCountdown(
+        mediaKey, "intro", skipIntroPromptVisible, countdownActive,
+        onTimeout = ::skipIntroNow,
+    )
+    val creditsCountdown = rememberSkipCountdown(
+        mediaKey, "credits", skipCreditsPromptVisible, countdownActive,
+        onTimeout = ::nextAfterCredits,
+    )
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
     LaunchedEffect(controlsVisible, netflix, skipPromptVisible) {
@@ -986,36 +1021,39 @@ fun VlcFallbackScreen(
                 modifier = Modifier.align(Alignment.Center),
             )
         }
-        // Only explicit saved series marks can display these prompts.
+        // Both prompts have a focusable cancellation and a 10s button fill.
+        // Timers freeze when playback is paused/buffering, without hiding prompt.
         if (skipIntroPromptVisible) {
-            NetflixSkipPrompt(
-                label = "Skip intro",
+            NetflixTimedSkipPrompt(
+                label = "Skip intro", cancelLabel = "Watch intro",
+                elapsedMs = introCountdown,
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
-            ) { seekTo(manualSkips.introEndMs) }
+                onCancel = { introDismissed = true },
+                onSkip = ::skipIntroNow,
+            )
         } else if (skipCreditsPromptVisible && netflix) {
             NetflixCreditsPrompt(
                 isEpisode = showEpisodeControls, nextAvailable = nextEpisodeAvailable,
                 onContinue = { creditsDismissed = true },
-                onSkip = {
-                    if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
-                    else leaveVideo()
-                },
+                onSkip = ::nextAfterCredits,
                 modifier = Modifier.align(Alignment.Center),
                 focusRequester = skipPromptFocus,
+                elapsedMs = creditsCountdown,
             )
         } else if (skipCreditsPromptVisible) {
-            NetflixSkipPrompt(
+            NetflixTimedSkipPrompt(
                 label = if (showEpisodeControls && nextEpisodeAvailable)
                     "Next episode" else "Back to title",
+                cancelLabel = "Watch credits",
+                elapsedMs = creditsCountdown,
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
-            ) {
-                if (showEpisodeControls && nextEpisodeAvailable) onNextEpisodeClick()
-                else leaveVideo()
-            }
+                onCancel = { creditsDismissed = true },
+                onSkip = ::nextAfterCredits,
+            )
         }
         if (trackPanelVisible && !leaving.get() && !nativeReleased.get()) {
             val audio = runCatching {

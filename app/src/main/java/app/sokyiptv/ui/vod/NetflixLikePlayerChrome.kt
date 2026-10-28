@@ -24,6 +24,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
@@ -521,71 +524,69 @@ private fun NIcon(
     }
 }
 
+/** Restrained graphite/mint focus palette for menus, controls and skip choices. */
 @Composable
 private fun NText(
     label: String, icon: ImageVector? = null, modifier: Modifier = Modifier,
     onClick: () -> Unit, onActivity: () -> Unit = {}, emphasized: Boolean = false,
+    countdownFraction: Float? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(3.dp)
-    val light = focused || emphasized
+    val shape = RoundedCornerShape(7.dp)
+    val base = when {
+        focused -> Color(0xF02B3B44)
+        emphasized -> Color(0xD9222D37)
+        else -> Color(0xC518222C)
+    }
+    val outline = when {
+        focused -> Color(0xFF86E5D5)
+        emphasized -> Color(0x8889CBC3)
+        else -> Color(0x44D4E4E9)
+    }
     Row(
         modifier.onFocusChanged { focused = it.isFocused }
-            .background(if (light) Color.White else Color.Transparent, shape)
-            // The previously permanent white background gave no visual clue
-            // when OK would ACTUALLY activate the skip action.
-            .border(
-                if (focused) 3.dp else if (emphasized) 2.dp else 0.dp,
-                if (focused) netflixRed else if (emphasized) netflixWhite else Color.Transparent,
-                shape,
-            )
+            .clip(shape)
+            .background(base)
+            .drawBehind {
+                countdownFraction?.let { fraction ->
+                    drawRect(
+                        color = Color(0xB0328782),
+                        size = Size(size.width * fraction.coerceIn(0f, 1f), size.height),
+                    )
+                }
+            }
+            .border(if (focused) 2.dp else 1.dp, outline, shape)
             .clickable { onActivity(); onClick() }
-            .padding(horizontal = 13.dp, vertical = 8.dp),
+            .padding(horizontal = 15.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        if (icon != null) Icon(icon, null, tint = if (light) Color.Black else netflixWhite,
+        if (icon != null) Icon(icon, null, tint = Color(0xFFE8F6F2),
             modifier = Modifier.size(22.dp))
-        Text(label, color = if (light) Color.Black else netflixWhite,
-            fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = Color(0xFFF2F7F6),
+            fontSize = 16.sp,
+            fontWeight = if (focused || emphasized) FontWeight.SemiBold else FontWeight.Medium)
     }
 }
 
+/**
+ * Each of intro and credits has a visible cancellation action and a 10s
+ * progress fill INSIDE the primary action. No auto-skip after cancellation.
+ */
 @Composable
-internal fun NetflixSkipPrompt(
+internal fun NetflixTimedSkipPrompt(
     label: String,
+    cancelLabel: String,
+    elapsedMs: Long,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
-    onClick: () -> Unit,
-) {
-    val fallbackFocus = remember { FocusRequester() }
-    val promptFocus = focusRequester ?: fallbackFocus
-    LaunchedEffect(label, promptFocus) {
-        withFrameNanos { }
-        withFrameNanos { }
-        runCatching { promptFocus.requestFocus() }
-    }
-    NText(label, modifier = modifier
-        .focusRequester(promptFocus)
-        .background(Color(0xC11D1D1D), RoundedCornerShape(4.dp)),
-        onClick = onClick, emphasized = true)
-}
-
-/** Exact two-action credits composition; focus stays reachable without a modal trap. */
-@Composable
-internal fun NetflixCreditsPrompt(
-    isEpisode: Boolean,
-    nextAvailable: Boolean,
-    onContinue: () -> Unit,
+    onCancel: () -> Unit,
     onSkip: () -> Unit,
-    modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null,
 ) {
     val fallbackFocus = remember { FocusRequester() }
     val actionFocus = focusRequester ?: fallbackFocus
-    val watchFocus = remember { FocusRequester() }
-    var watchFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(nextAvailable, isEpisode, actionFocus) {
+    val cancelFocus = remember { FocusRequester() }
+    LaunchedEffect(label, actionFocus) {
         withFrameNanos { }
         withFrameNanos { }
         runCatching { actionFocus.requestFocus() }
@@ -595,7 +596,7 @@ internal fun NetflixCreditsPrompt(
             if (event.type != KeyEventType.KeyDown) false
             else when (event.key) {
                 Key.DirectionLeft -> {
-                    runCatching { watchFocus.requestFocus() }
+                    runCatching { cancelFocus.requestFocus() }
                     true
                 }
                 Key.DirectionRight -> {
@@ -605,21 +606,54 @@ internal fun NetflixCreditsPrompt(
                 else -> false
             }
         },
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NText("Watch Credits", modifier = Modifier
-            .focusRequester(watchFocus)
-            .onFocusChanged { watchFocused = it.isFocused }
-            .background(Color(0xC2505050), RoundedCornerShape(4.dp)),
-            onClick = onContinue)
+        NText(cancelLabel, modifier = Modifier.focusRequester(cancelFocus),
+            onClick = onCancel)
         NText(
-            if (isEpisode && nextAvailable) "Next episode" else "Back to title",
-            icon = if (isEpisode && nextAvailable) Icons.Filled.PlayArrow else null,
+            "$label · ${SkipCountdownPolicy.remainingSeconds(elapsedMs)}s",
+            icon = Icons.Filled.SkipNext,
             modifier = Modifier.focusRequester(actionFocus),
-            onClick = onSkip, emphasized = !watchFocused,
+            onClick = onSkip, emphasized = true,
+            countdownFraction = SkipCountdownPolicy.fraction(elapsedMs),
         )
     }
+}
+
+/** Compatibility wrapper for old player prompt call-sites. */
+@Composable
+internal fun NetflixSkipPrompt(
+    label: String,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    onClick: () -> Unit,
+) {
+    val fallbackFocus = remember { FocusRequester() }
+    NText(label, modifier = modifier.focusRequester(focusRequester ?: fallbackFocus),
+        onClick = onClick, emphasized = true)
+}
+
+/** Credits prompt and intro use the same accessible, progressive style. */
+@Composable
+internal fun NetflixCreditsPrompt(
+    isEpisode: Boolean,
+    nextAvailable: Boolean,
+    onContinue: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    elapsedMs: Long = 0L,
+) {
+    NetflixTimedSkipPrompt(
+        label = if (isEpisode && nextAvailable) "Next episode" else "Back to title",
+        cancelLabel = "Watch credits",
+        elapsedMs = elapsedMs,
+        modifier = modifier,
+        focusRequester = focusRequester,
+        onCancel = onContinue,
+        onSkip = onSkip,
+    )
 }
 
 /**
