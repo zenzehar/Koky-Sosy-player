@@ -266,7 +266,9 @@ internal fun NetflixLikePlayerChrome(
                     up = closeFocus; down = timelineFocus
                 },
                 73, onClick = onToggle, onActivity = onActivity,
-                opacityUnfocused = .12f,
+                // The Play/Pause symbol itself remains visible; its button
+                // surface is fully transparent whether focused or buffering.
+                opacityUnfocused = .64f,
                 buffering = buffering,
                 bufferingPercent = bufferingPercent,
             )

@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.75-passive-seek-caching-and-skip-dispatch' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.76-disk-trickplay-intro-seek-retry' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.75-passive-seek-caching-and-skip-dispatch'
+      github.head_ref == 'fix/v0.1.11.76-disk-trickplay-intro-seek-retry'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.75.apk
-          gh release create v0.1.11.75-passive-seek-caching-and-skip-dispatch \
-            "apk/Soky_IPTV_Pro_v0.1.11.75.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.76.apk
+          gh release create v0.1.11.76-disk-trickplay-intro-seek-retry \
+            "apk/Soky_IPTV_Pro_v0.1.11.76.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.75 Passive Thumbnail Cache and Skip Dispatch" \
-            --notes "v0.1.11.75 EXPERIMENTAL Android TV prerelease. Regressions: both 10-second skip timers now have an independent state-driven completion action in VLC and Media3 in addition to the countdown callback. Intro dispatches precisely its recorded intro END; credits dispatches the confirmed next episode only, never the series/title screen. Action cancellation remains episode scoped. Network-supported progressive VOD now builds a 96-scene progressive 160x90 whole-video contact sheet passively while playing, starting with 24 broadly spaced samples, adding denser refinement and prioritising scrub targets. Previously reached frames remain in a separate 24-frame cache (~8MiB total bitmaps). No active player seeking, second full player or unbounded caching, and native VLC engine unchanged. Unsupported/protected/range-blocked streams cannot guarantee unseen-time thumbnails; approximate keyframes are explicitly labeled. While buffering, the loading indicator replaces Play/Pause with 100% transparent background and no button panel/border in both themes and hidden-control overlay. Netflix-like seeking cursor is a red dot with no frame or focus halo. v59 gold and v71 temporary milestone remain untouched. Real Android TV and Firestick regression checks required." --prerelease
+            --title "Soky IPTV Pro v0.1.11.76 Reliable Intro Skip and Disk Trickplay Cache" \
+            --notes "v0.1.11.76 EXPERIMENTAL TV TEST. Intro timer and manual intro action now queue the validated intro-end timestamp until the active VLC/Media3 engine is actually seekable, and only then mark the prompt complete. This fixes the lost auto-seek when engine seekability briefly drops at the 10-second boundary; credits next-episode behaviour from v75 retained. Netflix-like and classic player Play/Pause symbol has NO painted background or border in either playback or buffering mode, with visible focused icon, and transparent buffering circle. Hybrid 10-second trickplay: 24+96 coarse and detail samples now refine into approximately one scene per 10 seconds across the whole movie, capped at 1440; provider-supported extractions save to app-private SHA256-keyed, 7-day/96MiB-limited JPEG disk cache, plus the active playing decoder passively saves one screenshot each 10s without extra media seeks. Disk scenes are loaded asynchronously during D-pad scrubbing into 96-image RAM LRU; main player remains untouched. Progressive/preparable sources only: truly unseen frames require independent seeking allowed by provider; for unsupported formats, previously watched/cached portions work but no guarantee of unseen scenes. Gold v59 and milestone v71 preserved; physical TV/Firestick testing required." --prerelease

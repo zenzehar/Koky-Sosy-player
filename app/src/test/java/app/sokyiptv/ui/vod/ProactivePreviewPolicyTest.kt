@@ -58,6 +58,21 @@ class ProactivePreviewPolicyTest {
         assertTrue(ProactivePreviewPolicy.detailedStoryboard(30_000L, 0L).isEmpty())
     }
 
+    @Test fun tenSecondStoryboardCoversVideoCoarseToFineWithoutUnboundedFrames() {
+        val duration = 1_800_000L // 30-minute episode
+        val grid = ProactivePreviewPolicy.tenSecondStoryboard(duration, 0L)
+        assertEquals(179, grid.size)
+        assertEquals(grid.size, grid.distinct().size)
+        assertTrue(grid.all { it % 10_000L == 0L })
+        assertTrue((1L..179L).all { 10_000L * it in grid })
+        assertTrue(grid.take(30).any { it in 850_000L..950_000L })
+        assertTrue(grid.take(30).any { it >= 1_600_000L })
+        assertTrue(ProactivePreviewPolicy.tenSecondStoryboard(30_000L, 0L).isEmpty())
+        val longVideo = ProactivePreviewPolicy.tenSecondStoryboard(21_600_000L, 0L)
+        assertTrue(longVideo.size <= 1_440)
+        assertTrue(longVideo.all { it in 2_000L until 21_600_000L })
+    }
+
     @Test fun requestedFramesPrioritizeSelectedTimestampAndStaySmall() {
         assertEquals(listOf(200_000L, 225_000L, 175_000L),
             ProactivePreviewPolicy.requestedFrames(200_000L, 1_720_000L))
