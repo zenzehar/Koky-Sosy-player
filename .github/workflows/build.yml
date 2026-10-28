@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.76-disk-trickplay-intro-seek-retry' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.78-disk-first-whole-video' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.76-disk-trickplay-intro-seek-retry'
+      github.head_ref == 'fix/v0.1.11.78-disk-first-whole-video'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.76.apk
-          gh release create v0.1.11.76-disk-trickplay-intro-seek-retry \
-            "apk/Soky_IPTV_Pro_v0.1.11.76.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.78.apk
+          gh release create v0.1.11.78-disk-first-whole-video \
+            "apk/Soky_IPTV_Pro_v0.1.11.78.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.76 Reliable Intro Skip and Disk Trickplay Cache" \
-            --notes "v0.1.11.76 EXPERIMENTAL TV TEST. Intro timer and manual intro action now queue the validated intro-end timestamp until the active VLC/Media3 engine is actually seekable, and only then mark the prompt complete. This fixes the lost auto-seek when engine seekability briefly drops at the 10-second boundary; credits next-episode behaviour from v75 retained. Netflix-like and classic player Play/Pause symbol has NO painted background or border in either playback or buffering mode, with visible focused icon, and transparent buffering circle. Hybrid 10-second trickplay: 24+96 coarse and detail samples now refine into approximately one scene per 10 seconds across the whole movie, capped at 1440; provider-supported extractions save to app-private SHA256-keyed, 7-day/96MiB-limited JPEG disk cache, plus the active playing decoder passively saves one screenshot each 10s without extra media seeks. Disk scenes are loaded asynchronously during D-pad scrubbing into 96-image RAM LRU; main player remains untouched. Progressive/preparable sources only: truly unseen frames require independent seeking allowed by provider; for unsupported formats, previously watched/cached portions work but no guarantee of unseen scenes. Gold v59 and milestone v71 preserved; physical TV/Firestick testing required." --prerelease
+            --title "Soky IPTV Pro v0.1.11.78 Disk-first Whole-video Seek Previews" \
+            --notes "v0.1.11.78 EXPERIMENTAL, clean rebuild exclusively from approved v0.1.11.76 GOLD (NOT from the rejected v77). The rejected PR #105 was closed. A disk-first five-second thumbnail index with no per-video 96/192/2880 frame-count limit is prepared progressively across the entire VOD, starting when the video is opened independent of playback timestamp, pause or buffering. A single low-priority Android media metadata retriever discovers duration when possible, then traverses the timeline in whole-film coarse-to-fine order. Prepared scenes are compact JPEGs in a new separate app-private cache (256MiB overall disk limit, seven-day retention), while a 32-frame preview RAM LRU plus 24 played frames serves the UI. The stream playing decoder is NEVER sought or replaced for thumbnails. Scrubbing reads pre-cached JPEGs from disk immediately with a retry loop when a new scene arrives. Actual cached-disk count is shown, not RAM occupancy. Existing v76 playback, intro/credits, seek engine and Play/Pause visuals unchanged. IPTV sources that block independent random-access decoding cannot yield yet-unwatched scenes; indexing degrades gracefully without affecting playback. Do not promote without physical Android TV / Firestick testing." --prerelease
