@@ -597,6 +597,22 @@ fun VlcFallbackScreen(
         mediaKey, "credits", skipCreditsPromptVisible, countdownActive,
         onTimeout = ::nextAfterCredits,
     )
+    // Independent player-level completion observer: explicitly dispatch
+    // the SAME callback as remote OK at 100% fill. Idempotent dismiss flags
+    // protect from any double firing with the countdown's own callback.
+    // This avoids transient coroutine cancellation silently swallowing skip.
+    LaunchedEffect(mediaKey, introCountdown >= SkipCountdownPolicy.LENGTH_MS,
+        skipIntroPromptVisible, introDismissed) {
+        if (SkipCountdownPolicy.shouldActivate(
+                introCountdown, skipIntroPromptVisible, introDismissed))
+            skipIntroNow()
+    }
+    LaunchedEffect(mediaKey, creditsCountdown >= SkipCountdownPolicy.LENGTH_MS,
+        skipCreditsPromptVisible, creditsDismissed) {
+        if (SkipCountdownPolicy.shouldActivate(
+                creditsCountdown, skipCreditsPromptVisible, creditsDismissed))
+            nextAfterCredits()
+    }
     LaunchedEffect(skipIntroPromptVisible, skipCreditsPromptVisible) {
         if (skipPromptVisible) skipPromptUserLeft = false
     }

@@ -42,6 +42,39 @@ internal object ProactivePreviewPolicy {
         return result
     }
 
+    /**
+     * Progressive, evenly distributed contact sheet: the existing coarse
+     * 24-frame overview is made first, then 48- and 96-slot midpoint passes.
+     * On a supported VOD, rapid scrubbing uses these already-decoded frames,
+     * rather than waiting for the primary video to seek or buffer.
+     *
+     * NOT literally every video frame: that would require tens of thousands
+     * of bitmaps and is unsuitable for low-memory Android TV hardware.
+     */
+    fun detailedStoryboard(durationMs: Long, fromMs: Long): List<Long> {
+        val initial = storyboard(durationMs, fromMs)
+        if (initial.isEmpty()) return emptyList()
+        val results = ArrayList<Long>(96)
+        results.addAll(initial)
+        val minimumSpacingMs = (durationMs / 250L).coerceAtLeast(250L)
+        for (slots in listOf(48, 96, 192)) {
+            for (i in 1 until slots step 2) {
+                val time = (durationMs * i / slots).coerceIn(2_000L, durationMs - 2_000L)
+                if (results.any { abs(it - time) < minimumSpacingMs }) continue
+                results.add(time)
+                if (results.size == 96) return results
+            }
+        }
+        // Fill tiny gaps as needed without duplicating keyframe requests.
+        for (i in 1..192) {
+            val time = (durationMs * i / 193L).coerceIn(2_000L, durationMs - 2_000L)
+            if (results.any { abs(it - time) < minimumSpacingMs }) continue
+            results.add(time)
+            if (results.size == 96) break
+        }
+        return results
+    }
+
     /** A small group around the selected scrub point, avoiding full-video scans. */
     fun requestedFrames(atMs: Long, durationMs: Long): List<Long> {
         if (durationMs < 60_000L || atMs < 0L) return emptyList()

@@ -45,6 +45,19 @@ class ProactivePreviewPolicyTest {
         assertTrue(ProactivePreviewPolicy.storyboard(30_000L, 0L).isEmpty())
     }
 
+    @Test fun detailedStoryboardsPrecache96DistinctScenesAcrossEntireVideo() {
+        val duration = 1_800_000L
+        val initial = ProactivePreviewPolicy.storyboard(duration, 0L)
+        val plan = ProactivePreviewPolicy.detailedStoryboard(duration, 0L)
+        assertEquals(96, plan.size)
+        assertEquals(initial, plan.take(24))
+        assertEquals(plan.size, plan.distinct().size)
+        assertTrue(plan.all { it in 2_000L..(duration - 2_000L) })
+        assertTrue(plan.any { it in 0L..180_000L })
+        assertTrue(plan.any { it in 1_620_000L..duration })
+        assertTrue(ProactivePreviewPolicy.detailedStoryboard(30_000L, 0L).isEmpty())
+    }
+
     @Test fun requestedFramesPrioritizeSelectedTimestampAndStaySmall() {
         assertEquals(listOf(200_000L, 225_000L, 175_000L),
             ProactivePreviewPolicy.requestedFrames(200_000L, 1_720_000L))

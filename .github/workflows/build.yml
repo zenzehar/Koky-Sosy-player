@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.74-trickplay-focus-and-auto-skip' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.75-passive-seek-caching-and-skip-dispatch' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.74-trickplay-focus-and-auto-skip'
+      github.head_ref == 'fix/v0.1.11.75-passive-seek-caching-and-skip-dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.74.apk
-          gh release create v0.1.11.74-trickplay-focus-and-auto-skip \
-            "apk/Soky_IPTV_Pro_v0.1.11.74.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.75.apk
+          gh release create v0.1.11.75-passive-seek-caching-and-skip-dispatch \
+            "apk/Soky_IPTV_Pro_v0.1.11.75.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.74 Seek Previews, Focus and Reliable Auto-Skip" \
-            --notes "v0.1.11.74 EXPERIMENTAL Android TV prerelease. Repairs continuously held D-pad seeking: request preview timestamps immediately (v73 260ms per-timestamp debounce cancelled requests), keep one supported-source metadata retriever for rapid demand seeking, widen truthful approximate storyboard coverage and fix cache candidate selection when a close but rejected live frame previously obscured a valid storyboard. Preview cannot be guaranteed for unseen scenes when IPTV providers block secondary metadata connections. Rebuild 10-second auto-skip timer as an uninterrupted episode-scoped coroutine that advances only while playing and fires once; intro jumps only to intro-end. Credits action moves to a CONFIRMED playable next episode, never back to title on absent next; navigator replaces exact current player destination. D-pad Up returns to skip buttons, Down exits to controls, Left Right toggle action/cancellation. Reduce Netflix-like seek cursor from 9/11dp to 5/6.5dp and replace harsh red/teal focus colours with quiet graphite/silver. VLC playback/seek engine untouched. v59 GOLD, v71 temporary and v72/v73 experiments preserved. Unit tests and real TV QA needed." --prerelease
+            --title "Soky IPTV Pro v0.1.11.75 Passive Thumbnail Cache and Skip Dispatch" \
+            --notes "v0.1.11.75 EXPERIMENTAL Android TV prerelease. Regressions: both 10-second skip timers now have an independent state-driven completion action in VLC and Media3 in addition to the countdown callback. Intro dispatches precisely its recorded intro END; credits dispatches the confirmed next episode only, never the series/title screen. Action cancellation remains episode scoped. Network-supported progressive VOD now builds a 96-scene progressive 160x90 whole-video contact sheet passively while playing, starting with 24 broadly spaced samples, adding denser refinement and prioritising scrub targets. Previously reached frames remain in a separate 24-frame cache (~8MiB total bitmaps). No active player seeking, second full player or unbounded caching, and native VLC engine unchanged. Unsupported/protected/range-blocked streams cannot guarantee unseen-time thumbnails; approximate keyframes are explicitly labeled. While buffering, the loading indicator replaces Play/Pause with 100% transparent background and no button panel/border in both themes and hidden-control overlay. Netflix-like seeking cursor is a red dot with no frame or focus halo. v59 gold and v71 temporary milestone remain untouched. Real Android TV and Firestick regression checks required." --prerelease

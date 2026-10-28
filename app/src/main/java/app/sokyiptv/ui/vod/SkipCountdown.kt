@@ -19,6 +19,10 @@ internal object SkipCountdownPolicy {
             if (playing) delta.coerceAtLeast(0L) else 0L).coerceAtMost(LENGTH_MS)
     fun fraction(elapsed: Long): Float =
         elapsed.coerceIn(0L, LENGTH_MS).toFloat() / LENGTH_MS
+    /** A completed fill has to execute the same action as the remote OK key. */
+    fun shouldActivate(elapsed: Long, offered: Boolean, cancelled: Boolean): Boolean =
+        elapsed >= LENGTH_MS && offered && !cancelled
+
     fun remainingSeconds(elapsed: Long): Int =
         ((LENGTH_MS - elapsed.coerceIn(0L, LENGTH_MS) + 999L) / 1_000L).toInt()
 }

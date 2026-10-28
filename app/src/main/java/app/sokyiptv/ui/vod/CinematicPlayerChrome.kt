@@ -271,10 +271,11 @@ private fun CinematicControl(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(shape)
-            .background(fill)
+            .background(if (buffering) Color.Transparent else fill)
             .border(
-                width = if (focused) 2.5.dp else 1.dp,
-                color = if (focused) CinemaBlue else Color.White.copy(alpha = 0.27f),
+                width = if (buffering) 0.dp else if (focused) 2.5.dp else 1.dp,
+                color = if (buffering) Color.Transparent
+                    else if (focused) CinemaBlue else Color.White.copy(alpha = 0.27f),
                 shape = shape,
             )
             .clickable(enabled = enabled, onClick = onClick)

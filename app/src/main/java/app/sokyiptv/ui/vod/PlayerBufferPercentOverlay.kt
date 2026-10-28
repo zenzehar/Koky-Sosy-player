@@ -1,11 +1,8 @@
 package app.sokyiptv.ui.vod
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,12 +63,9 @@ internal fun PlayerBufferPercentOverlay(
     netflix: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier
-            .background(Color(0x90101010), RoundedCornerShape(16.dp))
-            .padding(8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
+    // No translucent plate, rounded-square, dimming layer or padding:
+    // the ring directly replaces Play/Pause with 100% transparent background.
+    Box(modifier, contentAlignment = Alignment.Center) {
         BufferingControlFace(percent = percent, netflix = netflix, diameterDp = 74)
     }
 }
