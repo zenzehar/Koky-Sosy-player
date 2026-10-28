@@ -234,6 +234,7 @@ internal fun CinematicTransport(
             focusRequester = pauseRequester,
             buffering = buffering,
             bufferingPercent = bufferingPercent,
+            bare = true,
             onClick = onTogglePause,
         )
         CinematicControl(Icons.Filled.Forward10, "Forward 10 seconds", onClick = onForward)
@@ -258,6 +259,7 @@ private fun CinematicControl(
     focusRequester: FocusRequester? = null,
     buffering: Boolean = false,
     bufferingPercent: Int? = null,
+    bare: Boolean = false,
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -271,10 +273,10 @@ private fun CinematicControl(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .clip(shape)
-            .background(if (buffering) Color.Transparent else fill)
+            .background(if (bare || buffering) Color.Transparent else fill)
             .border(
-                width = if (buffering) 0.dp else if (focused) 2.5.dp else 1.dp,
-                color = if (buffering) Color.Transparent
+                width = if (bare || buffering) 0.dp else if (focused) 2.5.dp else 1.dp,
+                color = if (bare || buffering) Color.Transparent
                     else if (focused) CinemaBlue else Color.White.copy(alpha = 0.27f),
                 shape = shape,
             )

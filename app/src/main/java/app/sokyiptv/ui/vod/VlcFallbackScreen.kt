@@ -139,6 +139,9 @@ fun VlcFallbackScreen(
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    val passiveDisk = remember(mediaKey, streamUrl) {
+        SeekThumbnailDiskCache(context.applicationContext, streamUrl)
+    }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
@@ -446,6 +449,10 @@ fun VlcFallbackScreen(
                 continue
             }
             if (kotlin.math.abs(player.time - timestamp) <= 1_400L) {
+                // Second source of previews: save already-decoded playback
+                // surfaces every ~10s even when remote metadata retrieval
+                // is unsupported. No extra stream or decoder is required.
+                if (!passiveDisk.contains(timestamp)) passiveDisk.save(timestamp, still)
                 seekFrames.store(timestamp, still)
                 failures = 0
             } else still.recycle()
@@ -566,10 +573,41 @@ fun VlcFallbackScreen(
     }
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
+    // Keep the pending request until the engine actually accepts it. v75
+    // dismissed the intro prompt BEFORE isSeekable/Media3-seekability was checked,
+    // so at the timer boundary an unready engine silently discarded the skip.
+    var pendingIntroSeek by remember(mediaKey) { mutableLongStateOf(-1L) }
     fun skipIntroNow() {
         if (introDismissed) return
-        introDismissed = true
-        validIntroTarget?.takeIf { positionMs < it }?.let(::seekTo)
+        val target = validIntroTarget ?: return
+        if (positionMs >= target) {
+            introDismissed = true
+            pendingIntroSeek = -1L
+            return
+        }
+        pendingIntroSeek = target
+    }
+    LaunchedEffect(mediaKey, pendingIntroSeek) {
+        val destination = pendingIntroSeek
+        if (destination < 0L) return@LaunchedEffect
+        while (isActive && !introDismissed && pendingIntroSeek == destination) {
+            if (positionMs >= destination) {
+                introDismissed = true
+                pendingIntroSeek = -1L
+                break
+            }
+            val maySeek = ready && !failed && !ended && !leaving.get() && !nativeReleased.get() &&
+                runCatching { player.isSeekable }.getOrDefault(false)
+            if (maySeek) {
+                val submitted = runCatching { seekTo(destination) }.isSuccess
+                if (submitted) {
+                    introDismissed = true
+                    pendingIntroSeek = -1L
+                    break
+                }
+            }
+            delay(180L)
+        }
     }
     fun nextAfterCredits() {
         // NEVER exit to the series/title page on a countdown. If there is no
@@ -1062,7 +1100,7 @@ fun VlcFallbackScreen(
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
-                onCancel = { introDismissed = true },
+                onCancel = { introDismissed = true; pendingIntroSeek = -1L },
                 onSkip = ::skipIntroNow,
                 onFocusChanged = { skipPromptHasFocus = it },
                 onLeave = {

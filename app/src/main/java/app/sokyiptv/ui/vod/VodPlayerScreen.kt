@@ -167,6 +167,9 @@ fun VodPlayerScreen(
     val uiStyle by settings.playerUiStyle.collectAsState()
     val netflix = uiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
+    val passiveDisk = remember(mediaKey, streamUrl) {
+        SeekThumbnailDiskCache(context.applicationContext, streamUrl)
+    }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
@@ -637,6 +640,10 @@ fun VodPlayerScreen(
                 continue
             }
             if (kotlin.math.abs(p.currentPosition - recordedAt) <= 1_400L) {
+                // Passive 10s disk cache also works for sources that reject
+                // independent frame extraction. Save before RAM cache may
+                // take ownership/recycle duplicate images.
+                if (!passiveDisk.contains(recordedAt)) passiveDisk.save(recordedAt, bitmap)
                 seekFrames.store(recordedAt, bitmap)
                 failures = 0
             } else bitmap.recycle()
@@ -716,10 +723,42 @@ fun VodPlayerScreen(
         manualSkips.showCredits(positionMs, durationMs)
     val skipPromptVisible = skipIntroPromptVisible || skipCreditsPromptVisible
     val skipPromptFocus = remember { FocusRequester() }
+    // Keep the pending request until the engine actually accepts it. v75
+    // dismissed the intro prompt BEFORE isSeekable/Media3-seekability was checked,
+    // so at the timer boundary an unready engine silently discarded the skip.
+    var pendingIntroSeek by remember(mediaKey) { mutableLongStateOf(-1L) }
     fun skipIntroNow() {
         if (introDismissed) return
-        introDismissed = true
-        validIntroTarget?.takeIf { positionMs < it }?.let(::seekAt)
+        val target = validIntroTarget ?: return
+        if (positionMs >= target) {
+            introDismissed = true
+            pendingIntroSeek = -1L
+            return
+        }
+        pendingIntroSeek = target
+    }
+    LaunchedEffect(mediaKey, pendingIntroSeek) {
+        val destination = pendingIntroSeek
+        if (destination < 0L) return@LaunchedEffect
+        while (isActive && !introDismissed && pendingIntroSeek == destination) {
+            if (positionMs >= destination) {
+                introDismissed = true
+                pendingIntroSeek = -1L
+                break
+            }
+            val maySeek = !usingVlc && !paused && resumeLoaded &&
+                controller.player.isCurrentMediaItemSeekable &&
+                controller.player.playbackState != Player.STATE_IDLE
+            if (maySeek) {
+                val submitted = runCatching { seekAt(destination) }.isSuccess
+                if (submitted) {
+                    introDismissed = true
+                    pendingIntroSeek = -1L
+                    break
+                }
+            }
+            delay(180L)
+        }
     }
     fun nextAfterCredits() {
         // Countdown is *next episode only*; NEVER exit to title on missing next.
@@ -1230,7 +1269,7 @@ fun VodPlayerScreen(
                 modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = 44.dp, bottom = if (controlsVisible) 192.dp else 62.dp),
                 focusRequester = skipPromptFocus,
-                onCancel = { introDismissed = true },
+                onCancel = { introDismissed = true; pendingIntroSeek = -1L },
                 onSkip = ::skipIntroNow,
                 onFocusChanged = { skipPromptHasFocus = it },
                 onLeave = {

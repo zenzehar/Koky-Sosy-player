@@ -75,6 +75,35 @@ internal object ProactivePreviewPolicy {
         return results
     }
 
+    /**
+     * First prepare the 96 distributed overview samples, then gradually fill
+     * the full movie at 10-second intervals. For videos over four hours the
+     * spacing increases proportionally to avoid unbounded network extraction.
+     * Returned timestamps are aligned to the disk-cache 10-second buckets.
+     */
+    fun tenSecondStoryboard(durationMs: Long, fromMs: Long): List<Long> {
+        if (durationMs < 60_000L) return emptyList()
+        val step = ((durationMs / 1_440L + 9_999L) / 10_000L)
+            .coerceAtLeast(1L) * 10_000L
+        val maxPoint = durationMs - 2_000L
+        val frames = LinkedHashSet<Long>()
+        fun add(raw: Long) {
+            val aligned = ((raw + step / 2L) / step) * step
+            if (aligned in 2_000L..maxPoint) frames.add(aligned)
+        }
+        detailedStoryboard(durationMs, fromMs).forEach(::add)
+        // Coarse-to-fine ordering gives seekbar-wide coverage early instead of
+        // fully caching the start before any distant previews exist.
+        for (stride in listOf(12L, 6L, 3L, 1L)) {
+            var i = stride
+            while (i * step <= maxPoint && frames.size < 1_440) {
+                frames.add(i * step)
+                i += stride
+            }
+        }
+        return frames.toList()
+    }
+
     /** A small group around the selected scrub point, avoiding full-video scans. */
     fun requestedFrames(atMs: Long, durationMs: Long): List<Long> {
         if (durationMs < 60_000L || atMs < 0L) return emptyList()
