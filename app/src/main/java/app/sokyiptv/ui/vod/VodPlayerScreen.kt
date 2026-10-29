@@ -174,6 +174,13 @@ fun VodPlayerScreen(
     val passiveDisk = remember(mediaKey, streamUrl) {
         SeekThumbnailDiskCache(context.applicationContext, streamUrl)
     }
+    // First-play fallback if the provider blocks independent frame decoding:
+    // copy only frames already rendered by the active player into the selected
+    // Netflix-like mode's disk cache. Never seek or open a second decoder.
+    val netflixPassiveDisk = remember(mediaKey, streamUrl) {
+        SeekThumbnailDiskCache(context.applicationContext, streamUrl,
+            namespace = "soky_netflix_trickplay_v1")
+    }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
@@ -345,13 +352,6 @@ fun VodPlayerScreen(
     val media3SeekClock = remember(mediaKey, controller) { VlcSeekClock() }
     val postSeekGate = remember(mediaKey, controller) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(mediaKey, controller) { mutableStateOf(false) }
-    val onMarkerLongPress = rememberManualMarkerLongPress(
-        enabled = !usingVlc && paused && !seriesGroup.isNullOrBlank() &&
-            mediaKey.startsWith("ep:") &&
-            !markerDialogVisible && vodPanel == VodPanel.NONE,
-        onLongPress = { markerDialogVisible = true; controlsVisible = true; interaction++ },
-    )
-
     fun reveal() { controlsVisible = true; interaction++ }
 
     var media3ResumeGeneration by remember(controller) { mutableIntStateOf(0) }
@@ -370,6 +370,19 @@ fun VodPlayerScreen(
         } else p.pause()
         reveal()
     }
+
+    val onMarkerLongPress = rememberManualMarkerLongPress(
+        enabled = !usingVlc && !seriesGroup.isNullOrBlank() &&
+            mediaKey.startsWith("ep:") &&
+            !markerDialogVisible && vodPanel == VodPanel.NONE,
+        onLongPress = {
+            // Holding OK opens markers even from active playback. Short OK
+            // continues to behave exactly like the existing seek/pause key.
+            setPlaybackIntent(false)
+            markerDialogVisible = true
+            reveal()
+        },
+    )
 
     fun setHardwarePlayback(action: TvHardwarePlaybackKeys.Action) {
         setPlaybackIntent(when (action) {
@@ -651,6 +664,9 @@ fun VodPlayerScreen(
                 // independent frame extraction. Save before RAM cache may
                 // take ownership/recycle duplicate images.
                 if (!passiveDisk.contains(recordedAt)) passiveDisk.save(recordedAt, bitmap)
+                if (predictiveTrickplay && !netflixPassiveDisk.contains(recordedAt)) {
+                    netflixPassiveDisk.save(recordedAt, bitmap)
+                }
                 seekFrames.store(recordedAt, bitmap)
                 failures = 0
             } else bitmap.recycle()

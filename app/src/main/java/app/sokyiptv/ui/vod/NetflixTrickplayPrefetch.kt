@@ -70,7 +70,7 @@ internal object NetflixTrickplayIndexer {
                     delay(800L * attempt)
             }
             val media = retriever ?: run {
-                cache.previewStatus = "Provider refused independent first-time previews"
+                cache.previewStatus = "Provider blocks unseen previews; caching watched scenes instead"
                 return@withLock
             }
 
@@ -228,7 +228,7 @@ internal object NetflixTrickplayIndexer {
                     "Provider limits uncached previews · ${cache.diskPrepared}/${expected} scenes available"
             }
         } catch (_: Exception) {
-            cache.previewStatus = "Independent first-time preview extraction unavailable"
+            cache.previewStatus = "Independent previews unavailable; watched scenes will still be cached"
         } finally {
             val item = retriever
             if (item != null) withContext(NonCancellable + Dispatchers.IO) {

@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.80-cold-start-thumbnail-recovery' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.81-login-gate-markers-preview-fallback' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.80-cold-start-thumbnail-recovery'
+      github.head_ref == 'fix/v0.1.11.81-login-gate-markers-preview-fallback'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.80.apk
-          gh release create v0.1.11.80-cold-start-thumbnail-recovery \
-            "apk/Soky_IPTV_Pro_v0.1.11.80.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.81.apk
+          gh release create v0.1.11.81-login-gate-markers-preview-fallback \
+            "apk/Soky_IPTV_Pro_v0.1.11.81.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.80 Cold-start Thumbnail Recovery" \
-            --notes "v0.1.11.80 EXPERIMENTAL Android TV candidate based DIRECTLY on approved v0.1.11.79 GOLD, milestone/v0.1.11.79-GOLD. The user-confirmed previously played thumbnail workflow, settings toggle, playback/seek engine, D-pad OK conditional seek-vs-pause behaviour, skips, and visuals remain intact. First-time Netflix-like preview diagnosis: the old background metadata extractor permanently blacklisted failed cold timestamps and quit after five consecutive null frames, while all other frames were decoded serially and a pending cursor retry could be postponed behind the full film. v80 retries initial metadata session opens (max three), schedules recoverable per-timestamp retries with adaptive cooldown and capped attempts, retries the currently selected target promptly instead of after full-film scan, prevents endless cursor priority starvation, protects playback through one independent low-priority extractor, and offers faster cold-cache disk hydration. The first dozen scenes are prioritized even while buffering. A 45-second minimum initial trial prevents immediate premature shutdown on first opens; bounded provider failures and maximum session lifetime still apply. Unit tests cover cold retries, priority fairness, settled vs unsettled seek and older behaviours. Provider restrictions on independent random access cannot be bypassed; testing on real TV and Firestick required before any gold promotion." --prerelease
+            --title "Soky IPTV Pro v0.1.11.81 Login Gate, Markers and Thumbnail Fallback" \
+            --notes "v0.1.11.81 EXPERIMENTAL, from v80; approved GOLD v79 checkpoint preserved. When a provider refuses independent unseen-time thumbnails, the active video decoder passively snapshots already-rendered scenes into BOTH the current legacy and selected Netflix-like disk thumbnail caches; no second player, stream seeking or DRM bypass. Previously cached thumbnails remain reusable, and the preview explicitly says that the provider blocks remote unseen-scene extraction. Restores series marker menu on a long remote OK hold even while video plays, explicitly pauses before opening; short OK retains v79 seek-confirm or pause/resume behavior. Login now checks existing provider authentication BEFORE creating the Home NavHost; explicit auth rejection, subscription expiration, or incorrect server configuration opens the prefilled login editor with a clear cause. First-time login requires authenticated provider AND successful initial live catalogue import; verification ledger SHA256-binds the source identity/credentials, with existing v79 per-source successful-import stamps honoured. A previously verified account can enter cached home on temporary internet/provider outage with visible warning and Retry, but wrong/changed credentials never bypass login. Network status and credential failure are not conflated. The validation gate is keyed on source identity, NOT background sync timestamps, to avoid disrupting video. Unit tests classify invalid, offline, HTTP and server failures. Physical TV/Firestick first-login, offline and long-hold tests required before promotion." --prerelease

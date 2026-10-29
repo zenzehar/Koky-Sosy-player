@@ -146,6 +146,13 @@ fun VlcFallbackScreen(
     val passiveDisk = remember(mediaKey, streamUrl) {
         SeekThumbnailDiskCache(context.applicationContext, streamUrl)
     }
+    // First-play fallback if the provider blocks independent frame decoding:
+    // copy only frames already rendered by the active player into the selected
+    // Netflix-like mode's disk cache. Never seek or open a second decoder.
+    val netflixPassiveDisk = remember(mediaKey, streamUrl) {
+        SeekThumbnailDiskCache(context.applicationContext, streamUrl,
+            namespace = "soky_netflix_trickplay_v1")
+    }
     var requestedPreviewMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     var thumbnailPostSeekTargetMs by remember(mediaKey) { mutableLongStateOf(-1L) }
     DisposableEffect(seekFrames) { onDispose { seekFrames.clear() } }
@@ -190,12 +197,6 @@ fun VlcFallbackScreen(
     // When visible, native Compose focus navigation uses the visible button order.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
-    val onMarkerLongPress = rememberManualMarkerLongPress(
-        enabled = paused && showEpisodeControls && markersAvailable && !trackPanelVisible &&
-            !markerPanelVisible && !leaving.get(),
-        onLongPress = { markerPanelVisible = true; controlsVisible = true; interaction++ },
-    )
-
 
     fun showControls() { controlsVisible = true; interaction++ }
     fun leaveVideo() {
@@ -223,6 +224,21 @@ fun VlcFallbackScreen(
         showControls()
     }
     fun togglePlayback() = setPlayback(paused)
+    val onMarkerLongPress = rememberManualMarkerLongPress(
+        // The marker shortcut must be armed even WHILE playing. Previously
+        // 'paused' disabled it before OK-down and the released long hold
+        // could never open the panel.
+        enabled = showEpisodeControls && markersAvailable && !trackPanelVisible &&
+            !markerPanelVisible && !leaving.get(),
+        onLongPress = {
+            // Use the SAME playback API as the ordinary Play/Pause button.
+            // A held OK must leave the video paused before showing markers.
+            setPlayback(false)
+            markerPanelVisible = true
+            showControls()
+        },
+    )
+
     fun setHardwarePlayback(shouldPlay: Boolean) = setPlayback(shouldPlay)
     fun showReport() {
         PlaybackDiagnostics.event(context, "REPORT", persistNow = true)
@@ -460,6 +476,9 @@ fun VlcFallbackScreen(
                 // surfaces every ~10s even when remote metadata retrieval
                 // is unsupported. No extra stream or decoder is required.
                 if (!passiveDisk.contains(timestamp)) passiveDisk.save(timestamp, still)
+                if (predictiveTrickplay && !netflixPassiveDisk.contains(timestamp)) {
+                    netflixPassiveDisk.save(timestamp, still)
+                }
                 seekFrames.store(timestamp, still)
                 failures = 0
             } else still.recycle()

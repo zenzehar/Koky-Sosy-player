@@ -58,8 +58,21 @@ class XtreamApi(
         if (status != null && !status.equals("Active", ignoreCase = true)) {
             throw XtreamException("This account is $status.")
         }
-        if (userInfo["auth"].asIntOrNull == 0) {
+        val authentication = userInfo["auth"].asIntOrNull
+        if (authentication == 0) {
             throw XtreamException("Username or password rejected by the server.")
+        }
+        // An HTML login portal or a malformed provider API is not proof
+        // that credentials were accepted. Fail closed on first login.
+        if (authentication != 1) {
+            throw XtreamException(
+                "The provider did not confirm a valid account. Check the server address and credentials."
+            )
+        }
+        val expirySeconds = userInfo["exp_date"].asLongOrNull
+        if (expirySeconds != null && expirySeconds > 0L &&
+            expirySeconds * 1000L < System.currentTimeMillis()) {
+            throw XtreamException("The provider reports that this subscription has expired.")
         }
 
         AccountInfo(

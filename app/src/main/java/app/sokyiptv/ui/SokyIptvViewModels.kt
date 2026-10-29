@@ -17,6 +17,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sokyiptv.core.ServiceLocator
+import app.sokyiptv.core.ProviderLoginPolicy
+import app.sokyiptv.core.ProviderLoginTrust
 import app.sokyiptv.data.model.Category
 import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.EpgFeed
@@ -84,6 +86,7 @@ import kotlinx.coroutines.sync.withLock
 
 class SourcesViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
+    private val verifiedLogins = ProviderLoginTrust(app)
 
     data class UiState(
         val sources: List<Source> = emptyList(),
@@ -120,7 +123,9 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(
                 testing = false,
                 testResult = result.getOrNull(),
-                testError = result.exceptionOrNull()?.message,
+                testError = result.exceptionOrNull()?.let {
+                    ProviderLoginPolicy.classify(it).message
+                },
             )
         }
     }
@@ -137,7 +142,8 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             if (validation.isFailure) {
                 _ui.value = _ui.value.copy(
                     syncing = false, syncMessage = null,
-                    testError = validation.exceptionOrNull()?.message ?: "Connection failed. Check your details.",
+                    testError = ProviderLoginPolicy
+                        .classify(validation.exceptionOrNull()).message,
                 )
                 onDone(false)
                 return@launch
@@ -160,11 +166,19 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
             when (val result = graph.catalogRepository.syncLive(saved, now, CatalogueGate::liveImportProgress)) {
                 is CatalogRepository.SyncResult.Failed -> {
                     CatalogueGate.failed(result.reason)
-                    _ui.value = _ui.value.copy(syncing = false, syncMessage = result.reason)
+                    _ui.value = _ui.value.copy(
+                        syncing = false, syncMessage = null,
+                        testError = "Login was verified, but the provider could not load channels: " +
+                            result.reason + ". The login screen remains open; try again.",
+                    )
                     onDone(false)
                     return@launch
                 }
                 is CatalogRepository.SyncResult.Success -> {
+                    // First login is complete ONLY after live catalogue import.
+                    // A saved-but-unverified provider cannot bypass the login
+                    // screen on restart during a first-time network outage.
+                    verifiedLogins.markVerified(saved)
                     graph.settings.markLiveSectionSynced(saved.id, System.currentTimeMillis())
                     _ui.value = _ui.value.copy(
                         syncing = false,
