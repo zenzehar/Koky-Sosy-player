@@ -40,20 +40,40 @@ internal object NetflixTrickplayIndexer {
         requestedPosition: () -> Long,
     ) = oneExtraMetadataSession.withLock {
         var retriever: MediaMetadataRetriever? = null
+        val sessionBegan = android.os.SystemClock.elapsedRealtime()
         try {
-            val media = withContext(Dispatchers.IO) {
-                MediaMetadataRetriever().also { item ->
-                    try {
-                        val headers = if (userAgent.isBlank()) emptyMap()
-                            else mapOf("User-Agent" to userAgent)
-                        item.setDataSource(streamUrl, headers)
-                    } catch (error: Exception) {
-                        runCatching { item.release() }
-                        throw error
+            // Cold-source startup: opening the primary player and independent
+            // metadata reader simultaneously can temporarily fail. Retry a
+            // FEW times, without reopening or interfering with the player.
+            for (attempt in 1..NetflixColdStartPolicy.MAX_OPEN_ATTEMPTS) {
+                if (!coroutineContext.isActive) return@withLock
+                val opened = runCatching {
+                    withContext(Dispatchers.IO) {
+                        MediaMetadataRetriever().also { item ->
+                            try {
+                                val headers = if (userAgent.isBlank()) emptyMap()
+                                    else mapOf("User-Agent" to userAgent)
+                                item.setDataSource(streamUrl, headers)
+                            } catch (error: Exception) {
+                                runCatching { item.release() }
+                                throw error
+                            }
+                        }
                     }
+                }.getOrNull()
+                if (opened != null) {
+                    retriever = opened
+                    break
                 }
+                cache.previewStatus = "Preparing first-time video previews…"
+                if (attempt < NetflixColdStartPolicy.MAX_OPEN_ATTEMPTS)
+                    delay(800L * attempt)
             }
-            retriever = media
+            val media = retriever ?: run {
+                cache.previewStatus = "Provider refused independent first-time previews"
+                return@withLock
+            }
+
             var duration = durationNow()
             if (duration < 60_000L) {
                 duration = withContext(Dispatchers.IO) {
@@ -64,47 +84,93 @@ internal object NetflixTrickplayIndexer {
                 }
             }
             while (coroutineContext.isActive && duration < 60_000L) {
-                cache.previewStatus = "Waiting for video duration to prepare storyboard…"
-                delay(200L)
+                cache.previewStatus = "Preparing video index; awaiting duration…"
+                delay(180L)
                 duration = durationNow()
+                if (android.os.SystemClock.elapsedRealtime() - sessionBegan >
+                    120_000L) return@withLock
             }
             if (!coroutineContext.isActive) return@withLock
 
             val planned = NetflixPreviewPolicy.progressive(duration)
             val expected = planned.size
-            cache.updateDiskProgress(disk.preparedCount(), expected)
-            var progress = 0
-            var consecutiveFailures = 0
-            var scanPosition = 0
-            val attempted = HashSet<Long>()
-            var latestSelection = -1L
-            var pendingNeighbour = emptyList<Long>()
+            var prepared = disk.preparedCount()
+            cache.updateDiskProgress(prepared, expected)
+            var successes = 0
+            var failures = 0
+            var nextBackground = 0
+            var lastSelection = -1L
+            var neighbours = emptyList<Long>()
             var nextNeighbour = 0
-            var priorityUsed = 0
+            var usedInBurst = 0
+            var backgroundSinceCursorRetry = 0
+            val failuresAt = HashMap<Long, Int>()
+            val attemptedAt = HashMap<Long, Long>()
+            val retries = LinkedHashSet<Long>()
 
-            while (coroutineContext.isActive && scanPosition < planned.size) {
-                val request = requestedPosition()
-                val requestedBucket = if (request >= 0L)
-                    NetflixPreviewPolicy.bucket(request, duration) else -1L
-                if (requestedBucket != latestSelection) {
-                    latestSelection = requestedBucket
-                    pendingNeighbour = if (request >= 0L)
-                        NetflixPreviewPolicy.aroundCursor(request, duration) else emptyList()
+            while (coroutineContext.isActive &&
+                android.os.SystemClock.elapsedRealtime() - sessionBegan <
+                    NetflixColdStartPolicy.MAX_SESSION_MS) {
+                val requested = requestedPosition()
+                val selection = if (requested >= 0L)
+                    NetflixPreviewPolicy.bucket(requested, duration) else -1L
+                if (selection != lastSelection) {
+                    lastSelection = selection
+                    neighbours = if (requested >= 0L)
+                        NetflixPreviewPolicy.aroundCursor(requested, duration)
+                    else emptyList()
                     nextNeighbour = 0
-                    priorityUsed = 0
+                    usedInBurst = 0
+                    backgroundSinceCursorRetry = 0
                 }
 
-                // A new scrub destination is handled promptly. Do not waste
-                // hundreds of decode operations on intermediate cursor positions.
-                val target = if (priorityUsed < 3 && nextNeighbour < pendingNeighbour.size) {
-                    priorityUsed++
-                    pendingNeighbour[nextNeighbour++]
-                } else {
-                    priorityUsed = 0
-                    planned[scanPosition++]
+                val now = android.os.SystemClock.elapsedRealtime()
+                val target = when {
+                    NetflixColdStartPolicy.usePriority(
+                        nextNeighbour < neighbours.size, usedInBurst) -> {
+                        usedInBurst++
+                        neighbours[nextNeighbour++]
+                    }
+                    // A selected *failed* cold thumbnail must be retried
+                    // promptly, not only after all 1,439 film frames finish.
+                    selection >= 0L && backgroundSinceCursorRetry >= 4 &&
+                        !disk.contains(selection) &&
+                        NetflixColdStartPolicy.canTryFrame(
+                            failuresAt[selection] ?: 0,
+                            attemptedAt[selection] ?: 0L, now) -> {
+                        backgroundSinceCursorRetry = 0
+                        selection
+                    }
+                    nextBackground < planned.size -> {
+                        usedInBurst = 0
+                        backgroundSinceCursorRetry++
+                        planned[nextBackground++]
+                    }
+                    retries.isNotEmpty() -> {
+                        // Failed cold-start timestamps come back into the
+                        // queue. No permanent 'attempted' blacklist on failure.
+                        val retry = retries.firstOrNull { time ->
+                            NetflixColdStartPolicy.canTryFrame(
+                                failuresAt[time] ?: 0, attemptedAt[time] ?: 0L, now)
+                        }
+                        if (retry == null) { delay(200L); continue }
+                        retries.remove(retry)
+                        retry
+                    }
+                    else -> break
                 }
-                if (!attempted.add(target) || disk.contains(target)) continue
-
+                if (disk.contains(target)) continue
+                val previouslyFailed = failuresAt[target] ?: 0
+                if (previouslyFailed >= NetflixColdStartPolicy.MAX_FRAME_ATTEMPTS) continue
+                if (!NetflixColdStartPolicy.canTryFrame(
+                        previouslyFailed, attemptedAt[target] ?: 0L, now)) {
+                    retries.add(target)
+                    continue
+                }
+                attemptedAt[target] = now
+                val operationStarted = android.os.SystemClock.elapsedRealtime()
+                // The same pending retry may be selected by foreground cursor.
+                retries.remove(target)
                 val frame: Bitmap? = try {
                     withContext(Dispatchers.IO) {
                         media.getScaledFrameAtTime(
@@ -114,37 +180,55 @@ internal object NetflixTrickplayIndexer {
                         )
                     }
                 } catch (_: Exception) { null }
+                val elapsed = android.os.SystemClock.elapsedRealtime() - operationStarted
 
                 if (frame == null) {
-                    consecutiveFailures++
-                    if (consecutiveFailures >= 5) {
+                    failures++
+                    if (successes == 0 && failures <= 6)
+                        cache.previewStatus = "Warming first-time thumbnail extraction…"
+                    val attempts = previouslyFailed + 1
+                    failuresAt[target] = attempts
+                    if (attempts < NetflixColdStartPolicy.MAX_FRAME_ATTEMPTS)
+                        retries.add(target)
+                    // Previously, only FIVE null frames ended all indexing.
+                    // Startup and buffering are transient on many providers.
+                    if (NetflixColdStartPolicy.shouldGiveUp(successes, failures, android.os.SystemClock.elapsedRealtime() - sessionBegan)) {
                         cache.previewStatus =
-                            "Provider cannot independently decode more preview scenes"
+                            "Provider restricts first-time extraction · ${cache.diskPrepared}/${expected} ready"
                         break
                     }
                 } else {
-                    consecutiveFailures = 0
-                    if (disk.save(target, frame)) progress++
-                    val nowRequested = requestedPosition()
-                    if (nowRequested >= 0L && abs(target - nowRequested) <= 7_500L) {
+                    failuresAt.remove(target)
+                    attemptedAt.remove(target)
+                    retries.remove(target)
+                    if (disk.save(target, frame)) {
+                        successes++
+                        prepared++
+                    }
+                    // Show a requested cold scene immediately on decode; do
+                    // not wait for disk polling or the active video to buffer.
+                    val latest = requestedPosition()
+                    if (latest >= 0L && abs(target - latest) <= 10_000L) {
                         cache.storePrefetched(target, duration, frame)
                     } else frame.recycle()
-
-                    if (progress > 0 && progress % 24 == 0) {
-                        cache.updateDiskProgress(disk.preparedCount(), expected)
+                    if (successes <= 3 || successes % 8 == 0) {
+                        cache.updateDiskProgress(prepared, expected)
                     }
                 }
-                // Index even when playback is buffering, with gentler pacing
-                // to protect the main video stream and slower providers.
-                delay(if (playbackHealthy()) 100L else 600L)
+
+                // First scenes receive priority, even while playback buffers.
+                // Later work remains low-priority to protect streaming.
+                delay(NetflixColdStartPolicy.pacingMs(
+                    playbackHealthy(), successes, elapsed))
             }
+
             cache.updateDiskProgress(disk.preparedCount(), expected)
-            if (consecutiveFailures >= 5) {
+            if (NetflixColdStartPolicy.shouldGiveUp(successes, failures, android.os.SystemClock.elapsedRealtime() - sessionBegan)) {
                 cache.previewStatus =
-                    "Preview extraction limited by provider · ${cache.diskPrepared}/${expected} prepared"
+                    "Provider limits uncached previews · ${cache.diskPrepared}/${expected} scenes available"
             }
         } catch (_: Exception) {
-            cache.previewStatus = "Independent preview thumbnails unavailable from provider"
+            cache.previewStatus = "Independent first-time preview extraction unavailable"
         } finally {
             val item = retriever
             if (item != null) withContext(NonCancellable + Dispatchers.IO) {
@@ -153,7 +237,6 @@ internal object NetflixTrickplayIndexer {
         }
     }
 }
-
 @Composable
 internal fun NetflixTrickplayPrefetch(
     streamUrl: String,
@@ -204,7 +287,9 @@ internal fun NetflixTrickplayPrefetch(
             // Conflate fast D-pad movement: if the cursor moved during disk
             // decoding, don't display an obsolete result as a new scene.
             val now = android.os.SystemClock.elapsedRealtime()
-            if (requested == lastRequested && now - lastCheckedAt < 350L) {
+            // Cold thumbnails may arrive immediately after the initial miss.
+            // Use a short, bounded disk recheck instead of waiting 350ms.
+            if (requested == lastRequested && now - lastCheckedAt < 120L) {
                 delay(55L)
                 continue
             }
