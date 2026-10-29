@@ -19,6 +19,8 @@ import androidx.lifecycle.viewModelScope
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.core.ProviderLoginPolicy
 import app.sokyiptv.core.ProviderLoginTrust
+import app.sokyiptv.core.LoginAdmissionPolicy
+import app.sokyiptv.data.work.SyncWorker
 import app.sokyiptv.data.model.Category
 import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.EpgFeed
@@ -102,6 +104,9 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         val testError: String? = null,
         val syncing: Boolean = false,
         val syncMessage: String? = null,
+        // Avoid a duplicate online request between successful login and
+        // initial Home composition. Only freshly authenticated source IDs.
+        val authenticatedThisSession: Set<Long> = emptySet(),
     )
 
     private val _ui = MutableStateFlow(UiState())
@@ -130,12 +135,19 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Saves, then immediately pulls the catalogue so the user sees channels, not a spinner. */
+    /**
+     * Authenticate FIRST, persist the verified account, then navigate to Home
+     * immediately. Catalogue and guide imports never delay the login callback.
+     *
+     * WorkManager owns the subsequent refresh so closing the login screen or
+     * losing the server midway cannot cancel a confirmed sign-in. An actual
+     * credential rejection still stops HERE; never save unverified details.
+     */
     fun saveAndSync(draft: Source, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             if (_ui.value.syncing) return@launch
             _ui.value = _ui.value.copy(
-                syncing = true, syncMessage = "Validating provider login…",
+                syncing = true, syncMessage = "Checking account credentials…",
                 testError = null, testResult = null,
             )
             val validation = graph.sourceRepository.test(draft)
@@ -148,87 +160,42 @@ class SourcesViewModel(app: Application) : AndroidViewModel(app) {
                 onDone(false)
                 return@launch
             }
-            _ui.value = _ui.value.copy(syncMessage = "Saving verified provider…", testResult = validation.getOrNull())
-            val id = graph.sourceRepository.save(draft)
-            val saved = graph.sourceRepository.byId(id)
-            if (saved == null) {
-                _ui.value = _ui.value.copy(syncing = false, syncMessage = "Could not save source.")
+
+            _ui.value = _ui.value.copy(
+                syncMessage = "Login confirmed. Opening Home…",
+                testResult = validation.getOrNull(),
+            )
+            val saved = runCatching {
+                val id = graph.sourceRepository.save(draft)
+                graph.sourceRepository.byId(id)
+            }.getOrNull()
+            if (saved == null || !LoginAdmissionPolicy.canEnterHome(
+                    authenticated = validation.isSuccess,
+                    savedSourceId = saved.id,
+                )) {
+                _ui.value = _ui.value.copy(
+                    syncing = false, syncMessage = null,
+                    testError = "The account was accepted, but saving its details failed. " +
+                        "Please try again.",
+                )
                 onDone(false)
                 return@launch
             }
+            verifiedLogins.markVerified(saved)
+            _ui.value = _ui.value.copy(
+                syncing = false,
+                syncMessage = "Login confirmed. Channels are loading in the background.",
+                authenticatedThisSession =
+                    _ui.value.authenticatedThisSession + saved.id,
+            )
 
-            _ui.value = _ui.value.copy(syncMessage = "Loading channels…")
-            val now = System.currentTimeMillis()
-            CatalogueGate.started()
-            // Load live channels first and get the user watching straight away. Movies, series and
-            // the guide are what make a big provider take minutes — they load in the background so
-            // "loading channels" is a few seconds, not a twenty-minute blank screen.
-            when (val result = graph.catalogRepository.syncLive(saved, now, CatalogueGate::liveImportProgress)) {
-                is CatalogRepository.SyncResult.Failed -> {
-                    CatalogueGate.failed(result.reason)
-                    _ui.value = _ui.value.copy(
-                        syncing = false, syncMessage = null,
-                        testError = "Login was verified, but the provider could not load channels: " +
-                            result.reason + ". The login screen remains open; try again.",
-                    )
-                    onDone(false)
-                    return@launch
+            // The caller navigates at once; only the independent worker
+            // subsequently imports Live TV, Movies, Series and EPG.
+            onDone(true)
+            runCatching { SyncWorker.refreshNow(getApplication<Application>()) }
+                .onFailure { error ->
+                    Log.w("SokyIPTV", "Could not queue background catalogue update", error)
                 }
-                is CatalogRepository.SyncResult.Success -> {
-                    // First login is complete ONLY after live catalogue import.
-                    // A saved-but-unverified provider cannot bypass the login
-                    // screen on restart during a first-time network outage.
-                    verifiedLogins.markVerified(saved)
-                    graph.settings.markLiveSectionSynced(saved.id, System.currentTimeMillis())
-                    _ui.value = _ui.value.copy(
-                        syncing = false,
-                        syncMessage = "Loaded ${result.channelCount} channels. The guide is " +
-                            "loading in the background; Movies and Shows load when you open them.",
-                    )
-                    CatalogueGate.liveDone()
-                    onDone(true)
-                }
-            }
-
-            // Background: the guide. Movies/series are pulled on demand from their own tabs, so
-            // nothing the user hasn't asked for ever blocks the channels they can already watch.
-            runCatching {
-                if (!graph.catalogRepository.syncMoviesPhase(saved, CatalogueGate::moviesImportProgress)) {
-                    throw IllegalStateException("Movie update failed")
-                }
-                if (saved.kind == SourceKind.XTREAM && graph.settings.moviesEnabled.value) {
-                    graph.settings.markVodSectionSynced(false, saved.id, System.currentTimeMillis())
-                }
-                CatalogueGate.moviesDone()
-                if (!graph.catalogRepository.syncSeriesPhase(saved, CatalogueGate::seriesImportProgress)) {
-                    throw IllegalStateException("Series update failed")
-                }
-                if (saved.kind == SourceKind.XTREAM && graph.settings.seriesEnabled.value) {
-                    graph.settings.markVodSectionSynced(true, saved.id, System.currentTimeMillis())
-                }
-                CatalogueGate.finalizing()
-                val summary = StatusBus.during("Building the TV guide…") {
-                    graph.epgRepository.syncAll(now)
-                }
-                _ui.value = _ui.value.copy(
-                    syncMessage = when {
-                        summary.channelsMatched > 0 ->
-                            "Guide ready — matched ${summary.channelsMatched} of " +
-                                "${summary.channelsTotal} channels."
-                        else ->
-                            "Channels ready. No guide data matched yet — add a free guide " +
-                                "under Guide settings."
-                    },
-                )
-                // Hold the VOD gate until the last guide/index work completes.
-                runCatching { graph.recordingEngine.rescanSeriesRules() }
-                graph.settings.catalogueSyncedAtMillis = System.currentTimeMillis()
-                graph.settings.vodSyncedAtMillis = System.currentTimeMillis()
-                CatalogueGate.done()
-            }.onFailure {
-                CatalogueGate.failed(it.message ?: "Catalogue update failed")
-                Log.w("SokyIPTV", "Background VOD/guide load failed", it)
-            }
         }
     }
 

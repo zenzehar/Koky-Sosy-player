@@ -10,3 +10,16 @@ internal sealed class StartupLoginGate {
     data class Offline(val warning: String) : StartupLoginGate()
     data class LoginRequired(val sourceId: Long, val explanation: String) : StartupLoginGate()
 }
+
+/**
+ * Login is completed by a positive provider response and durable source save.
+ * Catalogue sync is deliberately not an input; it runs after Home navigation.
+ */
+internal object LoginAdmissionPolicy {
+    fun canEnterHome(authenticated: Boolean, savedSourceId: Long): Boolean =
+        authenticated && savedSourceId > 0L
+
+    fun canReuseSession(
+        sourceId: Long, authenticatedSourceIds: Set<Long>, credentialsMatch: Boolean,
+    ): Boolean = sourceId > 0L && credentialsMatch && sourceId in authenticatedSourceIds
+}
