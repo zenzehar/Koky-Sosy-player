@@ -62,6 +62,7 @@ import app.sokyiptv.core.AppSettings
 import app.sokyiptv.core.ProviderLoginPolicy
 import app.sokyiptv.core.ProviderLoginTrust
 import app.sokyiptv.core.StartupLoginGate
+import app.sokyiptv.core.LoginAdmissionPolicy
 import app.sokyiptv.data.work.SyncWorker
 import app.sokyiptv.data.work.LiveSectionSyncWorker
 import app.sokyiptv.data.work.CatalogueGate
@@ -319,6 +320,20 @@ private fun SokyIptvApp(isTelevision: Boolean) {
             startupLogin = StartupLoginGate.Ready
             return@LaunchedEffect
         }
+        // Login was just verified by this screen's account validation call.
+        // Do NOT send a redundant second provider request or temporarily
+        // remove Home while the first Live TV sync is queued/running.
+        if (savedProviders.all { source ->
+                LoginAdmissionPolicy.canReuseSession(
+                    sourceId = source.id,
+                    authenticatedSourceIds = sourcesUi.authenticatedThisSession,
+                    credentialsMatch = trustedLogin.isVerified(
+                        source, hasLegacySuccess = false),
+                )
+            }) {
+            startupLogin = StartupLoginGate.Ready
+            return@LaunchedEffect
+        }
         // A user already browsing an offline cached catalogue can retry
         // without having the existing player torn down. Keep the verified
         // offline gate visible until a NEW definitive outcome arrives.
@@ -331,15 +346,9 @@ private fun SokyIptvApp(isTelevision: Boolean) {
             val trusted = trustedLogin.isVerified(provider, legacyVerified)
             val result = loginGraph.sourceRepository.test(provider)
             if (result.isSuccess) {
-                if (!trusted) {
-                    startupLogin = StartupLoginGate.LoginRequired(
-                        provider.id,
-                        "This provider has not completed its first verified login and " +
-                            "channel download. Please sign in online and load the channels " +
-                            "before entering the app.",
-                    )
-                    return@LaunchedEffect
-                }
+                // Successful online login is sufficient: live channel import
+                // is a background operation and may take several minutes.
+                trustedLogin.markVerified(provider)
             } else {
                 val error = ProviderLoginPolicy.classify(result.exceptionOrNull())
                 if (!ProviderLoginPolicy.allowCachedAccess(trusted, error.reason)) {

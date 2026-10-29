@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.81-login-gate-markers-preview-fallback' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.82-immediate-login-background-catalogue' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.81-login-gate-markers-preview-fallback'
+      github.head_ref == 'fix/v0.1.11.82-immediate-login-background-catalogue'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.81.apk
-          gh release create v0.1.11.81-login-gate-markers-preview-fallback \
-            "apk/Soky_IPTV_Pro_v0.1.11.81.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.82.apk
+          gh release create v0.1.11.82-immediate-login-background-catalogue \
+            "apk/Soky_IPTV_Pro_v0.1.11.82.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.81 Login Gate, Markers and Thumbnail Fallback" \
-            --notes "v0.1.11.81 EXPERIMENTAL, from v80; approved GOLD v79 checkpoint preserved. When a provider refuses independent unseen-time thumbnails, the active video decoder passively snapshots already-rendered scenes into BOTH the current legacy and selected Netflix-like disk thumbnail caches; no second player, stream seeking or DRM bypass. Previously cached thumbnails remain reusable, and the preview explicitly says that the provider blocks remote unseen-scene extraction. Restores series marker menu on a long remote OK hold even while video plays, explicitly pauses before opening; short OK retains v79 seek-confirm or pause/resume behavior. Login now checks existing provider authentication BEFORE creating the Home NavHost; explicit auth rejection, subscription expiration, or incorrect server configuration opens the prefilled login editor with a clear cause. First-time login requires authenticated provider AND successful initial live catalogue import; verification ledger SHA256-binds the source identity/credentials, with existing v79 per-source successful-import stamps honoured. A previously verified account can enter cached home on temporary internet/provider outage with visible warning and Retry, but wrong/changed credentials never bypass login. Network status and credential failure are not conflated. The validation gate is keyed on source identity, NOT background sync timestamps, to avoid disrupting video. Unit tests classify invalid, offline, HTTP and server failures. Physical TV/Firestick first-login, offline and long-hold tests required before promotion." --prerelease
+            --title "Soky IPTV Pro v0.1.11.82 Immediate Login and Background Catalogue" \
+            --notes "v0.1.11.82 EXPERIMENTAL, from v81. On login, one positive provider-authentication response plus successful local save now admits Home IMMEDIATELY, independent of Live TV channel loading, Movies, Series, guide, or a second redundant provider request. Existing v81 login rejection, credential-expiry, first-time offline restrictions and verified-returning-user offline access remain enforced. Session-verified saved source IDs and credential-bound trust prevent the startup gate from issuing another network validation or remounting Home during the initial handoff. After the Home navigation callback, WorkManager queues Live TV, Movies, Series and EPG in the background, survives the source login screen being removed, and can display per-section progress/failure without revoking an already accepted login when the server goes down during catalogue import. Previous gold v79 remains intact, and original v81 marker long-press and thumbnail fallback mechanisms are unchanged. Unit tests guard admission after authentication and source persistence, reject invalid/failed-save flows and require credential identity match for session reuse. Physical first-time-login and offline/cold-start testing required before promoting." --prerelease
