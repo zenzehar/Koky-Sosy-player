@@ -59,6 +59,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import app.sokyiptv.ui.BrandSplash
 import app.sokyiptv.core.AppSettings
+import app.sokyiptv.core.ProviderLoginPolicy
+import app.sokyiptv.core.ProviderLoginTrust
+import app.sokyiptv.core.StartupLoginGate
 import app.sokyiptv.data.work.SyncWorker
 import app.sokyiptv.data.work.LiveSectionSyncWorker
 import app.sokyiptv.data.work.CatalogueGate
@@ -293,10 +296,96 @@ private fun SokyIptvApp(isTelevision: Boolean) {
         return
     }
 
-    // First run goes straight to setup — an empty channel list with no explanation is the
-    // worst possible first impression.
-    val start = if (sourcesUi.sources.isEmpty()) Routes.ADD_SOURCE else Routes.HOME
+    // Validate any SAVED provider on startup before a NavHost or channel player
+    // can be entered. An auth=0, expired or revoked provider always returns to
+    // its editable login screen; a network/server outage permits cached access
+    // only if that exact account previously completed login and channel sync.
     val launchContext = androidx.compose.ui.platform.LocalContext.current
+    val loginGraph = remember(launchContext) { ServiceLocator.get(launchContext) }
+    val trustedLogin = remember(launchContext) { ProviderLoginTrust(launchContext) }
+    var startupLogin by remember { mutableStateOf<StartupLoginGate>(StartupLoginGate.Checking) }
+    var loginRetryEpoch by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val savedProviders = sourcesUi.sources.filter { it.enabled }
+    // Key by credential identity, not catalogue timestamps: background
+    // refreshes must NEVER unmount the player and re-run login validation.
+    val loginIdentity = savedProviders.map {
+        listOf(it.id.toString(), it.kind.name, it.url,
+            it.username.orEmpty(), it.password.orEmpty(),
+            it.macAddress.orEmpty(), it.userAgent)
+    }
+    LaunchedEffect(loginIdentity, sourcesUi.syncing, loginRetryEpoch) {
+        if (sourcesUi.syncing) return@LaunchedEffect
+        if (savedProviders.isEmpty()) {
+            startupLogin = StartupLoginGate.Ready
+            return@LaunchedEffect
+        }
+        // A user already browsing an offline cached catalogue can retry
+        // without having the existing player torn down. Keep the verified
+        // offline gate visible until a NEW definitive outcome arrives.
+        if (startupLogin !is StartupLoginGate.Offline)
+            startupLogin = StartupLoginGate.Checking
+        var unavailableWarning: String? = null
+        for (provider in savedProviders) {
+            val legacyVerified = loginGraph.settings.lastLiveSectionSynced(
+                listOf(provider.id)) > 0L
+            val trusted = trustedLogin.isVerified(provider, legacyVerified)
+            val result = loginGraph.sourceRepository.test(provider)
+            if (result.isSuccess) {
+                if (!trusted) {
+                    startupLogin = StartupLoginGate.LoginRequired(
+                        provider.id,
+                        "This provider has not completed its first verified login and " +
+                            "channel download. Please sign in online and load the channels " +
+                            "before entering the app.",
+                    )
+                    return@LaunchedEffect
+                }
+            } else {
+                val error = ProviderLoginPolicy.classify(result.exceptionOrNull())
+                if (!ProviderLoginPolicy.allowCachedAccess(trusted, error.reason)) {
+                    startupLogin = StartupLoginGate.LoginRequired(provider.id, error.message)
+                    return@LaunchedEffect
+                }
+                unavailableWarning = "Internet or provider server unavailable. " +
+                    "Continuing with previously verified saved content. " +
+                    error.message
+            }
+        }
+        startupLogin = if (unavailableWarning != null)
+            StartupLoginGate.Offline(unavailableWarning)
+        else StartupLoginGate.Ready
+    }
+    when (val status = startupLogin) {
+        StartupLoginGate.Checking -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                androidx.compose.foundation.layout.Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        "Checking provider login and connection…",
+                        modifier = Modifier.padding(top = 14.dp),
+                    )
+                }
+            }
+            return
+        }
+        is StartupLoginGate.LoginRequired -> {
+            AddSourceScreen(
+                viewModel = sourcesViewModel,
+                editingSourceId = status.sourceId,
+                onListUsers = { },
+                allowListUsers = false,
+                startupError = status.explanation,
+                onFinished = { loginRetryEpoch++ },
+            )
+            return
+        }
+        else -> Unit
+    }
+
+    // The Home NavHost is NEVER built for a known-invalid login.
+    val start = if (sourcesUi.sources.isEmpty()) Routes.ADD_SOURCE else Routes.HOME
     // Include provider changes and the end of provider validation in the effect
     // keys. The earlier loaded-only effect ran before a NEW login had been
     // added, and was never invoked again for that same app session.
@@ -649,6 +738,34 @@ private fun SokyIptvApp(isTelevision: Boolean) {
                             launchSingleTop = true
                         }
                     },
+                )
+            }
+        }
+
+        // A returning, previously verified account may view locally cached
+        // content during an outage. Make this explicit on EVERY screen and
+        // offer a retry without discarding saved login details.
+        (startupLogin as? StartupLoginGate.Offline)?.let { offline ->
+            Row(
+                Modifier.align(Alignment.TopCenter)
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xEE362A13))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    offline.warning,
+                    color = Color(0xFFFFE9B6),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    "Retry connection",
+                    color = Color.White,
+                    modifier = Modifier.clickable { loginRetryEpoch++ }
+                        .padding(6.dp),
                 )
             }
         }

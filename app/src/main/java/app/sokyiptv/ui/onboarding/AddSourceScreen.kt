@@ -93,6 +93,8 @@ fun AddSourceScreen(
     onFinished: () -> Unit,
     onListUsers: () -> Unit,
     editingSourceId: Long? = null,
+    startupError: String? = null,
+    allowListUsers: Boolean = true,
 ) {
     val context = LocalContext.current
     // The QR "set it up from your phone" flow only makes sense on a TV — it serves a setup page
@@ -400,10 +402,20 @@ fun AddSourceScreen(
                 Text(if (ui.syncing) "VALIDATING…" else "ADD USER", fontSize = 22.sp)
             }
             Spacer(Modifier.height(5.dp))
-            TextButton(onClick = onListUsers, modifier = Modifier.height(42.dp)) {
-                Icon(Icons.Filled.People, contentDescription = null, tint = Color.White)
-                Spacer(Modifier.width(12.dp))
-                Text("List Users", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            if (allowListUsers) {
+                TextButton(onClick = onListUsers, modifier = Modifier.height(42.dp)) {
+                    Icon(Icons.Filled.People, contentDescription = null, tint = Color.White)
+                    Spacer(Modifier.width(12.dp))
+                    Text("List Users", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+            if (startupError != null && ui.testError == null && !ui.syncing) {
+                Text(
+                    text = startupError,
+                    color = Color(0xFFFFF0B2),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(vertical = 7.dp),
+                )
             }
             OutlinedButton(
                 onClick = { viewModel.test(draft()) },
