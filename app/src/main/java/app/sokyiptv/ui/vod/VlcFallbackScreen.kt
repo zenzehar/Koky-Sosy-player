@@ -717,7 +717,7 @@ fun VlcFallbackScreen(
                 // first. If attachment is delayed, the focusable root keeps
                 // the fallback D-pad routing available.
                 errorFocusIndex = 0
-                if (!errorFocus[0].requestFocus()) rootFocus.requestFocus()
+                errorFocus[0].requestFocus()
             } else if (skipPromptVisible && !skipPromptUserLeft) {
                 skipPromptFocus.requestFocus()
             } else if (controlsVisible) {
