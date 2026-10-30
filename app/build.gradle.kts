@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 102
-        versionName = "0.1.11.82-immediate-login-background-catalogue"
+        versionCode = 103
+        versionName = "0.1.11.83-vlc-error-menu-focus"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()

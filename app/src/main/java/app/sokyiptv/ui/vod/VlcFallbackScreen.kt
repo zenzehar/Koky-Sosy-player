@@ -197,6 +197,10 @@ fun VlcFallbackScreen(
     // When visible, native Compose focus navigation uses the visible button order.
     var focusSeekOnReveal by remember { mutableStateOf(false) }
     val seekFocus = remember { FocusRequester() }
+    // Error actions form an exclusive modal layer. The normal transport focus
+    // graph must never take remote focus after a playback failure.
+    val errorFocus = remember(streamUrl) { List(5) { FocusRequester() } }
+    var errorFocusIndex by remember(streamUrl) { mutableIntStateOf(0) }
 
     fun showControls() { controlsVisible = true; interaction++ }
     fun leaveVideo() {
@@ -701,11 +705,20 @@ fun VlcFallbackScreen(
     }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
-    LaunchedEffect(controlsVisible, netflix, skipPromptVisible) {
+    LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed, diagnosticsState) {
+        // Diagnostics is itself a modal. When it closes, restore focus to the
+        // still-visible playback failure menu rather than native video.
+        if (diagnosticsState) return@LaunchedEffect
         withFrameNanos { }
         withFrameNanos { }
         runCatching {
-            if (skipPromptVisible && !skipPromptUserLeft) {
+            if (failed) {
+                // Error menu is created after the native surface. Focus Retry
+                // first. If attachment is delayed, the focusable root keeps
+                // the fallback D-pad routing available.
+                errorFocusIndex = 0
+                if (!errorFocus[0].requestFocus()) rootFocus.requestFocus()
+            } else if (skipPromptVisible && !skipPromptUserLeft) {
                 skipPromptFocus.requestFocus()
             } else if (controlsVisible) {
                 if (focusSeekOnReveal) {
@@ -745,8 +758,47 @@ fun VlcFallbackScreen(
             .focusRequester(rootFocus)
             .onFocusChanged { rootOwnsFocus = it.isFocused }
             .onPreviewKeyEvent { event ->
-                if (onMarkerLongPress(event)) return@onPreviewKeyEvent true
+                if (!failed && onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 if (leaving.get()) return@onPreviewKeyEvent true
+                if (failed && (event.key == Key.Back || event.key == Key.Escape)) {
+                    // Keep the Activity/Compose BackHandler usable.
+                    return@onPreviewKeyEvent false
+                }
+                if (failed) {
+                    // Always route keys to the visible recovery menu. Even if
+                    // native VLC or a previously focused transport node stole
+                    // focus, Up/Down and OK work deterministically.
+                    if (event.type == KeyEventType.KeyDown) {
+                        when (event.key) {
+                            Key.DirectionDown, Key.DirectionRight -> {
+                                errorFocusIndex = PlaybackErrorMenuPolicy.moved(errorFocusIndex, 1)
+                                runCatching { errorFocus[errorFocusIndex].requestFocus() }
+                            }
+                            Key.DirectionUp, Key.DirectionLeft -> {
+                                errorFocusIndex = PlaybackErrorMenuPolicy.moved(errorFocusIndex, -1)
+                                runCatching { errorFocus[errorFocusIndex].requestFocus() }
+                            }
+                            Key.DirectionCenter, Key.Enter -> {
+                                if (PlaybackErrorMenuPolicy.shouldActivate(
+                                        isKeyDown = true,
+                                        repeatCount = event.nativeKeyEvent.repeatCount,
+                                    )) {
+                                    when (PlaybackErrorMenuPolicy.action(errorFocusIndex)) {
+                                        PlaybackErrorMenuPolicy.Action.RETRY -> {
+                                            failed = false; ended = false; player.play()
+                                        }
+                                        PlaybackErrorMenuPolicy.Action.MEDIA3 -> onTryMedia3()
+                                        PlaybackErrorMenuPolicy.Action.EXTERNAL_VLC -> openExternalVlc()
+                                        PlaybackErrorMenuPolicy.Action.DIAGNOSTICS -> showReport()
+                                        PlaybackErrorMenuPolicy.Action.BACK -> leaveVideo()
+                                    }
+                                }
+                            }
+                            else -> Unit
+                        }
+                    }
+                    return@onPreviewKeyEvent true
+                }
                 val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 if (TvHardwarePlaybackKeys.isTransportKey(hardwareKeyCode)) {
                     if (event.type == KeyEventType.KeyDown) {
@@ -889,15 +941,27 @@ fun VlcFallbackScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Unable to play this stream.", color = Color.White, textAlign = TextAlign.Center)
-                TvVlcButton("Retry playback") { failed = false; ended = false; player.play() }
-                TvVlcButton("Try Media3 instead", onClick = onTryMedia3)
-                TvVlcButton("Open in VLC app", onClick = ::openExternalVlc)
-                TvVlcButton("Diagnostics QR", onClick = ::showReport)
-                TvVlcButton("Back to title", onClick = onBack)
+                TvVlcButton("Retry playback",
+                    modifier = Modifier.focusRequester(errorFocus[0]),
+                    onFocused = { errorFocusIndex = 0 },
+                ) { failed = false; ended = false; player.play() }
+                TvVlcButton("Try Media3 instead",
+                    modifier = Modifier.focusRequester(errorFocus[1]),
+                    onFocused = { errorFocusIndex = 1 }, onClick = onTryMedia3)
+                TvVlcButton("Open in VLC app",
+                    modifier = Modifier.focusRequester(errorFocus[2]),
+                    onFocused = { errorFocusIndex = 2 }, onClick = ::openExternalVlc)
+                TvVlcButton("Diagnostics QR",
+                    modifier = Modifier.focusRequester(errorFocus[3]),
+                    onFocused = { errorFocusIndex = 3 }, onClick = ::showReport)
+                TvVlcButton("Back to title",
+                    modifier = Modifier.focusRequester(errorFocus[4]),
+                    onFocused = { errorFocusIndex = 4 }, onClick = ::leaveVideo)
             }
         }
-        // Display the selected overlay without changing the native playback lifecycle.
-        if (controlsVisible) {
+        // The failure menu owns the overlay; never draw the transport row or
+        // Netflix seekbar behind it, which previously stole D-pad focus.
+        if (controlsVisible && !failed) {
             if (netflix) {
                 NetflixLikePlayerChrome(
                     title = title, isEpisode = showEpisodeControls,
@@ -1284,6 +1348,7 @@ private fun TvVlcButton(
     label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    onFocused: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -1292,7 +1357,10 @@ private fun TvVlcButton(
         modifier
             .background(if (focused) Color(0xFF5468D4) else Color(0xFF263258), shape)
             .border(if (focused) 3.dp else 1.dp, if (focused) Color.White else Color.LightGray, shape)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
