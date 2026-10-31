@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.83-vlc-error-menu-focus' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.84-tv-navigation-performance' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.83-vlc-error-menu-focus'
+      github.head_ref == 'fix/v0.1.11.84-tv-navigation-performance'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.83.apk
-          gh release create v0.1.11.83-vlc-error-menu-focus \
-            "apk/Soky_IPTV_Pro_v0.1.11.83.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.84.apk
+          gh release create v0.1.11.84-tv-navigation-performance \
+            "apk/Soky_IPTV_Pro_v0.1.11.84.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.83 VLC Error Recovery Menu Focus Fix" \
-            --notes "v0.1.11.83 EXPERIMENTAL recovery-focus bugfix derived only from v82; approved GOLD v79 preserved. During an IPTV server outage, VLC can show the full-screen Unable to play this stream panel while the normal Netflix/classic transport overlay still has focus and intercepts remote D-pad. v83 hides ALL transport controls/seekbars when failed, gives the five recovery buttons exclusive directional and OK focus, automatically requests focus on Retry after two composition frames and again after Diagnostics QR closes, and uses a root-level fallback for Android TV/Fire TV devices whose focus is stolen by the native video surface. D-pad Up/Down (and Left/Right fallback) moves deterministically through Retry playback, Try Media3 instead, Open in VLC app, Diagnostics QR, Back to title; short OK activates only once; Back is preserved. Actual clickable buttons still update focus highlights for pointer/remote. Focus-navigation policy has dedicated tests. Existing v82 immediate authentication and background catalogue loading, thumbnail fallback and marker long-press, all v79 playback/seek semantics, and the approved v79 gold checkpoint are unchanged. Needs real-TV validation during outage." --prerelease
+            --title "Soky IPTV Pro v0.1.11.84 TV Navigation Performance Candidate" \
+            --notes "v0.1.11.84 EXPERIMENTAL TV navigation performance release, based directly on temporary milestone v0.1.11.83, which remains protected. UI changes: eager full Display/Playback Settings column replaced by lazy keyed section list; duplicated RadioButton focus actions removed from rows; arbitrary 180ms category and 500ms poster click suppression removed (native single KeyUp remains guarded). Background work changes: WorkManager movie/series/live import progress writes coalesced to integer percentage and at most one update per 160ms, and full catalogue gate fractions quantized to whole percentage to reduce Room writes, Flow invalidations and global recomposition. Optional EPG re-normalization postponed 2 seconds after startup to avoid competing with first menu interactions. Debug APK is now optimized through R8 using the SAME debug application ID and signing configuration, with existing Keep/Consumer rules for Room, Xtream serialization and native dependencies. New OFF-by-default input-to-next-frame diagnostics HUD in Display/Playback Settings reports mean, p95 and >50ms samples so actual TV behaviour can be verified; no frame instrumentation while Off. Auth/login flow, thumbnail algorithms, VLC/Media3 playback, seek/marker buttons, content refresh and error-focus fixes remain unchanged. R8-obfuscated code and UI responsiveness still require real Android TV/Fire TV smoke testing; do NOT promote over v79 gold or v83 temporary milestone without acceptance." --prerelease

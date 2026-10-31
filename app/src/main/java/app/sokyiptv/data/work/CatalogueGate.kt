@@ -20,6 +20,10 @@ object CatalogueGate {
         val seriesFraction: Float = 0f,
     )
     private val mutable = MutableStateFlow(Snapshot())
+    // Quantise importer fractions. Display bars only show whole percentages;
+    // emitting every Room batch makes a large screen recompose needlessly.
+    private fun shown(fraction: Float): Float =
+        ((fraction.coerceIn(0f, 0.99f) * 100f).toInt()) / 100f
     val state: StateFlow<Snapshot> = mutable.asStateFlow()
 
     fun due(settings: AppSettings, now: Long = System.currentTimeMillis()): Boolean {
@@ -40,7 +44,9 @@ object CatalogueGate {
             seriesFraction = 1f, message = "Preparing guide and catalogue…")
     }
     fun liveImportProgress(fraction: Float) {
-        mutable.value = mutable.value.copy(liveFraction = fraction.coerceIn(0f, 0.99f))
+        val rounded = shown(fraction)
+        if (mutable.value.liveFraction != rounded)
+            mutable.value = mutable.value.copy(liveFraction = rounded)
     }
     fun done() { mutable.value = mutable.value.copy(phase = Phase.COMPLETE, completed = 3,
         message = "Catalogue is ready", liveFraction = 1f,
@@ -49,10 +55,14 @@ object CatalogueGate {
     // Download bytes are not measurable here, so the UI says "Fetching" until
     // the provider returns the catalogue and importing begins.
     fun moviesImportProgress(fraction: Float) {
-        mutable.value = mutable.value.copy(movieFraction = fraction.coerceIn(0f, 0.99f))
+        val rounded = shown(fraction)
+        if (mutable.value.movieFraction != rounded)
+            mutable.value = mutable.value.copy(movieFraction = rounded)
     }
     fun seriesImportProgress(fraction: Float) {
-        mutable.value = mutable.value.copy(seriesFraction = fraction.coerceIn(0f, 0.99f))
+        val rounded = shown(fraction)
+        if (mutable.value.seriesFraction != rounded)
+            mutable.value = mutable.value.copy(seriesFraction = rounded)
     }
     fun failed(reason: String) {
         val old = mutable.value

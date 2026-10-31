@@ -74,6 +74,7 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val autoNext by settings.seriesAutoplay.collectAsState()
     val playerUiStyle by settings.playerUiStyle.collectAsState()
     val thumbnailSeekMode by settings.thumbnailSeekMode.collectAsState()
+    val latencyHud by settings.uiLatencyHud.collectAsState()
     val language by settings.languageTag.collectAsState()
     val liveEnabled by settings.liveEnabled.collectAsState()
     val moviesEnabled by settings.moviesEnabled.collectAsState()
@@ -95,20 +96,24 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         Toast.makeText(context, refreshingMessage, Toast.LENGTH_SHORT).show()
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 32.dp, vertical = 24.dp),
+    // A single eagerly composed column previously measured and laid out every
+    // settings control on EACH D-pad move or text-field update. Compose only
+    // the visible sections, and keep dialogs outside the lazy list so they
+    // never disappear when their launch row scrolls out of view.
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 32.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        item(key = "header") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.settings_display_title), style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
         }
-
-        Spacer(Modifier.height(20.dp))
-
+        }
+        item(key = "appearance") {
         SettingsSection(stringResource(R.string.settings_appearance)) {
             ThemeOption(stringResource(R.string.settings_theme_system), themeMode == AppSettings.ThemeMode.SYSTEM) {
                 settings.setThemeMode(AppSettings.ThemeMode.SYSTEM)
@@ -126,9 +131,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-
-        Spacer(Modifier.height(16.dp))
-
+        }
+        item(key = "content") {
         SettingsSection(stringResource(R.string.settings_section_content)) {
             Text("Series automatic next episode", style = MaterialTheme.typography.titleMedium)
             Text("Automatically continue to the next episode, including across seasons.",
@@ -199,9 +203,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 onRefresh = onRefreshContent,
             )
         }
-
-        Spacer(Modifier.height(16.dp))
-
+        }
+        item(key = "language") {
         SettingsSection(stringResource(R.string.settings_section_language)) {
             val selectedName = if (language.isBlank()) stringResource(R.string.settings_language_system)
                 else SokyIptvLanguages.firstOrNull { it.first == language }?.second ?: language
@@ -215,55 +218,8 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (languageMenuOpen) {
-            val systemName = stringResource(R.string.settings_language_system)
-            val matching = SokyIptvLanguages.filter { (tag, name) ->
-                languageSearch.isBlank() ||
-                    name.contains(languageSearch, ignoreCase = true) ||
-                    tag.contains(languageSearch, ignoreCase = true)
-            }
-            AlertDialog(
-                onDismissRequest = { languageMenuOpen = false },
-                title = { Text(stringResource(R.string.settings_section_language)) },
-                text = {
-                    Column(Modifier.fillMaxWidth()) {
-                        TvNativeTextField(
-                            value = languageSearch,
-                            onValueChange = { languageSearch = it },
-                            label = "Search languages — OK to type",
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Column(
-                            Modifier.fillMaxWidth().heightIn(max = 350.dp)
-                                .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            if (languageSearch.isBlank() ||
-                                systemName.contains(languageSearch, ignoreCase = true)) {
-                                ThemeOption(systemName, language.isBlank()) {
-                                    languageMenuOpen = false
-                                    changeLanguage(context, settings, "")
-                                }
-                            }
-                            matching.forEach { (tag, name) ->
-                                ThemeOption(name, language == tag) {
-                                    languageMenuOpen = false
-                                    changeLanguage(context, settings, tag)
-                                }
-                            }
-                            if (matching.isEmpty()) Text("No matching languages")
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { languageMenuOpen = false }) { Text("Close") }
-                },
-            )
         }
-
-        Spacer(Modifier.height(16.dp))
-
+        item(key = "guide") {
         SettingsSection(stringResource(R.string.settings_section_guide)) {
             Text(
                 stringResource(R.string.settings_channel_layout_title),
@@ -291,16 +247,15 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 onToggle = settings::setGuidePreviewSound,
             )
         }
-
-        Spacer(Modifier.height(16.dp))
-
+        }
+        item(key = "vault") {
         SettingsSection("Provider logins across reinstall") {
             DeviceCredentialVaultControls()
             Spacer(Modifier.height(12.dp))
             CredentialBackupControls(allowExport = true)
         }
-        Spacer(Modifier.height(16.dp))
-
+        }
+        item(key = "playback") {
         SettingsSection(stringResource(R.string.settings_section_playback)) {
             Text("Video player controls", style = MaterialTheme.typography.titleMedium)
             Text("Choose the control layout for Movies and Series. Playback engine and seeking remain unchanged.",
@@ -401,14 +356,76 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 onToggle = settings::setResumeLastChannel,
             )
         }
-
-        Spacer(Modifier.height(16.dp))
-
+        }
+        item(key = "tmdb") {
         TmdbKeySection(settings, onOpenWebManager)
-
-        Spacer(Modifier.height(16.dp))
-
+        }
+        item(key = "sleep") {
         SleepTimerSection()
+        }
+        item(key = "performance") {
+            SettingsSection("Navigation responsiveness diagnostics") {
+                ToggleRow(
+                    title = "Show input latency counter",
+                    subtitle = "Displays remote input-to-next-frame timing on every screen. " +
+                        "Use it to compare navigation when updating vs idle.",
+                    checked = latencyHud,
+                    onToggle = settings::setUiLatencyHud,
+                )
+                Text(
+                    "This measures dispatch to the next frame callback, not complete " +
+                        "on-screen response time. Default Off; no monitoring work when disabled.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+    if (languageMenuOpen) {
+        val systemName = stringResource(R.string.settings_language_system)
+        val matching = SokyIptvLanguages.filter { (tag, name) ->
+            languageSearch.isBlank() ||
+                name.contains(languageSearch, ignoreCase = true) ||
+                tag.contains(languageSearch, ignoreCase = true)
+        }
+        AlertDialog(
+            onDismissRequest = { languageMenuOpen = false },
+            title = { Text(stringResource(R.string.settings_section_language)) },
+            text = {
+                Column(Modifier.fillMaxWidth()) {
+                    TvNativeTextField(
+                        value = languageSearch,
+                        onValueChange = { languageSearch = it },
+                        label = "Search languages — OK to type",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 350.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (languageSearch.isBlank() ||
+                            systemName.contains(languageSearch, ignoreCase = true)) {
+                            ThemeOption(systemName, language.isBlank()) {
+                                languageMenuOpen = false
+                                changeLanguage(context, settings, "")
+                            }
+                        }
+                        matching.forEach { (tag, name) ->
+                            ThemeOption(name, language == tag) {
+                                languageMenuOpen = false
+                                changeLanguage(context, settings, tag)
+                            }
+                        }
+                        if (matching.isEmpty()) Text("No matching languages")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { languageMenuOpen = false }) { Text("Close") }
+            },
+        )
     }
     diagnosticReport?.let { report ->
         PlaybackDiagnosticsDialog(
@@ -566,7 +583,8 @@ private fun SleepOption(label: String, selected: Boolean, onSelect: () -> Unit) 
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onSelect)
+        // The parent row is the single TV focus/click target.
+        RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(8.dp))
         Text(label, style = MaterialTheme.typography.titleMedium)
     }
@@ -614,7 +632,8 @@ private fun ThemeOption(label: String, selected: Boolean, onSelect: () -> Unit) 
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onSelect)
+        // The parent row is the single TV focus/click target.
+        RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(8.dp))
         Text(label, style = MaterialTheme.typography.titleMedium)
     }

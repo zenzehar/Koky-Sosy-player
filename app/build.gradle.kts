@@ -14,8 +14,8 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 103
-        versionName = "0.1.11.83-vlc-error-menu-focus"
+        versionCode = 104
+        versionName = "0.1.11.84-tv-navigation-performance"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
@@ -75,8 +75,16 @@ android {
                 }
         }
         debug {
+            // Experimental TV performance build. Preserve the existing .debug
+            // application ID and signing identity for in-place upgrades, but
+            // compile optimized dex rather than shipping unoptimized debug
+            // bytecode. Consumer rules and project keep rules match release.
             applicationIdSuffix = ".debug"
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 

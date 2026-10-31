@@ -30,14 +30,23 @@ class VodSectionSyncWorker(context: Context, params: WorkerParameters) : Corouti
         if (series && !graph.settings.seriesEnabled.value) return Result.failure()
         if (!series && !graph.settings.moviesEnabled.value) return Result.failure()
         val started = System.currentTimeMillis()
+        val progressGate = UiProgressThrottle()
         try {
             sources.forEachIndexed { index, source ->
                 val success = if (series) graph.catalogRepository.syncSeriesPhase(source) { progress ->
-                    setProgressAsync(Data.Builder().putInt("percent",
-                        ((index + progress) / sources.size * 100).toInt()).build())
+                    if (progressGate.shouldPublish(
+                            (index + progress) / sources.size,
+                            android.os.SystemClock.uptimeMillis())) {
+                        setProgressAsync(Data.Builder().putInt(
+                            "percent", progressGate.publishedPercent()).build())
+                    }
                 } else graph.catalogRepository.syncMoviesPhase(source) { progress ->
-                    setProgressAsync(Data.Builder().putInt("percent",
-                        ((index + progress) / sources.size * 100).toInt()).build())
+                    if (progressGate.shouldPublish(
+                            (index + progress) / sources.size,
+                            android.os.SystemClock.uptimeMillis())) {
+                        setProgressAsync(Data.Builder().putInt(
+                            "percent", progressGate.publishedPercent()).build())
+                    }
                 }
                 if (!success) {
                     // Keep all prior content and stamps intact for the failed provider.

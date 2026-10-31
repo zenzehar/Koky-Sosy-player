@@ -358,16 +358,12 @@ internal fun TvVodBrowser(
 @Composable
 private fun CategoryOption(label: String, count: String, selected: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    var lastClick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val selectedBackground = if (selected) teal else if (focused) Color(0xFF18243C) else sideBackground
     Row(
         Modifier.fillMaxWidth()
             .background(selectedBackground)
             .onFocusChanged { focused = it.isFocused }
-            .clickable {
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastClick >= 180L) { lastClick = now; onClick() }
-            },
+            .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -395,20 +391,15 @@ private fun TvPoster(
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var lastPosterClick by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     Column(Modifier.fillMaxWidth()) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(.69f)
                 .onFocusChanged { focused = it.isFocused }
                 .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
                 .tvRemoteActions(
-                    onClick = {
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        if (now - lastPosterClick >= 500L) {
-                            lastPosterClick = now
-                            onClick()
-                        }
-                    },
+                    // tvRemoteActions already fires one click on KeyUp;
+                    // a second 500 ms refractory gate discarded fast taps.
+                    onClick = onClick,
                     onLongPress = { menuOpen = true },
                 )
                 .background(Color(0xFF151B2B)),
