@@ -175,6 +175,16 @@ class AppSettings private constructor(context: Context) {
         _thumbnailSeekMode.value = mode
     }
 
+    // Opt-in only. Keeping the input monitor off has ZERO frame callbacks,
+    // UI state updates or key-event allocations.
+    private val _uiLatencyHud = MutableStateFlow(prefs.getBoolean("ui_latency_hud", false))
+    val uiLatencyHud: StateFlow<Boolean> = _uiLatencyHud.asStateFlow()
+
+    fun setUiLatencyHud(enabled: Boolean) {
+        prefs.edit().putBoolean("ui_latency_hud", enabled).apply()
+        _uiLatencyHud.value = enabled
+    }
+
     private val _seriesAutoplay = MutableStateFlow(prefs.getBoolean("series_auto_next", true))
     val seriesAutoplay: StateFlow<Boolean> = _seriesAutoplay.asStateFlow()
     fun setSeriesAutoplay(enabled: Boolean) {

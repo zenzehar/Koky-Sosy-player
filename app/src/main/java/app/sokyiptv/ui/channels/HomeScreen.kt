@@ -184,7 +184,9 @@ fun HomeScreen(
     var pendingRailFocus by remember { mutableStateOf(false) }
     LaunchedEffect(pendingRailFocus) {
         if (pendingRailFocus) {
-            delay(50)
+            // Wait for the focus node to attach on the next real frame,
+            // not an arbitrary 50ms wall-clock pause on every D-pad LEFT.
+            androidx.compose.runtime.withFrameNanos { }
             // runCatching: if the selected category is scrolled out of the rail's list it may not
             // be composed; a second LEFT press then still reaches the rail by ordinary navigation.
             runCatching { railFocusRequester.requestFocus() }

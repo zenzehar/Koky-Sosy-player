@@ -63,6 +63,7 @@ import app.sokyiptv.core.ProviderLoginPolicy
 import app.sokyiptv.core.ProviderLoginTrust
 import app.sokyiptv.core.StartupLoginGate
 import app.sokyiptv.core.LoginAdmissionPolicy
+import app.sokyiptv.core.TvInputLatencyMonitor
 import app.sokyiptv.data.work.SyncWorker
 import app.sokyiptv.data.work.LiveSectionSyncWorker
 import app.sokyiptv.data.work.CatalogueGate
@@ -99,6 +100,21 @@ import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
 
 class MainActivity : ComponentActivity() {
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (TvInputLatencyMonitor.enabled &&
+            event.action == android.view.KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0 &&
+            event.keyCode in setOf(
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                android.view.KeyEvent.KEYCODE_ENTER,
+            )) TvInputLatencyMonitor.recordDirectionOrOk()
+        return super.dispatchKeyEvent(event)
+    }
+
     // Apply the chosen UI language before any view or resource is resolved. A language change in
     // settings calls recreate(), which re-runs this with the new tag.
     override fun attachBaseContext(newBase: Context) {
@@ -130,6 +146,8 @@ class MainActivity : ComponentActivity() {
             val brandSplashVisible = !splashMinElapsed || !bootSources.loaded
             val settings = remember { ServiceLocator.get(this).settings }
             val themeMode by settings.themeMode.collectAsState()
+            val uiLatencyHud by settings.uiLatencyHud.collectAsState()
+            LaunchedEffect(uiLatencyHud) { TvInputLatencyMonitor.enabled = uiLatencyHud }
             val darkTheme = when (themeMode) {
                 AppSettings.ThemeMode.DARK -> true
                 AppSettings.ThemeMode.LIGHT -> false
@@ -144,6 +162,21 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         if (brandSplashVisible) BrandSplash()
                         else SokyIptvApp(isTelevision = isTelevision)
+                        // Visible only when explicitly enabled in Settings.
+                        // Does not consume touch, D-pad, click or accessibility focus.
+                        if (!brandSplashVisible && uiLatencyHud) {
+                            val latency by TvInputLatencyMonitor.snapshot.collectAsState()
+                            Text(
+                                "UI input → next frame · avg ${latency.averageMs} ms · " +
+                                    "p95 ${latency.p95Ms} ms · >50 ms: ${latency.slowFrames}/" +
+                                    "${latency.samples}",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.align(Alignment.TopCenter)
+                                    .background(Color.Black.copy(alpha = 0.82f))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
                         if (!brandSplashVisible && recoveredCrash != null) {
                             PlaybackDiagnosticsDialog(
                                 report = recoveredCrash.orEmpty(),

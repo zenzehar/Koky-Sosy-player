@@ -27,14 +27,15 @@ class LiveSectionSyncWorker(context: Context, params: WorkerParameters) :
         val sources = graph.sourceRepository.enabled()
         if (sources.isEmpty()) return Result.failure()
         val now = System.currentTimeMillis()
+        val progressGate = UiProgressThrottle()
         try {
             for ((index, source) in sources.withIndex()) {
                 when (val result = graph.catalogRepository.syncLive(source, now) { fraction ->
-                    setProgressAsync(
-                        Data.Builder().putInt("percent",
-                            (((index + fraction.coerceIn(0f, 1f)) / sources.size) * 100f).toInt()
-                        ).build()
-                    )
+                    val overall = (index + fraction.coerceIn(0f, 1f)) / sources.size
+                    if (progressGate.shouldPublish(overall, android.os.SystemClock.uptimeMillis())) {
+                        setProgressAsync(Data.Builder().putInt(
+                            "percent", progressGate.publishedPercent()).build())
+                    }
                 }) {
                     is CatalogRepository.SyncResult.Success -> {
                         // Never stamp failed or unattempted providers. The dashboard displays

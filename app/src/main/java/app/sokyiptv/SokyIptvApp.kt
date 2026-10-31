@@ -19,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class SokyIptvApp : Application(), ImageLoaderFactory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -97,6 +98,10 @@ class SokyIptvApp : Application(), ImageLoaderFactory {
         }
 
         appScope.launch {
+            // Avoid competing with the first focus/keyboard frames on slow TV
+            // CPUs. This is optional guide reconciliation, NOT authentication
+            // or a necessary prerequisite for opening Home.
+            delay(2_000L)
             val prefs = getSharedPreferences("sokyiptv", MODE_PRIVATE)
             val seen = prefs.getInt("normalizer_version", 0)
             if (seen < CatalogRepository.NORMALIZER_VERSION) {
