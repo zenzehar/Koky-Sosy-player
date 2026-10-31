@@ -569,7 +569,7 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
     val searchResults: StateFlow<List<Row>> =
         searchInput
             .map { it.trim() }
-            .debounce(200)
+            .debounce(90)
             .distinctUntilChanged()
             .flatMapLatest { q ->
                 if (q.length < 2) flowOf(emptyList())
@@ -591,7 +591,7 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
     val managerResults: StateFlow<List<Row>> =
         managerInput
             .map { it.trim() }
-            .debounce(200)
+            .debounce(90)
             .distinctUntilChanged()
             .flatMapLatest { q ->
                 if (q.length < 2) flowOf(emptyList())
@@ -1126,7 +1126,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val movieResults: StateFlow<List<Movie>> =
-        vodSearchInput.map { it.trim() }.debounce(200).distinctUntilChanged()
+        vodSearchInput.map { it.trim() }.debounce(90).distinctUntilChanged()
             .flatMapLatest { q ->
                 if (q.length < 2) flowOf(emptyList()) else graph.catalogRepository.searchMovies(q)
             }
@@ -1134,7 +1134,7 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     val seriesResults: StateFlow<List<Series>> =
-        vodSearchInput.map { it.trim() }.debounce(200).distinctUntilChanged()
+        vodSearchInput.map { it.trim() }.debounce(90).distinctUntilChanged()
             .flatMapLatest { q ->
                 if (q.length < 2) flowOf(emptyList()) else graph.catalogRepository.searchSeries(q)
             }

@@ -165,7 +165,7 @@ internal fun TvVodBrowser(
         loading = false
         grid.scrollToItem(0)
         if (selection == "continue") return@LaunchedEffect
-        if (titleQuery.isNotBlank()) delay(180L)
+        if (titleQuery.isNotBlank()) delay(90L)
         val query = titleQuery.trim()
         val category = selection.takeUnless { it in setOf("all", "favourites", "recent") }
         val onlyFavourites = selection == "favourites"
