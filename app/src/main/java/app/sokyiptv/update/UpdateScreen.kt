@@ -50,7 +50,7 @@ fun UpdateGate(viewModel: UpdateViewModel = viewModel()) {
             title = { Text("Update available") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("SokyIPTV ${s.update.versionName} is available. You have ${BuildConfig.VERSION_NAME}.")
+                    Text("Soky IPTV Pro ${s.update.versionName} is available. You have ${BuildConfig.VERSION_NAME}.")
                     if (s.update.notes.isNotBlank()) {
                         Text(
                             text = s.update.notes,
@@ -130,10 +130,15 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
             val prefs = getApplication<Application>()
                 .getSharedPreferences("sokyiptv", Context.MODE_PRIVATE)
             val now = System.currentTimeMillis()
-            if (now - prefs.getLong(KEY_LAST_CHECK, 0L) < CHECK_INTERVAL_MS) return@launch
+            // A newly installed build gets its own first check rather than
+            // inheriting a 6-hour throttle timestamp from the previous APK.
+            val lastVersion = prefs.getString(KEY_LAST_CHECK_VERSION, null)
+            if (lastVersion == BuildConfig.VERSION_NAME &&
+                now - prefs.getLong(KEY_LAST_CHECK, 0L) < CHECK_INTERVAL_MS) return@launch
 
             val update = checker.check()
-            prefs.edit().putLong(KEY_LAST_CHECK, now).apply()
+            prefs.edit().putLong(KEY_LAST_CHECK, now)
+                .putString(KEY_LAST_CHECK_VERSION, BuildConfig.VERSION_NAME).apply()
             if (update != null) _state.value = UpdateUiState.Available(update)
         }
     }
@@ -166,6 +171,7 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
 
     private companion object {
         const val KEY_LAST_CHECK = "last_update_check"
+        const val KEY_LAST_CHECK_VERSION = "last_update_check_version"
         const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L // 6 hours
     }
 }
