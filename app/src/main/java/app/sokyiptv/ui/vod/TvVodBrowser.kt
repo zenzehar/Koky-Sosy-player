@@ -427,9 +427,10 @@ private fun TvPoster(
         ) {
             AsyncImage(model = poster, contentDescription = title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (focused) IconButton(
-                onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd),
-            ) { Icon(Icons.Default.MoreVert, contentDescription = "Title options", tint = Color.White) }
+            // Avoid inserting a second focus target when the poster acquires focus.
+            // Long-press OK or the Menu key still opens title options.
+            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+                tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 if (onPlay != null) DropdownMenuItem(
                     text = { Text("Play movie") },
@@ -473,9 +474,8 @@ private fun ResumePoster(
         Box(Modifier.fillMaxWidth().aspectRatio(.69f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (focused) IconButton(onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Continue watching options", tint = Color.White)
-            }
+            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+                tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
             Box(Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(
