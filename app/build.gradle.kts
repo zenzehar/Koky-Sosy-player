@@ -55,24 +55,13 @@ android {
                 "proguard-rules.pro",
             )
 
-            /*
-             * Falls back to the debug key when no keystore is configured.
-             *
-             * An *unsigned* APK cannot be installed on Android at all — it is rejected before
-             * the user sees anything, with an error that explains nothing. For an early
-             * project that means every tester is blocked on the maintainer setting up signing
-             * infrastructure first.
-             *
-             * The trade-off is real and is written up in docs/RELEASING.md: moving to a
-             * proper keystore later changes the signature, and Android will refuse to upgrade
-             * over a debug-signed install. Set up real signing before announcing publicly.
-             */
+            // A release must never be signed with a disposable debug certificate.
+            // The release workflow explicitly requires the permanent signing secret
+            // and verifies the resulting APK; without it assembleRelease is unsigned.
             signingConfig =
-                if (providers.environmentVariable("KEYSTORE_PATH").orNull != null) {
+                if (providers.environmentVariable("KEYSTORE_PATH").orNull != null)
                     signingConfigs.getByName("upload")
-                } else {
-                    signingConfigs.getByName("debug")
-                }
+                else null
         }
         debug {
             // Experimental TV performance build. Preserve the existing .debug
@@ -80,6 +69,14 @@ android {
             // compile optimized dex rather than shipping unoptimized debug
             // bytecode. Consumer rules and project keep rules match release.
             applicationIdSuffix = ".debug"
+            // Same *permanent* certificate on every CI run, while preserving
+            // tv.sokyiptv.pro.debug and the gold v85 R8 optimization.
+            // Local development without GitHub secret retains Android's debug key,
+            // but that temporary-key APK must never be published.
+            signingConfig =
+                if (providers.environmentVariable("KEYSTORE_PATH").orNull != null)
+                    signingConfigs.getByName("upload")
+                else signingConfigs.getByName("debug")
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
