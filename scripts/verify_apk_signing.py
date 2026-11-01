@@ -26,9 +26,15 @@ def main() -> None:
                             text=True, capture_output=True)
     if result.returncode != 0:
         sys.exit("APK signing verification failed: " + result.stderr[:600])
-    matches = re.findall(r"Signer #\d+ certificate SHA-256 digest:\s*([a-fA-F0-9:]+)",
-                         result.stdout)
-    actual = [item.replace(":", "").lower() for item in matches]
+    # Different Android SDK versions label certificates as e.g.
+    # "V2 Signer: certificate SHA-256 digest:" or
+    # "Signer #1 certificate SHA-256 digest:". Some print one per v1/v2/v3
+    # scheme: all signers must resolve to the SAME pinned owner certificate.
+    matches = re.findall(
+        r"(?im)^.*\\bSigner\\b.*certificate SHA-256 digest:\\s*([a-fA-F0-9:]+)\\s*$",
+        result.stdout,
+    )
+    actual = sorted({item.replace(":", "").lower() for item in matches})
     if actual != [EXPECTED]:
         # Certificate digests are PUBLIC. Never print keys or passwords.
         print(f"Expected public certificate SHA256: {EXPECTED}", file=sys.stderr)
