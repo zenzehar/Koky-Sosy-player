@@ -167,7 +167,7 @@ object PlaybackDiagnostics {
         val freeSystemMiB = mem.availMem / (1024 * 1024)
         val head = buildString {
             append("SOKY-DIAG/1\n")
-            append("build=0.1.10.8 alpha;libvlc=3.7.7\n")
+            append("build=${app.sokyiptv.BuildConfig.VERSION_NAME};libvlc=3.6.1\n")
             append("sdk=${Build.VERSION.SDK_INT};device=${safeType(Build.MANUFACTURER)}-")
             append(safeType(Build.MODEL))
             append(";engine=$engine\n")

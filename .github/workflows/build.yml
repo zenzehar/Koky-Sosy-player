@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.84-tv-navigation-performance' && github.head_ref || '' }}
+          ref: ${{ github.head_ref == 'fix/v0.1.11.85-vlc-r8-compatibility' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -76,7 +76,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.84-tv-navigation-performance'
+      github.head_ref == 'fix/v0.1.11.85-vlc-r8-compatibility'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,10 +104,10 @@ jobs:
           set -euo pipefail
           test -s apk/app-debug.apk
           # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.84.apk
-          gh release create v0.1.11.84-tv-navigation-performance \
-            "apk/Soky_IPTV_Pro_v0.1.11.84.apk" \
+          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.85.apk
+          gh release create v0.1.11.85-vlc-r8-compatibility \
+            "apk/Soky_IPTV_Pro_v0.1.11.85.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.84 TV Navigation Performance Candidate" \
-            --notes "v0.1.11.84 EXPERIMENTAL TV navigation performance release, based directly on temporary milestone v0.1.11.83, which remains protected. UI changes: eager full Display/Playback Settings column replaced by lazy keyed section list; duplicated RadioButton focus actions removed from rows; arbitrary 180ms category and 500ms poster click suppression removed (native single KeyUp remains guarded). Background work changes: WorkManager movie/series/live import progress writes coalesced to integer percentage and at most one update per 160ms, and full catalogue gate fractions quantized to whole percentage to reduce Room writes, Flow invalidations and global recomposition. Optional EPG re-normalization postponed 2 seconds after startup to avoid competing with first menu interactions. Debug APK is now optimized through R8 using the SAME debug application ID and signing configuration, with existing Keep/Consumer rules for Room, Xtream serialization and native dependencies. New OFF-by-default input-to-next-frame diagnostics HUD in Display/Playback Settings reports mean, p95 and >50ms samples so actual TV behaviour can be verified; no frame instrumentation while Off. Auth/login flow, thumbnail algorithms, VLC/Media3 playback, seek/marker buttons, content refresh and error-focus fixes remain unchanged. R8-obfuscated code and UI responsiveness still require real Android TV/Fire TV smoke testing; do NOT promote over v79 gold or v83 temporary milestone without acceptance." --prerelease
+            --title "Soky IPTV Pro v0.1.11.85 LibVLC R8 Compatibility" \
+            --notes "v0.1.11.85 EXPERIMENTAL: surgical fix for v84 VOD-only crash at player opening while Live TV works. v84 was first R8-minified debug APK; it omitted VideoLAN's own mandatory native-JNI keep rules. v85 adds the exact keep rules from videolan/vlc-android (LibVLC and MediaLibrary Java classes), and guards all JNI native method signatures while retaining R8 elsewhere. This prevents shrink/rename of Java symbols resolved from VLC native code. All v84 performance benefits including R8 for the remaining app, lazy settings, throttled import UI updates, reduced search debounce, short-press/focus behaviour and diagnostic HUD are kept. Playback native seek, buffering, thumbnails, login validation, recovery menu and user data handling are unchanged. Diagnostic header now reports real build version and shipped LibVLC version. CI unit test explicitly checks JNI keep rules. Hardware verification: first-play HTTP Movies and Series on TV and Fire TV, also Live TV, before promotion. v79 GOLD and v83 TEMPORARY milestones remain untouched. No crash log from device yet; diagnosis is strongly supported by the VideoLAN rules and failure onset, but must be verified on physical hardware." --prerelease

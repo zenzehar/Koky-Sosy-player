@@ -1,5 +1,19 @@
 # Media3 and OkHttp ship their own consumer rules; these cover our own reflection surface.
 
+# VideoLAN's own Android application explicitly keeps LibVLC: native JNI code
+# resolves Java class/member names at runtime, which R8 cannot detect.
+# v84 was the FIRST debug build with R8 enabled and omitted this exception.
+# It caused a suspected VOD-only startup crash when LibVLC is constructed.
+# Keep this narrow so dashboard/settings/navigation code remains optimised.
+-keep class org.videolan.libvlc.** { *; }
+-keep class org.videolan.medialibrary.** { *; }
+
+# Preserve native entry points for JNI callers in any media dependency.
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}
+
+
 # Room entities are constructed reflectively by generated code.
 -keep class app.sokyiptv.data.model.** { *; }
 
