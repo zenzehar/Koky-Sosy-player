@@ -19,16 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      signing_ready: ${{ steps.signing.outputs.configured }}
+      app_version: ${{ steps.version.outputs.app_version }}
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
-      # Application-owned TV OAuth credential, NOT a user's Google credential.
       GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref == 'fix/v0.1.11.86-episode-navigation-performance' && github.head_ref || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -39,13 +39,25 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # Fail before compiling: rerunning a publish-only job does not rebuild the APK.
       - name: Validate TV OAuth before compilation
         run: |
           if [ -z "$GOOGLE_TV_OAUTH_CLIENT_SECRET" ]; then
-            echo "::error::Missing GOOGLE_TV_OAUTH_CLIENT_SECRET. Add the Actions repository secret and rerun the entire workflow."
+            echo "::error::Missing GOOGLE_TV_OAUTH_CLIENT_SECRET."
             exit 1
           fi
+
+      - name: Identify APK version
+        id: version
+        run: |
+          VERSION=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"/\1/p' app/build.gradle.kts | head -1)
+          test -n "$VERSION"
+          echo "app_version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Configure permanent signing if available
+        id: signing
+        env:
+          SOKY_SIGNING_BUNDLE: ${{ secrets.SOKY_SIGNING_BUNDLE }}
+        run: python3 scripts/prepare_signing.py
 
       - name: Unit tests
         run: ./gradlew test --stacktrace
@@ -53,11 +65,17 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Upload debug APK
+      - name: Verify permanent APK certificate
+        if: steps.signing.outputs.configured == 'true'
+        run: python3 scripts/verify_apk_signing.py app/build/outputs/apk/debug/app-debug.apk
+
+      # Temporary-key test builds are never offered for installation.
+      - name: Upload permanently signed debug APK
+        if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: soky-iptv-pro-tv-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: soky-iptv-pro-permanently-signed-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Upload test reports
@@ -68,46 +86,38 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: ignore
 
-  # Only this repo-owned, explicitly named alpha branch can publish a public
-  # prerelease APK. Fork pull requests never get write access or a release path.
   publish-tv-alpha:
-    name: Publish direct APK
+    name: Publish verified signed TV test APK
     needs: build
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'fix/v0.1.11.86-episode-navigation-performance'
+      startsWith(github.head_ref, 'fix/v') &&
+      needs.build.outputs.signing_ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Verify application OAuth setup before publishing
-        env:
-          GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
-        run: |
-          if [ -z "$GOOGLE_TV_OAUTH_CLIENT_SECRET" ]; then
-            echo "::error::Repository Actions secret GOOGLE_TV_OAUTH_CLIENT_SECRET is required for a usable TV Google sign-in APK."
-            exit 1
-          fi
-
-      - name: Retrieve assembled APK
+      - name: Retrieve VERIFIED signed APK
         uses: actions/download-artifact@v4
         with:
-          name: soky-iptv-pro-tv-debug-apk
+          name: soky-iptv-pro-permanently-signed-debug-apk
           path: apk
 
-      - name: Publish unapproved prerelease on GitHub
+      - name: Publish TV test prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+          APP_VERSION: ${{ needs.build.outputs.app_version }}
         run: |
           set -euo pipefail
           test -s apk/app-debug.apk
-          # The real release asset and downloaded filename MUST include the version.
-          mv apk/app-debug.apk apk/Soky_IPTV_Pro_v0.1.11.86.apk
-          gh release create v0.1.11.86-episode-navigation-performance \
-            "apk/Soky_IPTV_Pro_v0.1.11.86.apk" \
+          test -n "$APP_VERSION"
+          NAME="Soky_IPTV_Pro_v$APP_VERSION.apk"
+          mv apk/app-debug.apk "apk/$NAME"
+          gh release create "v$APP_VERSION" "apk/$NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
-            --title "Soky IPTV Pro v0.1.11.86 TV Episode Navigation Performance" \
-            --notes "v0.1.11.86 EXPERIMENTAL, based on owner-confirmed working v85 GOLD. Start movie/episode with focus on the visible seek timeline (LibVLC and Media3). Series opens from cached Room title instantly; episode request begins without waiting for remote series-info or TMDB enrichment. Focused poster prefetch after brief dwell (no bulk library fetches). Per-series concurrent requests deduplicated. Episode runtime hint hashing/SharedPreferences lookups memoized and expensive duration pending filtering moved off main. Episode rows have one stable focus target and repeat held D-pad Up/Down into adjacent rows at ~95ms intervals after key hold threshold. Poster focused options are decorative to avoid focus traps, Menu and long-press remain. Removes episode play 650ms artificial gate. No changes to native playback, seeking mechanics, user credentials or databases. Requires physical TV testing before promoting to main; v85 GOLD branch is preserved." --prerelease
+            --title "Soky IPTV Pro v$APP_VERSION - Permanently Signed TV Test" \
+            --notes "Permanently signed developer APK, certificate checked against repository pin. TV hardware validation is required before merging. The application ID remains tv.sokyiptv.pro.debug. Previous temporary-key installs require one verified backup and migration." \
+            --prerelease

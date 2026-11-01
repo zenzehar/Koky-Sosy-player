@@ -1,67 +1,32 @@
 # Soky IPTV Pro — release and milestone procedure
 
-The last approved version is **v0.1.9**, on `main`, preserved as `milestone/v0.1.9-tv-approved`. v0.1.10 lives on `feat/v0.1.10-cast-menu-live-epg` until accepted.
+## Approved baseline and experimental work
 
-1. Increase `versionCode` and `versionName` for the feature branch (v0.1.10 = 11).
-2. Run `./gradlew :app:testDebugUnitTest :app:assembleDebug` through GitHub Actions.
-3. Confirm the artifact contains a valid Android APK. Distribute direct APK links only after successful upload.
-4. Verify the Fire TV and Android TV scenarios in [TESTING](TESTING.md), especially screenshots, long holds, screensaver audio and Live channel focus. Green CI does not verify hardware behaviour.
-5. Obtain explicit approval, merge the feature PR, and create a fixed milestone branch. Preserve older milestones for rollback.
-6. Never commit provider logins, TMDB keys, pairing URLs or tokens. Optional `TMDB_API_KEY` and `TMDB_READ_TOKEN` CI secrets protect source control but not extracted APK contents.
+- Latest user-confirmed Gold Standard: v0.1.11.85, main source and milestone/v0.1.11.85-GOLD.
+- v0.1.11.86 is an unapproved performance test candidate; do not promote without real Android TV validation.
+- Always increase Android versionCode for each update. Keep user data and package ID stable.
+- Run automated tests and assemble on GitHub; then test real Fire TV and Android TV before approval.
+- Preserve an immutable reference/milestone to the previously approved working version.
 
----
-## Upstream SokyIPTV release history and signing guidance
+## Permanent APK signing
 
-Releases are cut by pushing a tag. GitHub Actions does the rest.
+Follow [PERMANENT_SIGNING.md](PERMANENT_SIGNING.md) for the one-time owner secret setup.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+**The workflow NEVER publishes an APK signed by GitHub's disposable debug key.**
+Without the single SOKY_SIGNING_BUNDLE secret, PR builds may compile for tests, but cannot distribute or publish their APK; tagged release builds fail closed.
 
-`.github/workflows/release.yml` runs the tests, assembles the release APK and attaches it to a
-GitHub release.
+The public expected signing certificate SHA256 is in signing/soky_certificate.sha256. Its private key is never in the repository.
 
-## Signing
+- TV test/update builds: tv.sokyiptv.pro.debug (same package ID as v85/v86).
+- Production builds: tv.sokyiptv.pro (different app; can coexist).
+- Sign both using the same owner-controlled permanent key; verify the final APK certificate before publishing.
+- Future updates require the same signing identity and a higher versionCode.
+- The first migration from ephemeral-key v85/v86 requires a verified app-data backup and one-time reinstall/restore, unless the original private debug signing key is recovered.
 
-**Right now, release builds are signed with the Android debug key.** This is deliberate, and
-it is temporary.
+## Release steps
 
-An *unsigned* APK cannot be installed on Android at all — the installer rejects it before the
-user sees anything, with an error that explains nothing. That would mean no one can test the
-app until signing infrastructure exists. So `app/build.gradle.kts` falls back to the debug key
-when no keystore is configured, and the result installs fine.
-
-The cost, stated plainly: **when the project moves to a real keystore, Android will refuse to
-upgrade over a debug-signed install.** Everyone testing today will have to uninstall and
-reinstall, losing their settings. That is fine for a handful of early testers and completely
-unacceptable once there are hundreds. **Set up real signing before announcing the project
-publicly.**
-
-### Setting up real signing
-
-1. Generate a keystore:
-
-   ```bash
-   keytool -genkeypair -v -keystore upload.jks -keyalg RSA -keysize 4096 \
-     -validity 10000 -alias sokyiptv
-   ```
-
-2. Add these repository secrets under **Settings → Secrets and variables → Actions**:
-   `KEYSTORE_BASE64` (the output of `base64 -i upload.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
-   `KEY_PASSWORD`.
-
-3. That is all — `release.yml` and `build.gradle.kts` already pick them up. The release notes
-   will report `signed: yes` instead of `debug-key`.
-
-**The keystore must belong to the project, not to one person.** A single maintainer holding
-the only copy is the same single point of failure this project exists to avoid — if they go
-quiet, nobody can ship an upgrade, and every user is stranded on whatever version they have.
-Share it among at least two maintainers, and back it up somewhere that is not one laptop.
-
-Losing the keystore is unrecoverable. There is no reset.
-
-## Version numbers
-
-Bump `versionCode` and `versionName` in `app/build.gradle.kts`. `versionCode` must increase on
-every release; Android uses it, not `versionName`, to decide what counts as an upgrade.
+1. Integrate and TV-test the desired feature branch, then merge into main after approval.
+2. Bump versionCode and versionName in app/build.gradle.kts.
+3. Publish a tag matching the approved release name. The release workflow runs tests, assembles signed TV-update and production APKs, checks their certificate, then publishes a GitHub release.
+4. Confirm both APKs are downloadable and that upgrade from the immediately previous permanently signed build retains settings and Continue Watching.
+5. Do not commit provider credentials, client tokens, passwords, the keystore, or GitHub secret values.
