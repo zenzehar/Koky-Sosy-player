@@ -433,6 +433,13 @@ internal fun TvSeriesDetailLayout(
                                 if (direction == 0) {
                                     if (event.type == KeyEventType.KeyDown) heldEpisodeArrow = 0
                                     false
+                                } else if (event.type == KeyEventType.KeyDown &&
+                                    ((direction < 0 && focusedEpisodeIndex <= 0) ||
+                                     (direction > 0 && focusedEpisodeIndex >= currentEpisodes.lastIndex))) {
+                                    // At the first/last episode let the normal TV focus
+                                    // graph leave the list; never trap Up or Down.
+                                    heldEpisodeArrow = 0
+                                    false
                                 } else when (event.type) {
                                     KeyEventType.KeyDown -> {
                                         if (event.nativeKeyEvent.repeatCount == 0 ||
