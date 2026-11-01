@@ -214,7 +214,7 @@ internal fun TvSeriesDetailLayout(
             episodeListState.scrollToItem(target)
             withFrameNanos { }
         }
-        if (runCatching { episodeFocusRequesters[target].requestFocus() }.isFailure) {
+        if (!runCatching { episodeFocusRequesters[target].requestFocus() }.getOrDefault(false)) {
             withFrameNanos { }
             runCatching { episodeFocusRequesters[target].requestFocus() }
         }
@@ -533,7 +533,6 @@ private fun EpisodePreviewRow(
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var lastPlayAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     Box(modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth()
@@ -544,13 +543,7 @@ private fun EpisodePreviewRow(
                 .focusRequester(focusRequester)
                 .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
                 .tvRemoteActions(
-                    onClick = {
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        if (now - lastPlayAt >= 650L) {
-                            lastPlayAt = now
-                            onPlay()
-                        }
-                    },
+                    onClick = onPlay,
                     onLongPress = { menuOpen = true },
                 )
                 .padding(horizontal = 4.dp, vertical = 3.dp),
