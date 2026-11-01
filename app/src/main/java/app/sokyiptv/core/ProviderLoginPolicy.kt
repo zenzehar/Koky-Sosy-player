@@ -29,19 +29,35 @@ internal object ProviderLoginPolicy {
             "The provider rejected this account or its access. Check the username, password, " +
                 "subscription status and provider User-Agent in Advanced settings."
         )
-        if (stack.any { it is UnknownHostException }) return Failure(
+        // Do not equate a provider API failure with loss of TV internet access.
+        // Keep classification precise and do not expose source URLs or credentials.
+        if (text.contains("http 429")) return Failure(
             Reason.UNAVAILABLE,
-            "Internet or provider DNS is unavailable. Check the connection and server address."
+            "The IPTV provider rate-limited the login request (HTTP 429). Soky will retry."
         )
-        if (stack.any { it is SocketTimeoutException || it is ConnectException ||
-                    it is SSLException } ||
-            listOf("timeout", "timed out", "connection refused",
-                "connection reset", "failed to connect", "unreachable",
-                "http 429", "http 500", "http 502", "http 503", "http 504")
+        if (listOf("http 500", "http 502", "http 503", "http 504")
                 .any(text::contains)) return Failure(
             Reason.UNAVAILABLE,
-            "The internet or provider server is temporarily unavailable. Check connectivity " +
-                "and try again; saved channels can be used only after a prior verified login."
+            "The IPTV provider login server reported a temporary server error. Soky will retry."
+        )
+        if (stack.any { it is UnknownHostException }) return Failure(
+            Reason.UNAVAILABLE,
+            "The IPTV provider's server name could not be resolved. Other internet services may still work."
+        )
+        if (stack.any { it is SocketTimeoutException } ||
+            listOf("timeout", "timed out").any(text::contains)) return Failure(
+            Reason.UNAVAILABLE,
+            "The IPTV provider login request timed out. Other internet services may still work."
+        )
+        if (stack.any { it is SSLException }) return Failure(
+            Reason.UNAVAILABLE,
+            "A secure connection to the IPTV provider could not be established."
+        )
+        if (stack.any { it is ConnectException } ||
+            listOf("connection refused", "connection reset", "failed to connect", "unreachable")
+                .any(text::contains)) return Failure(
+            Reason.UNAVAILABLE,
+            "The connection to the IPTV provider login service failed. Other internet services may still work."
         )
         if (listOf("not a valid", "no xtream api", "http 404", "invalid",
             "did not confirm a valid account", "did not return account information",
@@ -61,6 +77,24 @@ internal object ProviderLoginPolicy {
 
     fun allowCachedAccess(previouslyVerified: Boolean, reason: Reason): Boolean =
         previouslyVerified && reason == Reason.UNAVAILABLE
+}
+
+/** Conservative recovery for PREVIOUSLY verified cached accounts only.
+ * New logins must always receive an explicit positive provider response.
+ * A short second attempt eliminates single-shot provider timeouts; subsequent
+ * checks back off so we do not aggravate provider rate limits or overload it.
+ */
+internal object ProviderValidationRecovery {
+    const val FIRST_RETRY_DELAY_MS = 1_500L
+    fun shouldRetryOnce(reason: ProviderLoginPolicy.Reason): Boolean =
+        reason == ProviderLoginPolicy.Reason.UNAVAILABLE
+
+    fun delayBeforeNextCheckMs(consecutiveFailedChecks: Int): Long = when {
+        consecutiveFailedChecks <= 1 -> 60_000L
+        consecutiveFailedChecks == 2 -> 120_000L
+        consecutiveFailedChecks == 3 -> 240_000L
+        else -> 600_000L
+    }
 }
 
 /**

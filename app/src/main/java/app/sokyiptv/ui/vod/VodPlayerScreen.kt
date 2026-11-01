@@ -347,7 +347,7 @@ fun VodPlayerScreen(
     var autoplayFocused by remember { mutableStateOf(false) }
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
     // Only hidden-to-visible horizontal input focuses the seek timeline.
-    var focusSeekOnReveal by remember { mutableStateOf(false) }
+    var focusSeekOnReveal by remember(mediaKey) { mutableStateOf(true) }
     // Keep rapid absolute-time taps anchored while Media3's native clock settles.
     val media3SeekClock = remember(mediaKey, controller) { VlcSeekClock() }
     val postSeekGate = remember(mediaKey, controller) { PostSeekPlaybackGate() }
