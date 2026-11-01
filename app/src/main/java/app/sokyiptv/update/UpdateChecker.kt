@@ -25,10 +25,12 @@ import okhttp3.Request
  * - **Silent on failure.** No network, rate-limited, a 404 because the release does not exist
  *   yet — all of it returns "no update" and never surfaces an error. An update check is a
  *   nicety; it must never be a thing that breaks or nags at launch.
- * - **Compares the tag, not a build number.** GitHub gives us a tag like `v0.2.0`. We parse it
- *   as a dotted version and compare it to our own [currentVersionName]. A release whose tag is
- *   not strictly newer is ignored, so re-tagging or a same-version hotfix will not prompt.
- * - **Skips drafts and pre-releases**, which are not meant for the general audience.
+ * - **Checks the actual release repository.** The old repo slug did not exist.
+ * - **Includes owner-signed test prereleases.** Every v85-v88 APK was a GitHub
+ *   prerelease; GitHub's /releases/latest endpoint intentionally omitted them.
+ * - **Checks compatibility** with the permanent signing era and the installed
+ *   TV-test (.debug) app ID, not the separately published production APK.
+ * - **Compares numeric tags**, not publication time, and never downgrades.
  */
 class UpdateChecker(
     private val http: OkHttpClient,
@@ -50,7 +52,7 @@ class UpdateChecker(
     suspend fun check(): Update? = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder()
-                .url("https://api.github.com/repos/$repoSlug/releases/latest")
+                .url("https://api.github.com/repos/$repoSlug/releases?per_page=50")
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "SokyIPTV")
                 .build()
@@ -60,11 +62,10 @@ class UpdateChecker(
                 val body = response.body?.string().orEmpty()
                 if (body.isBlank()) return@withContext null
 
-                val release = json.decodeFromString<GitHubRelease>(body)
-                if (release.draft || release.prerelease) return@withContext null
-
-                val asset = release.apkAsset() ?: return@withContext null
-                if (!isNewer(release.tagName, currentVersionName)) return@withContext null
+                val releases = json.decodeFromString<List<GitHubRelease>>(body)
+                val release = newestSignedTvRelease(releases, currentVersionName)
+                    ?: return@withContext null
+                val asset = release.tvUpdateApkAsset() ?: return@withContext null
 
                 Update(
                     versionName = release.tagName.trimStart('v', 'V'),
@@ -80,7 +81,46 @@ class UpdateChecker(
 
     companion object {
         /** The single place the project's GitHub location is written down. */
-        const val REPO_SLUG = "zenzehar/Soky-IPTVPro-player"
+        const val REPO_SLUG = "zenzehar/Koky-Sosy-player"
+
+        /**
+         * Releases for builds before v87 used temporary debug signing keys and
+         * cannot be installed over permanent-key-signed packages.
+         */
+        private const val FIRST_PERMANENT_VERSION = "0.1.11.87"
+
+        /**
+         * Public GitHub release metadata identifies the permanent-key builds.
+         * This does not replace Android certificate verification at install;
+         * it avoids recommending older incompatible CI debug builds.
+         *
+         * Include prereleases because this project publishes signed TV test
+         * builds on draft pull requests. All other releases are ignored unless
+         * they meet BOTH the permanent signing marker and TV APK requirements.
+         */
+        fun newestSignedTvRelease(
+            releases: List<GitHubRelease>,
+            current: String,
+        ): GitHubRelease? = releases.asSequence()
+            .filter { !it.draft }
+            .filter { isNewer(it.tagName, current) }
+            .filter { !isNewer(FIRST_PERMANENT_VERSION, it.tagName) }
+            .filter {
+                it.body.contains("permanent", ignoreCase = true) &&
+                    it.body.contains("sign", ignoreCase = true)
+            }
+            .filter { it.tvUpdateApkAsset() != null }
+            .maxWithOrNull(Comparator { a, b -> compareVersion(a.tagName, b.tagName) })
+
+        private fun compareVersion(a: String, b: String): Int {
+            val left = versionParts(a)
+            val right = versionParts(b)
+            for (i in 0 until maxOf(left.size, right.size)) {
+                val difference = left.getOrElse(i) { 0 }.compareTo(right.getOrElse(i) { 0 })
+                if (difference != 0) return difference
+            }
+            return 0
+        }
 
         /**
          * The GitHub release body is written for developers and has GitHub's auto-generated
@@ -122,17 +162,8 @@ class UpdateChecker(
          * A missing or non-numeric component counts as 0, so `0.2` and `0.2.0` are equal and a
          * malformed tag simply never wins.
          */
-        fun isNewer(tag: String, current: String): Boolean {
-            val a = versionParts(tag)
-            val b = versionParts(current)
-            val n = maxOf(a.size, b.size)
-            for (i in 0 until n) {
-                val ai = a.getOrElse(i) { 0 }
-                val bi = b.getOrElse(i) { 0 }
-                if (ai != bi) return ai > bi
-            }
-            return false
-        }
+        fun isNewer(tag: String, current: String): Boolean =
+            compareVersion(tag, current) > 0
 
         private fun versionParts(v: String): List<Int> =
             v.trim().trimStart('v', 'V')
