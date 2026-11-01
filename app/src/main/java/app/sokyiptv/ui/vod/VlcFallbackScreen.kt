@@ -195,7 +195,7 @@ fun VlcFallbackScreen(
     var focusLevel by remember { mutableStateOf(CinematicFocusLevel.CONTROLS) }
     // Only Left/Right while transport controls are hidden selects seekbar.
     // When visible, native Compose focus navigation uses the visible button order.
-    var focusSeekOnReveal by remember { mutableStateOf(false) }
+    var focusSeekOnReveal by remember(mediaKey) { mutableStateOf(true) }
     val seekFocus = remember { FocusRequester() }
     // Error actions form an exclusive modal layer. The normal transport focus
     // graph must never take remote focus after a playback failure.
