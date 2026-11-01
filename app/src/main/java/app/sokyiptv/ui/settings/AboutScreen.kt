@@ -91,7 +91,7 @@ fun AboutScreen(onBack: () -> Unit) {
                             }.getOrNull()
                             updateLine = when {
                                 update != null -> context.getString(R.string.about_update_available, update.versionName)
-                                else -> "No newer published release found. Test APKs may be available on GitHub Actions."
+                                else -> "No newer compatible signed release found. Check your connection or the GitHub release page."
                             }
                             // Raise the shared update prompt right here — UpdateGate overlays every
                             // screen, so the install dialog appears over About immediately.
@@ -104,7 +104,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     },
                 ) { Text(if (checking) stringResource(R.string.about_checking) else stringResource(R.string.about_check_updates)) }
                 OutlinedButton(onClick = {
-                    val url = "https://github.com/zenzehar/Soky-IPTV-Pro/actions/workflows/build.yml"
+                    val url = "https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml"
                     context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
                         android.net.Uri.parse(url)))
                 }) { Text("View test APK builds") }
@@ -143,9 +143,9 @@ fun AboutScreen(onBack: () -> Unit) {
                 "GNU General Public License v3.0",
                 url = "https://www.gnu.org/licenses/gpl-3.0.html",
             )
-            LinkLine(stringResource(R.string.about_source_code), "github.com/zenzehar/Soky-IPTV-Pro")
-            LinkLine(stringResource(R.string.about_report_bug), "github.com/zenzehar/Soky-IPTV-Pro/issues")
-            LinkLine(stringResource(R.string.about_install_page), "github.com/zenzehar/Soky-IPTV-Pro/releases")
+            LinkLine(stringResource(R.string.about_source_code), "github.com/zenzehar/Koky-Sosy-player")
+            LinkLine(stringResource(R.string.about_report_bug), "github.com/zenzehar/Koky-Sosy-player/issues")
+            LinkLine(stringResource(R.string.about_install_page), "github.com/zenzehar/Koky-Sosy-player/releases")
         }
     }
 }
