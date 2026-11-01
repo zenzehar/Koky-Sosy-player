@@ -16,3 +16,9 @@ captures/
 
 # Kotlin compiler transient logs
 .kotlin/
+
+# Private permanent APK signing material: NEVER commit.
+*.p12
+*.jks
+GITHUB_SECRET_COPY_THIS.txt
+Soky_IPTV_Pro_Private_Signing_Kit.zip
