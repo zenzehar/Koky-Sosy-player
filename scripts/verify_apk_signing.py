@@ -30,11 +30,15 @@ def main() -> None:
     # "V2 Signer: certificate SHA-256 digest:" or
     # "Signer #1 certificate SHA-256 digest:". Some print one per v1/v2/v3
     # scheme: all signers must resolve to the SAME pinned owner certificate.
-    matches = re.findall(
-        r"(?im)^.*\\bSigner\\b.*certificate SHA-256 digest:\\s*([a-fA-F0-9:]+)\\s*$",
-        result.stdout,
-    )
-    actual = sorted({item.replace(":", "").lower() for item in matches})
+    digests = []
+    for line in result.stdout.splitlines():
+        # Detect certificates across v1/v2/v3 and SDK-specific signer labels.
+        if "signer" not in line.lower() or "certificate sha-256 digest:" not in line.lower():
+            continue
+        digest = line.split("digest:", 1)[1].strip().replace(":", "").lower()
+        if re.fullmatch("[0-9a-f]{64}", digest):
+            digests.append(digest)
+    actual = sorted(set(digests))
     if actual != [EXPECTED]:
         # Certificate digests are PUBLIC. Never print keys or passwords.
         print(f"Expected public certificate SHA256: {EXPECTED}", file=sys.stderr)
