@@ -1270,6 +1270,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun movieDetail(id: Long): Movie? = graph.catalogRepository.movieDetail(id)
 
     /** Loads a series, lazily enriching backdrop/cast/genre on first open. See CatalogRepository.seriesDetail. */
+    suspend fun seriesSnapshot(id: Long): Series? = graph.catalogRepository.series(id)
+
     suspend fun seriesDetail(id: Long): Series? = graph.catalogRepository.seriesDetail(id)
     suspend fun movieCastPortraits(movie: Movie): List<app.sokyiptv.data.remote.TmdbCastPortrait> =
         graph.catalogRepository.movieCastPortraits(movie)
