@@ -28,8 +28,17 @@ def main() -> None:
         sys.exit("APK signing verification failed: " + result.stderr[:600])
     matches = re.findall(r"Signer #\d+ certificate SHA-256 digest:\s*([a-fA-F0-9:]+)",
                          result.stdout)
-    if len(matches) != 1 or matches[0].replace(":", "").lower() != EXPECTED:
-        sys.exit("APK signing certificate does NOT match the pinned permanent Soky key.")
+    actual = [item.replace(":", "").lower() for item in matches]
+    if actual != [EXPECTED]:
+        # Certificate digests are PUBLIC. Never print keys or passwords.
+        print(f"Expected public certificate SHA256: {EXPECTED}", file=sys.stderr)
+        print(f"Actual APK signer certificate SHA256: {actual}", file=sys.stderr)
+        if not actual:
+            print("No matching signer field found. Relevant APK verifier lines:", file=sys.stderr)
+            for line in result.stdout.splitlines():
+                if "Signer" in line and "certificate" in line:
+                    print(line[:200], file=sys.stderr)
+        sys.exit("APK signer does not match the permanent Soky certificate.")
     print(f"Verified permanent APK signing certificate SHA256={EXPECTED}")
 
 
