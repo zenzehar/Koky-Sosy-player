@@ -25,8 +25,30 @@ data class GitHubRelease(
     @SerialName("html_url") val htmlUrl: String = "",
     val assets: List<GitHubAsset> = emptyList(),
 ) {
-    /** The first attached `.apk`, which is the thing we can actually install. */
-    fun apkAsset(): GitHubAsset? = assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+    /**
+     * The installed TV test app is tv.sokyiptv.pro.debug, NOT tv.sokyiptv.pro.
+     * A tagged public release can publish both APKs. Never accidentally select
+     * Production.apk just because it appears first in GitHub's asset list.
+     *
+     * Our CI publishes "TV-Update" for debug-ID APKs; PR builds publish
+     * "Soky_IPTV_Pro_v..." as the only asset.
+     */
+    fun tvUpdateApkAsset(): GitHubAsset? {
+        val compatible = assets.filter { asset ->
+            asset.name.endsWith(".apk", ignoreCase = true) &&
+                asset.size > 0L &&
+                asset.browserDownloadUrl.startsWith(
+                    "https://github.com/zenzehar/Koky-Sosy-player/releases/download/"
+                ) &&
+                !asset.name.contains("Production", ignoreCase = true)
+        }
+        return compatible.firstOrNull {
+            it.name.contains("TV-Update", ignoreCase = true) ||
+                it.name.contains("TV_Update", ignoreCase = true)
+        } ?: compatible.firstOrNull {
+            it.name.startsWith("Soky_IPTV_Pro_v", ignoreCase = true)
+        }
+    }
 }
 
 @Serializable
