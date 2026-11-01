@@ -214,7 +214,7 @@ internal fun TvSeriesDetailLayout(
             episodeListState.scrollToItem(target)
             withFrameNanos { }
         }
-        if (!runCatching { episodeFocusRequesters[target].requestFocus() }.getOrDefault(false)) {
+        if (runCatching { episodeFocusRequesters[target].requestFocus() }.isFailure) {
             withFrameNanos { }
             runCatching { episodeFocusRequesters[target].requestFocus() }
         }
