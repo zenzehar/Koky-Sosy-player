@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.Lifecycle
@@ -63,6 +64,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +83,8 @@ import app.sokyiptv.data.parser.displayTitle
 import app.sokyiptv.ui.VodViewModel
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 
 @Composable
@@ -148,8 +156,16 @@ internal fun TvSeriesDetailLayout(
     var durationScanStatus by remember(seriesId) { mutableStateOf("") }
 
     LaunchedEffect(seriesId) {
-        series = viewModel.seriesDetail(seriesId)
-        series?.let { viewModel.loadEpisodes(it) }
+        // Show persisted title information and begin the (cached or first-time) episode
+        // lookup immediately. Remote TMDB/provider enrichment must NOT gate the list.
+        val cached = viewModel.seriesSnapshot(seriesId)
+        series = cached
+        if (cached != null) {
+            viewModel.loadEpisodes(cached)
+            launch {
+                viewModel.seriesDetail(seriesId)?.let { enriched -> series = enriched }
+            }
+        }
     }
     val s = series ?: run {
         Box(Modifier.fillMaxSize().background(Color(0xFF070B21)),
@@ -174,6 +190,46 @@ internal fun TvSeriesDetailLayout(
         }
     }
     val currentEpisodes = bySeason[activeSeason].orEmpty()
+    // A stable requester per episode keeps a held TV remote moving THROUGH the rows,
+    // not merely scrolling an unfocused list. Preserve requesters on runtime updates.
+    val episodeIds = remember(currentEpisodes) { currentEpisodes.map { it.id } }
+    val episodeFocusRequesters = remember(seriesId, activeSeason, episodeIds) {
+        List(episodeIds.size) { FocusRequester() }
+    }
+    var focusedEpisodeIndex by remember(seriesId, activeSeason) { mutableIntStateOf(-1) }
+    var heldEpisodeArrow by remember(seriesId, activeSeason) { mutableIntStateOf(0) }
+    val episodeNavigationScope = rememberCoroutineScope()
+    suspend fun focusEpisodeStep(direction: Int) {
+        if (currentEpisodes.isEmpty()) return
+        val target = (focusedEpisodeIndex + direction).coerceIn(0, currentEpisodes.lastIndex)
+        if (target == focusedEpisodeIndex) return
+        focusedEpisodeIndex = target
+        val visible = episodeListState.layoutInfo.visibleItemsInfo
+        val first = visible.firstOrNull()?.index ?: 0
+        val last = visible.lastOrNull()?.index ?: -1
+        if (target > last) {
+            episodeListState.scrollToItem((target - visible.size + 1).coerceAtLeast(0))
+            withFrameNanos { }
+        } else if (target < first) {
+            episodeListState.scrollToItem(target)
+            withFrameNanos { }
+        }
+        if (runCatching { episodeFocusRequesters[target].requestFocus() }.isFailure) {
+            withFrameNanos { }
+            runCatching { episodeFocusRequesters[target].requestFocus() }
+        }
+    }
+    LaunchedEffect(heldEpisodeArrow, episodeIds) {
+        val direction = heldEpisodeArrow
+        if (direction == 0) return@LaunchedEffect
+        // Normal first keypress is immediate; a hold accelerates after the TV's
+        // normal repeat delay even when its remote does not emit repeat events.
+        delay(330L)
+        while (isActive && heldEpisodeArrow == direction) {
+            focusEpisodeStep(direction)
+            delay(95L)
+        }
+    }
     val firstEpisode = currentEpisodes.firstOrNull()
     val playEpisode = resumeEpisode?.takeIf { it.season == activeSeason && currentEpisodes.any { e -> e.id == it.id } }
         ?: firstEpisode
@@ -366,17 +422,54 @@ internal fun TvSeriesDetailLayout(
                     LazyColumn(
                         state = episodeListState,
                         verticalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier
+                            .onFocusChanged { if (!it.hasFocus) heldEpisodeArrow = 0 }
+                            .onPreviewKeyEvent { event ->
+                                val direction = when (event.key) {
+                                    Key.DirectionDown -> 1
+                                    Key.DirectionUp -> -1
+                                    else -> 0
+                                }
+                                if (direction == 0) {
+                                    if (event.type == KeyEventType.KeyDown) heldEpisodeArrow = 0
+                                    false
+                                } else if (event.type == KeyEventType.KeyDown &&
+                                    ((direction < 0 && focusedEpisodeIndex <= 0) ||
+                                     (direction > 0 && focusedEpisodeIndex >= currentEpisodes.lastIndex))) {
+                                    // At the first/last episode let the normal TV focus
+                                    // graph leave the list; never trap Up or Down.
+                                    heldEpisodeArrow = 0
+                                    false
+                                } else when (event.type) {
+                                    KeyEventType.KeyDown -> {
+                                        if (event.nativeKeyEvent.repeatCount == 0 ||
+                                            heldEpisodeArrow != direction) {
+                                            heldEpisodeArrow = direction
+                                            episodeNavigationScope.launch { focusEpisodeStep(direction) }
+                                        }
+                                        true
+                                    }
+                                    KeyEventType.KeyUp -> {
+                                        heldEpisodeArrow = 0
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
                     ) {
-                        items(currentEpisodes, key = { it.id }) { ep ->
+                        items(currentEpisodes.size, key = { currentEpisodes[it].id }) { index ->
+                            val ep = currentEpisodes[index]
+                            // Reading SharedPreferences and hashing an ID on EVERY focus
+                            // recomposition stalled large series. Only refresh on a hint change.
+                            val cachedRuntime = remember(ep.id, cachedRuntimeRevision) {
+                                EpisodeRuntimeHints.lookupMillis(runtimeContext, ep)
+                            }
                             EpisodePreviewRow(
                                 ep, s.posterUrl,
-                                savedRuntimeByEpisode[ep.id]
-                                    ?: EpisodeRuntimeHints.lookupMillis(runtimeContext, ep).also {
-                                        // Observe revision so newly scanned or retained
-                                        // duration hints update this row reactively.
-                                        cachedRuntimeRevision
-                                    },
+                                savedRuntimeByEpisode[ep.id] ?: cachedRuntime,
                                 Modifier,
+                                focusRequester = episodeFocusRequesters[index],
+                                onFocused = { focusedEpisodeIndex = index },
                                 onPlay = {
                                     lastPlayedEpisode = ep.id
                                     onPlayEpisode("ep:${ep.id}", ep.streamUrl,
@@ -440,25 +533,24 @@ private fun EpisodePreviewRow(
     fallbackArt: String?,
     observedDurationMs: Long?,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester,
+    onFocused: () -> Unit,
     onPlay: () -> Unit,
     onReset: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var lastPlayAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     Box(modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth()
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) onFocused()
+                }
+                .focusRequester(focusRequester)
                 .background(if (focused) Color(0xFF18243E) else Color(0xFF080C24))
                 .tvRemoteActions(
-                    onClick = {
-                        val now = android.os.SystemClock.elapsedRealtime()
-                        if (now - lastPlayAt >= 650L) {
-                            lastPlayAt = now
-                            onPlay()
-                        }
-                    },
+                    onClick = onPlay,
                     onLongPress = { menuOpen = true },
                 )
                 .padding(horizontal = 4.dp, vertical = 3.dp),
@@ -482,10 +574,10 @@ private fun EpisodePreviewRow(
                     episode.durationSeconds, observedDurationMs,
                 ), color = Color.LightGray)
             }
-            if (focused) IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Episode options",
-                    tint = Color(0xFF89E6F5))
-            }
+            // Decorative hint, not a second focusable node inside each episode.
+            // Long-press OK or Menu still opens the episode options.
+            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+                tint = Color(0xFF89E6F5))
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             DropdownMenuItem(text = { Text("Play episode") }, onClick = {

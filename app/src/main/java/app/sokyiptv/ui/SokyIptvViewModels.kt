@@ -1182,14 +1182,14 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val source = graph.sourceRepository.byId(series.sourceId) ?: return
         if (source.kind != SourceKind.XTREAM) return
-        val pending = loadedEpisodes
+        val pending = withContext(Dispatchers.Default) { loadedEpisodes
             .asSequence()
             .filter { it.id > 0L && (it.durationSeconds == null || it.durationSeconds <= 0) &&
                 EpisodeRuntimeHints.lookupMillis(getApplication(), it) == null }
             .sortedWith(compareBy<app.sokyiptv.data.model.Episode> {
                 if (it.season == preferredSeason) 0 else 1
             }.thenBy { it.season }.thenBy { it.episodeNumber })
-            .toList()
+            .toList() }
         if (pending.isEmpty()) {
             onStatus("All known durations are already saved")
             return
@@ -1270,6 +1270,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun movieDetail(id: Long): Movie? = graph.catalogRepository.movieDetail(id)
 
     /** Loads a series, lazily enriching backdrop/cast/genre on first open. See CatalogRepository.seriesDetail. */
+    suspend fun seriesSnapshot(id: Long): Series? = graph.catalogRepository.series(id)
+
     suspend fun seriesDetail(id: Long): Series? = graph.catalogRepository.seriesDetail(id)
     suspend fun movieCastPortraits(movie: Movie): List<app.sokyiptv.data.remote.TmdbCastPortrait> =
         graph.catalogRepository.movieCastPortraits(movie)

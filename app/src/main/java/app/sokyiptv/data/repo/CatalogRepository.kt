@@ -33,6 +33,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -133,6 +135,9 @@ class CatalogRepository(
 
     /** TMDB back-fill for VOD detail pages, gated on a user-supplied key. See [TmdbClient]. */
     private val tmdb = TmdbClient(http, settings)
+    // Bound memory and deduplicate the same series' first-fetch when prefetch and
+    // detail entry race. Unrelated providers/series may proceed concurrently.
+    private val episodeFetchLocks = Array(32) { Mutex() }
 
     sealed interface SyncResult {
         data class Success(
@@ -760,12 +765,17 @@ class CatalogRepository(
 
     suspend fun ensureEpisodes(source: Source, seriesId: String) {
         if (source.kind != SourceKind.XTREAM) return
-        // Existing episodes are already indexed in Room. Navigation to this title
-        // must never trigger a redundant server refresh.
         if (episodeDao.countForSeries(source.id, seriesId) > 0) return
-        runCatching { api.episodes(source, seriesId) }
-            .onSuccess { if (it.isNotEmpty()) episodeDao.upsertAll(it) }
-            .onFailure { Log.w(TAG, "Episode fetch failed for series $seriesId", it) }
+        val key = "${source.id}:$seriesId"
+        val guard = episodeFetchLocks[(key.hashCode() and Int.MAX_VALUE) % episodeFetchLocks.size]
+        guard.withLock {
+            // Recheck after waiting: browser prefetch and detail entry may both
+            // request the same title, but only ONE provider call is allowed.
+            if (episodeDao.countForSeries(source.id, seriesId) > 0) return@withLock
+            runCatching { api.episodes(source, seriesId) }
+                .onSuccess { if (it.isNotEmpty()) episodeDao.upsertAll(it) }
+                .onFailure { Log.w(TAG, "Episode fetch failed for series $seriesId", it) }
+        }
     }
 
     /**
