@@ -153,6 +153,9 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _state.value = UpdateUiState.Downloading(update, 0f)
             runCatching {
+                // The next build can identify the *actual* previous version instead
+                // of guessing it from release numbers (users can skip versions).
+                RollbackStore.markUpdateAttempt(getApplication(), update.versionName)
                 installer.downloadAndInstall(
                     context = getApplication(),
                     url = update.apkUrl,
