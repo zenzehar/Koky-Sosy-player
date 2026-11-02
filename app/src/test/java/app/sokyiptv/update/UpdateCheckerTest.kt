@@ -109,6 +109,29 @@ class UpdateCheckerTest {
         ))
     }
 
+    @Test fun rollbackCompanionIsNeverOfferedAsAutomaticUpdate() {
+        val tag = "v0.1.11.92-24h-rollback"
+        val rollback = GitHubAsset(
+            "Soky_IPTV_Pro_Rollback_to_v0.1.11.91-navigation-smoothness.apk",
+            base + tag + "/Soky_IPTV_Pro_Rollback_to_v0.1.11.91-navigation-smoothness.apk",
+            199_000_000L,
+        )
+        val normal = GitHubAsset(
+            "Soky_IPTV_Pro_" + tag + ".apk",
+            base + tag + "/Soky_IPTV_Pro_" + tag + ".apk",
+            199_000_000L,
+        )
+        val release = release(92, assets = listOf(rollback, normal))
+        assertEquals(normal, release.tvUpdateApkAsset())
+        assertFalse(UpdateChecker.isNewer(
+            tag, "0.1.11.92-24h-rollback-restored-to-0.1.11.91-navigation-smoothness",
+        ))
+        assertTrue(UpdateChecker.isNewer(
+            "v0.1.11.93-next-build",
+            "0.1.11.92-24h-rollback-restored-to-0.1.11.91-navigation-smoothness",
+        ))
+    }
+
     @Test fun numericVersionComparisonDoesNotConfuseTags() {
         assertTrue(UpdateChecker.isNewer("v0.1.11.100-test", "0.1.11.99-permanent"))
         assertFalse(UpdateChecker.isNewer("v0.1.11.88-test", "0.1.11.88-signed"))
