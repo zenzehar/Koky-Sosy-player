@@ -38,6 +38,8 @@ class ArabicSearchTest {
         assertTrue(ArabicSearch.matches("رؤية", "رويه"))
         assertTrue(ArabicSearch.matches("كوكب", "کوکب"))
         assertTrue(ArabicSearch.matches("كوكب", "ڪوكب"))
+        assertTrue(ArabicSearch.matches("كوكب", "ڮوكب"))
+        assertTrue(ArabicSearch.matches("علي", "علۑ"))
     }
 
     @Test fun userSpecifiedDottedVariantsAreSymmetric() {
@@ -46,6 +48,10 @@ class ArabicSearchTest {
             "جچڇڄ",
             "فڨڤڦڥڢڣڡ",
             "زژ",
+            "ذڏ",
+            "ضڞ",
+            "ظڟ",
+            "غڠ",
             "نڼڽ",
             "لڶڷڸ",
         )
