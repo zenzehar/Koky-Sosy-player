@@ -133,6 +133,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- Receives Android's rollback installation confirmation/failure.
+             Explicit, unexported callback; rollback never silently installs. -->
+        <receiver
+            android:name=".update.RollbackInstallReceiver"
+            android:exported="false" />
+
         <!-- Serves the downloaded update APK to the system installer via a content:// uri. -->
         <provider
             android:name="androidx.core.content.FileProvider"
