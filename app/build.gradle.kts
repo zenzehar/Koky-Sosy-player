@@ -14,8 +14,9 @@ android {
         applicationId = "tv.sokyiptv.pro"
         minSdk = 23
         targetSdk = 35
-        versionCode = 112
-        versionName = "0.1.11.92-24h-rollback"
+        // v92's two rollback companions used 113. Normal updates must exceed them.
+        versionCode = 114
+        versionName = "0.1.11.93-navigation-fluidity-five-column"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
