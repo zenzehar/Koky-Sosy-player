@@ -15,8 +15,9 @@ android {
         minSdk = 23
         targetSdk = 35
         // v93 rollback companions use 115, so v94 must be above 115.
-        versionCode = 116
-        versionName = "0.1.11.94-native-focus-five-column"
+        // v94 rollback companions use code 117. Normal updates must exceed it.
+        versionCode = 118
+        versionName = "0.1.11.95-buffering-pause-conditional-seek-correction"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
