@@ -138,7 +138,7 @@ fun VlcFallbackScreen(
     var startupErrorEpoch by remember(streamUrl) { mutableIntStateOf(0) }
     // Passive alpha diagnostics only: do not affect stable v0.1.9 playback state machine.
     val diagHealth = remember(streamUrl) { VlcPlaybackHealth() }
-    // Re-enable v39 selected-target, one-retry seek correction. The v47 renderer did not call it.
+    // One feedback retry only for a *committed* user seek that demonstrably lands wrong.
     val seekCorrection = remember(streamUrl) { VlcNativeSeekCorrection() }
     var videoLayout by remember(streamUrl) { mutableStateOf<VLCVideoLayout?>(null) }
     val seekFrames = remember(mediaKey) { NetflixSeekFrameCache() }
@@ -444,8 +444,9 @@ fun VlcFallbackScreen(
                 }
                 if (ready && initialSeekPending && player.isSeekable && durationMs > 0L) {
                     val initialTarget = initialPositionMs.coerceIn(0L, durationMs)
-                    seekCorrection.requested(initialTarget, player.time.coerceAtLeast(0L),
-                        tick, durationMs)
+                    // Startup resume is not a viewer-confirmed seek. Never run
+                    // the automatic wrong-landing correction for this path.
+                    seekCorrection.clear()
                     player.setTime(initialTarget)
                     initialSeekPending = false
                 }

@@ -3,13 +3,15 @@ package app.sokyiptv.ui.vod
 import kotlin.math.abs
 
 /**
- * D-pad centre/OK on a focused seekbar serves two distinct actions:
- *  - Commit an outstanding moved playhead / reassert a seek still settling.
- *  - Toggle Play/Pause only after the decoder has caught up.
+ * OK on the seekbar has one firm distinction:
  *
- * UI clock values may jump to a seek target before the video renders it.
- * Keep the last submitted target and a short confirmation guard instead of
- * comparing two optimistic UI clocks alone.
+ * - An UNCOMMITTED cursor move needs a seek command.
+ * - An already submitted seek (including decoder buffering/settling) needs
+ *   Play/Pause, never a duplicate seek that resets the network/decoder work.
+ *
+ * Native playback position can remain stale or optimistic while buffering.
+ * It must not be used as a reason to reissue a committed seek. A separate
+ * narrowly gated native feedback controller handles genuinely wrong landings.
  */
 internal object SeekbarOkPolicy {
     const val POSITION_TOLERANCE_MS = 2_000L
@@ -17,6 +19,7 @@ internal object SeekbarOkPolicy {
 
     enum class Action { COMMIT_SEEK, TOGGLE_PLAYBACK }
 
+    @Suppress("UNUSED_PARAMETER")
     fun action(
         selectedMs: Long,
         reportedPlaybackMs: Long,
@@ -24,20 +27,17 @@ internal object SeekbarOkPolicy {
         seekStillSettling: Boolean,
         submittedAtUptimeMs: Long,
         nowUptimeMs: Long,
-    ): Action {
-        if (selectedMs < 0L) return Action.TOGGLE_PLAYBACK
-        if (activelySelecting &&
+    ): Action =
+        if (activelySelecting && selectedMs >= 0L &&
             abs(selectedMs - reportedPlaybackMs) > POSITION_TOLERANCE_MS)
-            return Action.COMMIT_SEEK
-        val recentlySubmitted = submittedAtUptimeMs > 0L &&
-            nowUptimeMs >= submittedAtUptimeMs &&
-            nowUptimeMs - submittedAtUptimeMs < MIN_CONFIRMATION_MS
-        if (seekStillSettling || recentlySubmitted ||
-            abs(selectedMs - reportedPlaybackMs) > POSITION_TOLERANCE_MS)
-            return Action.COMMIT_SEEK
-        return Action.TOGGLE_PLAYBACK
-    }
+            Action.COMMIT_SEEK
+        else
+            Action.TOGGLE_PLAYBACK
 
+    /**
+     * Only dismiss the pending highlight when playback has actually caught up.
+     * This is display-only, not a condition that blocks pausing or resuming.
+     */
     fun caughtUp(
         selectedMs: Long,
         reportedPlaybackMs: Long,
