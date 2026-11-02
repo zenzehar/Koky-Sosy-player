@@ -8,6 +8,8 @@ package app.sokyiptv.data.repo
 import android.util.Log
 import app.sokyiptv.core.AppSettings
 import app.sokyiptv.data.db.CategoryDao
+import app.sokyiptv.data.db.VodSearchRow
+import app.sokyiptv.data.db.ChannelSearchRow
 import app.sokyiptv.data.db.ChannelDao
 import app.sokyiptv.data.db.EpisodeDao
 import app.sokyiptv.data.db.MovieDao
@@ -24,6 +26,7 @@ import app.sokyiptv.data.model.Source
 import app.sokyiptv.data.model.SourceKind
 import app.sokyiptv.data.model.StreamKind
 import app.sokyiptv.data.parser.ChannelNameNormalizer
+import app.sokyiptv.data.parser.ArabicSearch
 import app.sokyiptv.data.parser.M3uParser
 import app.sokyiptv.data.parser.VodTitleCleaner
 import app.sokyiptv.data.remote.StalkerApi
@@ -31,7 +34,15 @@ import app.sokyiptv.data.remote.TmdbClient
 import app.sokyiptv.data.remote.XtreamApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -139,6 +150,63 @@ class CatalogRepository(
     // detail entry race. Unrelated providers/series may proceed concurrently.
     private val episodeFetchLocks = Array(32) { Mutex() }
 
+    /**
+     * Reactive lightweight indexes are LAZY: normal VOD browsing and all
+     * non-Arabic searches still use v95's original indexed/paged SQLite paths.
+     *
+     * Arabic searches keep one cached, name-only Room projection alive for a
+     * short period, rather than hydrating a 20k-poster library each keystroke.
+     * A provider update invalidates the projection via Room's normal Flow.
+     * Replay expires on stop so reopening cannot show an old catalogue.
+     */
+    private data class IndexedVod(val row: VodSearchRow, val folded: String)
+    private data class IndexedChannel(
+        val row: ChannelSearchRow,
+        val raw: String,
+        val display: String,
+        val custom: String,
+    )
+    private val arabicIndexScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val indexSharing = SharingStarted.WhileSubscribed(
+        stopTimeoutMillis = 120_000L, replayExpirationMillis = 0L,
+    )
+    private val arabicMovieIndex: SharedFlow<List<IndexedVod>> =
+        movieDao.arabicSearchIndex()
+            .map { rows -> rows.map { IndexedVod(it, ArabicSearch.fold(it.name)) } }
+            .shareIn(arabicIndexScope, indexSharing, replay = 1)
+    private val arabicSeriesIndex: SharedFlow<List<IndexedVod>> =
+        seriesDao.arabicSearchIndex()
+            .map { rows -> rows.map { IndexedVod(it, ArabicSearch.fold(it.name)) } }
+            .shareIn(arabicIndexScope, indexSharing, replay = 1)
+    private val arabicChannelIndex: SharedFlow<List<IndexedChannel>> =
+        channelDao.arabicSearchIndex()
+            .map { rows -> rows.map {
+                IndexedChannel(it, ArabicSearch.fold(it.name),
+                    ArabicSearch.fold(it.displayName), ArabicSearch.fold(it.customName.orEmpty()))
+            } }
+            .shareIn(arabicIndexScope, indexSharing, replay = 1)
+
+    private fun IndexedVod.matches(
+        foldedQuery: String, sourceId: Long?, categoryId: String?, favs: Boolean,
+    ): Boolean =
+        (sourceId == null || row.sourceId == sourceId) &&
+        (categoryId == null || row.categoryId == categoryId) &&
+        (!favs || row.favourite) && folded.contains(foldedQuery)
+
+    private fun IndexedChannel.matches(foldedQuery: String, includeHidden: Boolean): Boolean =
+        (includeHidden || !row.hidden) &&
+        (raw.contains(foldedQuery) || display.contains(foldedQuery) ||
+            custom.contains(foldedQuery))
+
+    /** Hydrate only selected IDs, in the exact same order as the search projection. */
+    private suspend fun <T> hydrateOrdered(
+        ids: List<Long>, fetch: suspend (List<Long>) -> List<T>, idOf: (T) -> Long,
+    ): List<T> {
+        if (ids.isEmpty()) return emptyList()
+        val byId = fetch(ids).associateBy(idOf)
+        return ids.mapNotNull(byId::get)
+    }
+
     sealed interface SyncResult {
         data class Success(
             val channelCount: Int,
@@ -176,10 +244,32 @@ class CatalogRepository(
     /** Disk-backed bounded pages. Never bring all posters/metadata into the TV screen. */
     suspend fun moviePage(sourceId: Long?, categoryId: String?, favs: Boolean,
                           query: String, size: Int, offset: Int): List<Movie> =
-        withContext(Dispatchers.IO) { movieDao.page(sourceId, categoryId, favs, query, size, offset) }
+        withContext(Dispatchers.IO) {
+            if (!ArabicSearch.hasArabic(query))
+                movieDao.page(sourceId, categoryId, favs, query, size, offset)
+            else {
+                val foldedQuery = ArabicSearch.fold(query)
+                val ids = arabicMovieIndex.first().asSequence()
+                    .filter { it.matches(foldedQuery, sourceId, categoryId, favs) }
+                    .drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
+                    .map { it.row.id }.toList()
+                hydrateOrdered(ids, movieDao::byIds, Movie::id)
+            }
+        }
     suspend fun seriesPage(sourceId: Long?, categoryId: String?, favs: Boolean,
                            query: String, size: Int, offset: Int): List<Series> =
-        withContext(Dispatchers.IO) { seriesDao.page(sourceId, categoryId, favs, query, size, offset) }
+        withContext(Dispatchers.IO) {
+            if (!ArabicSearch.hasArabic(query))
+                seriesDao.page(sourceId, categoryId, favs, query, size, offset)
+            else {
+                val foldedQuery = ArabicSearch.fold(query)
+                val ids = arabicSeriesIndex.first().asSequence()
+                    .filter { it.matches(foldedQuery, sourceId, categoryId, favs) }
+                    .drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
+                    .map { it.row.id }.toList()
+                hydrateOrdered(ids, seriesDao::searchByIds, Series::id)
+            }
+        }
     suspend fun vodCounts(sourceId: Long?, series: Boolean): List<app.sokyiptv.data.db.VodCategoryCount> =
         withContext(Dispatchers.IO) { if (series) seriesDao.counts(sourceId) else movieDao.counts(sourceId) }
     suspend fun vodFavouriteCount(sourceId: Long?, series: Boolean): Int =
@@ -190,14 +280,50 @@ class CatalogRepository(
     fun observeEpisodes(sourceId: Long, seriesId: String): Flow<List<Episode>> =
         episodeDao.observeForSeries(sourceId, seriesId)
 
-    fun searchChannels(query: String): Flow<List<Channel>> = channelDao.search(query)
+    fun searchChannels(query: String): Flow<List<Channel>> =
+        if (!ArabicSearch.hasArabic(query)) channelDao.search(query)
+        else arabicChannels(query, includeHidden = false)
 
     fun searchChannelsIncludingHidden(query: String): Flow<List<Channel>> =
-        channelDao.searchIncludingHidden(query)
+        if (!ArabicSearch.hasArabic(query)) channelDao.searchIncludingHidden(query)
+        else arabicChannels(query, includeHidden = true)
 
-    fun searchMovies(query: String): Flow<List<Movie>> = movieDao.search(query)
+    private fun arabicChannels(query: String, includeHidden: Boolean): Flow<List<Channel>> {
+        val folded = ArabicSearch.fold(query)
+        return arabicChannelIndex.map { rows ->
+            val matches = rows.asSequence().filter { it.matches(folded, includeHidden) }
+                .let { seq ->
+                    if (includeHidden) seq.sortedWith(
+                        compareBy<IndexedChannel> { it.row.hidden }
+                            .thenByDescending { it.row.favourite }
+                            .thenBy { it.row.sortIndex }.thenBy { it.row.displayName }
+                    ) else seq
+                }.take(200).map { it.row.id }.toList()
+            hydrateOrdered(matches, channelDao::searchByIds, Channel::id)
+        }.flowOn(Dispatchers.Default)
+    }
 
-    fun searchSeries(query: String): Flow<List<Series>> = seriesDao.search(query)
+    fun searchMovies(query: String): Flow<List<Movie>> =
+        if (!ArabicSearch.hasArabic(query)) movieDao.search(query)
+        else {
+            val folded = ArabicSearch.fold(query)
+            arabicMovieIndex.map { rows ->
+                val ids = rows.asSequence().filter { it.folded.contains(folded) }
+                    .sortedBy { it.row.name }.take(200).map { it.row.id }.toList()
+                hydrateOrdered(ids, movieDao::byIds, Movie::id)
+            }.flowOn(Dispatchers.Default)
+        }
+
+    fun searchSeries(query: String): Flow<List<Series>> =
+        if (!ArabicSearch.hasArabic(query)) seriesDao.search(query)
+        else {
+            val folded = ArabicSearch.fold(query)
+            arabicSeriesIndex.map { rows ->
+                val ids = rows.asSequence().filter { it.folded.contains(folded) }
+                    .sortedBy { it.row.name }.take(200).map { it.row.id }.toList()
+                hydrateOrdered(ids, seriesDao::searchByIds, Series::id)
+            }.flowOn(Dispatchers.Default)
+        }
 
     suspend fun channel(id: Long): Channel? = channelDao.byId(id)
 
