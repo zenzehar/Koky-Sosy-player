@@ -210,6 +210,13 @@ interface ChannelDao {
     )
     fun searchIncludingHidden(query: String, limit: Int = 200): Flow<List<Channel>>
 
+    @Query("""SELECT id, name, displayName, customName, favourite, hidden, sortIndex
+        FROM channels ORDER BY favourite DESC, sortIndex, displayName""")
+    fun arabicSearchIndex(): Flow<List<ChannelSearchRow>>
+
+    @Query("SELECT * FROM channels WHERE id IN (:ids)")
+    suspend fun searchByIds(ids: List<Long>): List<Channel>
+
     @Query("SELECT * FROM channels WHERE id = :id")
     suspend fun byId(id: Long): Channel?
 
@@ -497,6 +504,31 @@ interface ProgrammeDao {
 
 data class VodCategoryCount(val categoryId: String?, val count: Int)
 
+/**
+ * A tiny search projection, never a full catalogue of poster URLs, metadata and
+ * stream credentials. Shared by Movies and Series. Room emits fresh rows on a
+ * provider refresh; no schema changes or migration are required.
+ */
+data class VodSearchRow(
+    val id: Long,
+    val sourceId: Long,
+    val categoryId: String?,
+    val favourite: Boolean,
+    val addedMillis: Long,
+    val name: String,
+)
+
+/** Lightweight channel search index. Preserves channel manager ordering. */
+data class ChannelSearchRow(
+    val id: Long,
+    val name: String,
+    val displayName: String,
+    val customName: String?,
+    val favourite: Boolean,
+    val hidden: Boolean,
+    val sortIndex: Int,
+)
+
 @Dao
 interface MovieDao {
     @Query("SELECT id, streamUrl FROM movies")
@@ -536,6 +568,10 @@ interface MovieDao {
 
     @Query("SELECT * FROM movies WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Movie>>
+
+    @Query("""SELECT id, sourceId, categoryId, favourite, addedMillis, name
+        FROM movies ORDER BY addedMillis DESC, name""")
+    fun arabicSearchIndex(): Flow<List<VodSearchRow>>
 
     /** Newest-first, for the "Recently Added" home row. Reactive so it fills in as VOD sync lands. */
     @Query("SELECT * FROM movies ORDER BY addedMillis DESC LIMIT :limit")
@@ -676,6 +712,13 @@ interface SeriesDao {
 
     @Query("SELECT * FROM series WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Series>>
+
+    @Query("""SELECT id, sourceId, categoryId, favourite, addedMillis, name
+        FROM series ORDER BY addedMillis DESC, name""")
+    fun arabicSearchIndex(): Flow<List<VodSearchRow>>
+
+    @Query("SELECT * FROM series WHERE id IN (:ids)")
+    suspend fun searchByIds(ids: List<Long>): List<Series>
 
     /** Newest-first, for the "Recently Added" home row. Reactive so it fills in as VOD sync lands. */
     @Query("SELECT * FROM series ORDER BY addedMillis DESC LIMIT :limit")
