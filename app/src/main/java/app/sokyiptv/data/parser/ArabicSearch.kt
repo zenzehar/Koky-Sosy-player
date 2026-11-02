@@ -19,6 +19,7 @@ import java.util.Locale
  *  - Arabic/Persian kaf: ك ک ڪ
  *  - Dotted variants of the same underlying character:
  *      ب پ ٻ ڀ / ج چ ڇ ڄ / ز ژ / ن ڽ / ل ڶ ڷ
+ *      ذ ڏ / ض ڞ / ظ ڟ / غ ڠ
  *  - Feh-family dotted variants, including user-requested ف ↔ ڨ:
  *      ف ڨ ڤ ڦ ڥ ڢ ڣ
  *
@@ -62,13 +63,19 @@ object ArabicSearch {
             }
             out.append(when (ch) {
                 'ا','أ','إ','آ','ٱ','ء','ٲ','ٳ','ٵ' -> 'ا'
-                'ي','ى','ئ','ی','ے' -> 'ي'
+                'ي','ى','ئ','ی','ے','ۑ','ؿ' -> 'ي'
                 'ه','ة','ہ','ھ' -> 'ه'
                 'و','ؤ' -> 'و'
-                'ك','ک','ڪ' -> 'ك'
+                'ك','ک','ڪ','ڮ' -> 'ك'
                 'ب','پ','ٻ','ڀ' -> 'ب'
                 'ج','چ','ڇ','ڄ' -> 'ج'
                 'ز','ژ' -> 'ز'
+                // Additional one-dot / three-dot forms with the SAME
+                // consonant body, without merging distinct Arabic basics.
+                'ذ','ڏ' -> 'ذ'
+                'ض','ڞ' -> 'ض'
+                'ظ','ڟ' -> 'ظ'
+                'غ','ڠ' -> 'غ'
                 'ن','ڼ','ڽ' -> 'ن'
                 'ل','ڶ','ڷ','ڸ' -> 'ل'
                 // ڨ is paired with FEH by user request, not with QAF.
