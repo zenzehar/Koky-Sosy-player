@@ -52,6 +52,8 @@ class ArabicSearchTest {
             "ضڞ",
             "ظڟ",
             "غڠ",
+            "خڅ",
+            "شۺ",
             "نڼڽ",
             "لڶڷڸ",
         )
@@ -68,6 +70,8 @@ class ArabicSearchTest {
         assertFalse(ArabicSearch.matches("فمر", "قمر"))
         assertFalse(ArabicSearch.matches("ثعلب", "تعلب"))
         assertFalse(ArabicSearch.matches("جميل", "خميل"))
+        assertTrue(ArabicSearch.matches("خاتم", "څاتم"))
+        assertFalse(ArabicSearch.matches("جميل", "څميل"))
         assertFalse(ArabicSearch.matches("سمك", "شمك"))
     }
 
