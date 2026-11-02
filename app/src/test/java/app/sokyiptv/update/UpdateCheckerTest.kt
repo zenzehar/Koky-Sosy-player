@@ -87,6 +87,28 @@ class UpdateCheckerTest {
         )).tvUpdateApkAsset())
     }
 
+    @Test fun v90FindsV91SignedUpdateAndDoesNotSelectOlderReleases() {
+        val newer = release(91).copy(
+            tagName = "v0.1.11.91-navigation-smoothness",
+            assets = listOf(GitHubAsset(
+                name = "Soky_IPTV_Pro_v0.1.11.91-navigation-smoothness.apk",
+                browserDownloadUrl = base +
+                    "v0.1.11.91-navigation-smoothness/Soky_IPTV_Pro_v0.1.11.91-navigation-smoothness.apk",
+                size = 199_000_000L,
+            )),
+        )
+        val chosen = UpdateChecker.newestSignedTvRelease(
+            listOf(release(89), release(90), newer),
+            "0.1.11.90-provider-validation-recovery",
+        )
+        assertEquals(newer.tagName, chosen?.tagName)
+        assertEquals(newer.assets.single(), chosen?.tvUpdateApkAsset())
+        assertNull(UpdateChecker.newestSignedTvRelease(
+            listOf(release(89), release(90), newer),
+            "0.1.11.91-navigation-smoothness",
+        ))
+    }
+
     @Test fun numericVersionComparisonDoesNotConfuseTags() {
         assertTrue(UpdateChecker.isNewer("v0.1.11.100-test", "0.1.11.99-permanent"))
         assertFalse(UpdateChecker.isNewer("v0.1.11.88-test", "0.1.11.88-signed"))
