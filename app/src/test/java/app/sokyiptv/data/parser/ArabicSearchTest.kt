@@ -40,6 +40,31 @@ class ArabicSearchTest {
         assertTrue(ArabicSearch.matches("كوكب", "ڪوكب"))
     }
 
+    @Test fun userSpecifiedDottedVariantsAreSymmetric() {
+        val groups = listOf(
+            "بپٻڀ",
+            "جچڇڄ",
+            "فڨڤڦڥڢڣڡ",
+            "زژ",
+            "نڼڽ",
+            "لڶڷڸ",
+        )
+        for (group in groups) for (a in group) for (b in group)
+            assertEquals("Mismatch $a <-> $b", ArabicSearch.fold("ع${a}ل"),
+                ArabicSearch.fold("ع${b}ل"))
+    }
+
+    @Test fun fehAndQafStayDifferentDespiteVehSearchEquivalence() {
+        assertTrue(ArabicSearch.matches("فيلم", "ڨيلم"))
+        assertTrue(ArabicSearch.matches("ڤيلم", "فيلم"))
+        assertFalse(ArabicSearch.matches("قمر", "فمر"))
+        assertFalse(ArabicSearch.matches("قمر", "ڨمر"))
+        assertFalse(ArabicSearch.matches("فمر", "قمر"))
+        assertFalse(ArabicSearch.matches("ثعلب", "تعلب"))
+        assertFalse(ArabicSearch.matches("جميل", "خميل"))
+        assertFalse(ArabicSearch.matches("سمك", "شمك"))
+    }
+
     @Test fun removeOptionalArabicMarksAndTatweelWithoutChangingLetters() {
         assertTrue(ArabicSearch.matches("أَشْغَال شُقَّة", "اشغال شقه"))
         assertTrue(ArabicSearch.matches("أشـغــال شقة", "اشغال شقه"))
@@ -58,8 +83,8 @@ class ArabicSearchTest {
     @Test fun unrelatedConsonantsAndMorphologicalLettersMustNotMatch() {
         assertFalse(ArabicSearch.matches("قمر", "فمر"))
         assertFalse(ArabicSearch.matches("فيلم", "قيلم"))
-        assertFalse(ArabicSearch.matches("جبل", "چبل"))
-        assertFalse(ArabicSearch.matches("بيت", "پيت"))
+        assertTrue(ArabicSearch.matches("جبل", "چبل"))
+        assertTrue(ArabicSearch.matches("بيت", "پيت"))
         assertFalse(ArabicSearch.matches("كلب", "گلب"))
         assertFalse(ArabicSearch.matches("تاريخ", "ةاريخ"))
         assertFalse(ArabicSearch.matches("حياة", "حيات"))
