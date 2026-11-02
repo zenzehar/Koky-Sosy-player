@@ -337,8 +337,9 @@ internal fun TvVodBrowser(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
-                        gridItems(filteredResume, key = { it.logicalKey }, contentType = { "resume" }) { item ->
-                            val index = filteredResume.indexOf(item)
+                        gridItems(filteredResume.size, key = { filteredResume[it].logicalKey },
+                            contentType = { "resume" }) { index ->
+                            val item = filteredResume[index]
                             ResumePoster(
                                 item,
                                 onFocusedState = { hasFocus ->
@@ -368,9 +369,10 @@ internal fun TvVodBrowser(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
-                    if (isSeries) gridItems(seriesPage, key = { "s:${it.id}" },
-                        contentType = { "series" }) { item ->
-                        val index = seriesPage.indexOf(item)
+                    if (isSeries) gridItems(seriesPage.size,
+                        key = { "s:${seriesPage[it].id}" },
+                        contentType = { "series" }) { index ->
+                        val item = seriesPage[index]
                         TvPoster(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenSeries(item) },
@@ -381,9 +383,10 @@ internal fun TvVodBrowser(
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
                     }
-                    else gridItems(moviePage, key = { "m:${it.id}" },
-                        contentType = { "movie" }) { item ->
-                        val index = moviePage.indexOf(item)
+                    else gridItems(moviePage.size,
+                        key = { "m:${moviePage[it].id}" },
+                        contentType = { "movie" }) { index ->
+                        val item = moviePage[index]
                         TvPoster(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenMovie(item) },
