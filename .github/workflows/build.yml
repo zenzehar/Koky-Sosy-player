@@ -131,6 +131,16 @@ jobs:
       startsWith(github.head_ref, 'fix/v0.1.11.92-') &&
       needs.publish-tv-alpha.result == 'success'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source_tag: v0.1.11.90-provider-validation-recovery
+            source_version: 0.1.11.90-provider-validation-recovery
+            source_code: 110
+          - source_tag: v0.1.11.91-navigation-smoothness
+            source_version: 0.1.11.91-navigation-smoothness
+            source_code: 111
     permissions:
       contents: write
     env:
@@ -140,7 +150,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v0.1.11.91-navigation-smoothness
+          ref: ${{ matrix.source_tag }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -149,12 +159,14 @@ jobs:
       - name: Verify exact immutable old source and make rollback updateable
         run: |
           set -euo pipefail
-          grep -q 'versionCode = 111' app/build.gradle.kts
-          grep -q 'versionName = "0.1.11.91-navigation-smoothness"' app/build.gradle.kts
-          # Android never permits installing a smaller versionCode. Rollback
-          # contains the old v91 CODE but uses 113, above v92's 112.
-          sed -i 's/versionCode = 111/versionCode = 113/' app/build.gradle.kts
-          sed -i 's/versionName = "0.1.11.91-navigation-smoothness"/versionName = "0.1.11.92-rollback-to-0.1.11.91"/' app/build.gradle.kts
+          ORIGINAL_CODE="${{ matrix.source_code }}"
+          ORIGINAL_VERSION="${{ matrix.source_version }}"
+          grep -q "versionCode = $ORIGINAL_CODE" app/build.gradle.kts
+          grep -q "versionName = \"$ORIGINAL_VERSION\"" app/build.gradle.kts
+          # Android forbids smaller versionCode. This builds the unchanged old
+          # CODE with 113 > v92's 112; the next update needs versionCode >= 114.
+          sed -i "s/versionCode = $ORIGINAL_CODE/versionCode = 113/" app/build.gradle.kts
+          sed -i "s/versionName = \"$ORIGINAL_VERSION\"/versionName = \"0.1.11.92-rollback-to-$ORIGINAL_VERSION\"/" app/build.gradle.kts
       - name: Require permanent signing certificate
         env:
           SOKY_SIGNING_BUNDLE: ${{ secrets.SOKY_SIGNING_BUNDLE }}
@@ -168,6 +180,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          FILE=Soky_IPTV_Pro_Rollback_to_v0.1.11.91-navigation-smoothness.apk
+          FILE="Soky_IPTV_Pro_Rollback_to_v${{ matrix.source_version }}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$FILE"
           gh release upload v0.1.11.92-24h-rollback "$FILE" --repo "$GITHUB_REPOSITORY" --clobber
