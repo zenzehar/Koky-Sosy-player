@@ -343,7 +343,7 @@ internal fun TvVodBrowser(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
-                        gridItems(filteredResume.size, key = { filteredResume[it].logicalKey },
+                        items(count = filteredResume.size, key = { filteredResume[it].logicalKey },
                             contentType = { "resume" }) { index ->
                             val item = filteredResume[index]
                             ResumePoster(
@@ -375,7 +375,7 @@ internal fun TvVodBrowser(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
-                    if (isSeries) gridItems(seriesPage.size,
+                    if (isSeries) items(count = seriesPage.size,
                         key = { "s:${seriesPage[it].id}" },
                         contentType = { "series" }) { index ->
                         val item = seriesPage[index]
@@ -389,7 +389,7 @@ internal fun TvVodBrowser(
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
                     }
-                    else gridItems(moviePage.size,
+                    else items(count = moviePage.size,
                         key = { "m:${moviePage[it].id}" },
                         contentType = { "movie" }) { index ->
                         val item = moviePage[index]
