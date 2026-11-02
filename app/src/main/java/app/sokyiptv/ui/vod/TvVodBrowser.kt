@@ -133,14 +133,14 @@ internal fun TvVodBrowser(
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
     var favouriteCount by remember(isSeries, sourceId) { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
-    var focusedSeriesForPrefetch by remember { mutableStateOf<Series?>(null) }
-    LaunchedEffect(focusedSeriesForPrefetch?.id, isSeries) {
-        val target = focusedSeriesForPrefetch ?: return@LaunchedEffect
-        if (!isSeries) return@LaunchedEffect
-        // Prefetch only if focus rests on a poster. Never fetch episodes for
-        // every catalogue title: the provider may contain tens of thousands.
-        delay(320L)
-        viewModel.loadEpisodes(target)
+    // A focus move must not invalidate/recompose the entire six-column grid.
+    // The only Compose state updated per keypress lives inside the focused poster.
+    val seriesPrefetch = remember(isSeries) { FocusDwellPrefetch<Series> { it.id } }
+    LaunchedEffect(seriesPrefetch, viewModel, isSeries) {
+        if (isSeries) {
+            // Preserve v88's 320ms focus-dwell policy and async episode loading.
+            seriesPrefetch.collectAfterDwell(320L) { viewModel.loadEpisodes(it) }
+        }
     }
     var reachedEnd by remember { mutableStateOf(false) }
     val grid = rememberLazyGridState()
@@ -168,7 +168,7 @@ internal fun TvVodBrowser(
     // The query runs on the Room dispatcher. A keystroke cancels the old query,
     // waits briefly, then starts at page one. No full-table list is copied in Compose.
     LaunchedEffect(isSeries, sourceId, selection, titleQuery, lastUpdateRevision) {
-        focusedSeriesForPrefetch = null
+        seriesPrefetch.reset()
         moviePage.clear()
         seriesPage.clear()
         reachedEnd = false
@@ -328,9 +328,7 @@ internal fun TvVodBrowser(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenSeries(item) },
                             onFocusedState = { hasFocus ->
-                                if (hasFocus) focusedSeriesForPrefetch = item
-                                else if (focusedSeriesForPrefetch?.id == item.id)
-                                    focusedSeriesForPrefetch = null
+                                seriesPrefetch.onFocusChanged(item, hasFocus)
                             },
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
