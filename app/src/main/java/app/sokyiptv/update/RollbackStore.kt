@@ -95,11 +95,15 @@ internal object RollbackStore {
         if (p.contains(EXPIRES) && p.getLong(EXPIRES, 0L) <= now) {
             p.edit().remove(SOURCE).remove(TARGET).remove(EXPIRES).apply()
         }
-        // Remove obsolete updater cache from earlier releases; rollback never stores an APK.
+        // Rollback streams directly to PackageInstaller, so no rollback APK is
+        // retained. Also discard the ordinary updater's now-installed old APK
+        // from the previous release (up to ~200 MB) on new-version startup.
         val updates = context.cacheDir.resolve("updates")
         if (updates.isDirectory) {
-            updates.listFiles()?.filter { it.name.startsWith("soky-rollback-") }
-                ?.forEach { it.delete() }
+            updates.listFiles()?.filter {
+                it.name.startsWith("soky-rollback-") ||
+                    it.name == "sokyiptv-update.apk"
+            }?.forEach { it.delete() }
         }
     }
 
