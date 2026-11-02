@@ -47,6 +47,7 @@ import app.sokyiptv.BuildConfig
 import app.sokyiptv.R
 import app.sokyiptv.core.ServiceLocator
 import app.sokyiptv.update.UpdateChecker
+import app.sokyiptv.update.RollbackSettings
 import kotlinx.coroutines.launch
 
 /**
@@ -114,6 +115,8 @@ fun AboutScreen(onBack: () -> Unit) {
                 }
             }
         }
+
+        RollbackSettings()
 
         Spacer(Modifier.height(16.dp))
 
