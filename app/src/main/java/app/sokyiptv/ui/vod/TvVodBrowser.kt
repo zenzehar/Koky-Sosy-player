@@ -77,6 +77,7 @@ import app.sokyiptv.data.model.Movie
 import app.sokyiptv.data.model.Series
 import app.sokyiptv.data.model.Category
 import app.sokyiptv.data.parser.displayTitle
+import app.sokyiptv.data.parser.ArabicSearch
 import app.sokyiptv.ui.VodViewModel
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import coil.compose.AsyncImage
@@ -154,7 +155,12 @@ internal fun TvVodBrowser(
         }
     }
     val categories = remember(categoriesState, categoryQuery) {
-        categoriesState.filter { it.name.contains(categoryQuery.trim(), ignoreCase = true) }
+        categoriesState.filter {
+            if (categoryQuery.isBlank()) true
+            else if (ArabicSearch.hasArabic(categoryQuery))
+                ArabicSearch.matches(it.name, categoryQuery)
+            else it.name.contains(categoryQuery.trim(), ignoreCase = true)
+        }
     }
     val totalCount = categoryCounts.values.sum()
     val recentCount = if (isSeries) recentlySeries.size else recentlyMovies.size
@@ -298,7 +304,10 @@ internal fun TvVodBrowser(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         gridItems(scopedResume.filter {
-                            titleQuery.isBlank() || it.title.contains(titleQuery.trim(), ignoreCase = true)
+                            titleQuery.isBlank() ||
+                                if (ArabicSearch.hasArabic(titleQuery))
+                                    ArabicSearch.matches(it.title, titleQuery)
+                                else it.title.contains(titleQuery.trim(), ignoreCase = true)
                         }, key = { it.logicalKey }) { item ->
                             ResumePoster(
                                 item,
