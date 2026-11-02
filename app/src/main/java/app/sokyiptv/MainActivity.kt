@@ -60,6 +60,7 @@ import kotlinx.coroutines.delay
 import app.sokyiptv.ui.BrandSplash
 import app.sokyiptv.core.AppSettings
 import app.sokyiptv.core.ProviderLoginPolicy
+import app.sokyiptv.core.ProviderValidationRecovery
 import app.sokyiptv.core.ProviderLoginTrust
 import app.sokyiptv.core.StartupLoginGate
 import app.sokyiptv.core.LoginAdmissionPolicy
@@ -347,6 +348,9 @@ private fun SokyIptvApp(isTelevision: Boolean) {
             it.username.orEmpty(), it.password.orEmpty(),
             it.macAddress.orEmpty(), it.userAgent)
     }
+    var consecutiveUnavailableChecks by remember(loginIdentity) {
+        androidx.compose.runtime.mutableIntStateOf(0)
+    }
     LaunchedEffect(loginIdentity, sourcesUi.syncing, loginRetryEpoch) {
         if (sourcesUi.syncing) return@LaunchedEffect
         if (savedProviders.isEmpty()) {
@@ -377,7 +381,17 @@ private fun SokyIptvApp(isTelevision: Boolean) {
             val legacyVerified = loginGraph.settings.lastLiveSectionSynced(
                 listOf(provider.id)) > 0L
             val trusted = trustedLogin.isVerified(provider, legacyVerified)
-            val result = loginGraph.sourceRepository.test(provider)
+            var result = loginGraph.sourceRepository.test(provider)
+            // One transient failure is not proof that the provider or TV is offline.
+            // Confirm before displaying a warning, without relaxing credential checks.
+            if (result.isFailure &&
+                ProviderValidationRecovery.shouldRetryOnce(
+                    ProviderLoginPolicy.classify(result.exceptionOrNull()).reason
+                )
+            ) {
+                delay(ProviderValidationRecovery.FIRST_RETRY_DELAY_MS)
+                result = loginGraph.sourceRepository.test(provider)
+            }
             if (result.isSuccess) {
                 // Successful online login is sufficient: live channel import
                 // is a background operation and may take several minutes.
@@ -388,14 +402,27 @@ private fun SokyIptvApp(isTelevision: Boolean) {
                     startupLogin = StartupLoginGate.LoginRequired(provider.id, error.message)
                     return@LaunchedEffect
                 }
-                unavailableWarning = "Internet or provider server unavailable. " +
-                    "Continuing with previously verified saved content. " +
-                    error.message
+                unavailableWarning = "Could not verify the IPTV provider's connection. " +
+                    "Previously verified cached content remains available. " +
+                    "Soky will retry automatically. " + error.message
             }
         }
-        startupLogin = if (unavailableWarning != null)
-            StartupLoginGate.Offline(unavailableWarning)
-        else StartupLoginGate.Ready
+        if (unavailableWarning != null) {
+            consecutiveUnavailableChecks++
+            startupLogin = StartupLoginGate.Offline(unavailableWarning)
+        } else {
+            consecutiveUnavailableChecks = 0
+            startupLogin = StartupLoginGate.Ready
+        }
+    }
+    // Recover from a temporary provider error without requiring the viewer to
+    // manually click Retry. Canceled if validation succeeds or credentials change.
+    // Deliberately backed off to avoid hammering a rate-limited provider.
+    LaunchedEffect(startupLogin, consecutiveUnavailableChecks, loginIdentity, sourcesUi.syncing) {
+        if (startupLogin is StartupLoginGate.Offline && !sourcesUi.syncing) {
+            delay(ProviderValidationRecovery.delayBeforeNextCheckMs(consecutiveUnavailableChecks))
+            loginRetryEpoch++
+        }
     }
     when (val status = startupLogin) {
         StartupLoginGate.Checking -> {

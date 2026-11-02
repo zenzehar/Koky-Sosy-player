@@ -133,6 +133,15 @@ internal fun TvVodBrowser(
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
     var favouriteCount by remember(isSeries, sourceId) { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
+    // A focus move must not invalidate/recompose the entire six-column grid.
+    // The only Compose state updated per keypress lives inside the focused poster.
+    val seriesPrefetch = remember(isSeries) { FocusDwellPrefetch<Series> { it.id } }
+    LaunchedEffect(seriesPrefetch, viewModel, isSeries) {
+        if (isSeries) {
+            // Preserve v88's 320ms focus-dwell policy and async episode loading.
+            seriesPrefetch.collectAfterDwell(320L) { viewModel.loadEpisodes(it) }
+        }
+    }
     var reachedEnd by remember { mutableStateOf(false) }
     val grid = rememberLazyGridState()
     val scopedResume = remember(recentResumes, sourceId, isSeries) {
@@ -159,6 +168,7 @@ internal fun TvVodBrowser(
     // The query runs on the Room dispatcher. A keystroke cancels the old query,
     // waits briefly, then starts at page one. No full-table list is copied in Compose.
     LaunchedEffect(isSeries, sourceId, selection, titleQuery, lastUpdateRevision) {
+        seriesPrefetch.reset()
         moviePage.clear()
         seriesPage.clear()
         reachedEnd = false
@@ -317,6 +327,9 @@ internal fun TvVodBrowser(
                         TvPoster(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenSeries(item) },
+                            onFocusedState = { hasFocus ->
+                                seriesPrefetch.onFocusChanged(item, hasFocus)
+                            },
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
                     }
@@ -387,6 +400,7 @@ private fun TvPoster(
     poster: String?,
     onClick: () -> Unit,
     onPlay: (() -> Unit)? = null,
+    onFocusedState: (Boolean) -> Unit = {},
     onReset: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -394,7 +408,12 @@ private fun TvPoster(
     Column(Modifier.fillMaxWidth()) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(.69f)
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged {
+                    if (focused != it.isFocused) {
+                        focused = it.isFocused
+                        onFocusedState(it.isFocused)
+                    }
+                }
                 .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
                 .tvRemoteActions(
                     // tvRemoteActions already fires one click on KeyUp;
@@ -406,9 +425,10 @@ private fun TvPoster(
         ) {
             AsyncImage(model = poster, contentDescription = title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (focused) IconButton(
-                onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd),
-            ) { Icon(Icons.Default.MoreVert, contentDescription = "Title options", tint = Color.White) }
+            // Avoid inserting a second focus target when the poster acquires focus.
+            // Long-press OK or the Menu key still opens title options.
+            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+                tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 if (onPlay != null) DropdownMenuItem(
                     text = { Text("Play movie") },
@@ -452,9 +472,8 @@ private fun ResumePoster(
         Box(Modifier.fillMaxWidth().aspectRatio(.69f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (focused) IconButton(onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Continue watching options", tint = Color.White)
-            }
+            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+                tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
             Box(Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Brush.verticalGradient(
