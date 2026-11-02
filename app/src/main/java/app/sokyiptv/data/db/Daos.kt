@@ -516,6 +516,22 @@ interface MovieDao {
         query: String, pageSize: Int, offset: Int
     ): List<Movie>
 
+    /** Keyset pagination: stable ordering, no linear OFFSET walk on deep TV browsing. */
+    @Query("""SELECT * FROM movies
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:onlyFavourites = 0 OR favourite = 1)
+        AND (:query = '' OR name LIKE '%' || :query || '%')
+        AND (:afterAdded IS NULL OR addedMillis < :afterAdded
+             OR (addedMillis = :afterAdded AND
+                 (name > :afterName OR (name = :afterName AND id > :afterId))))
+        ORDER BY addedMillis DESC, name, id LIMIT :pageSize""")
+    suspend fun pageAfter(
+        sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
+        query: String, pageSize: Int, afterAdded: Long?,
+        afterName: String, afterId: Long,
+    ): List<Movie>
+
     @Query("""SELECT categoryId, COUNT(*) AS count FROM movies
         WHERE (:sourceId IS NULL OR sourceId = :sourceId) GROUP BY categoryId""")
     suspend fun counts(sourceId: Long?): List<VodCategoryCount>
@@ -657,6 +673,22 @@ interface SeriesDao {
     suspend fun page(
         sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
         query: String, pageSize: Int, offset: Int
+    ): List<Series>
+
+    /** Keyset pagination: stable ordering, no linear OFFSET walk on deep TV browsing. */
+    @Query("""SELECT * FROM series
+        WHERE (:sourceId IS NULL OR sourceId = :sourceId)
+        AND (:categoryId IS NULL OR categoryId = :categoryId)
+        AND (:onlyFavourites = 0 OR favourite = 1)
+        AND (:query = '' OR name LIKE '%' || :query || '%')
+        AND (:afterAdded IS NULL OR addedMillis < :afterAdded
+             OR (addedMillis = :afterAdded AND
+                 (name > :afterName OR (name = :afterName AND id > :afterId))))
+        ORDER BY addedMillis DESC, name, id LIMIT :pageSize""")
+    suspend fun pageAfter(
+        sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
+        query: String, pageSize: Int, afterAdded: Long?,
+        afterName: String, afterId: Long,
     ): List<Series>
 
     @Query("""SELECT categoryId, COUNT(*) AS count FROM series

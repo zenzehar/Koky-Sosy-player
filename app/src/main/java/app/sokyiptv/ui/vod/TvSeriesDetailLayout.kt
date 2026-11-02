@@ -224,10 +224,12 @@ internal fun TvSeriesDetailLayout(
         if (direction == 0) return@LaunchedEffect
         // Normal first keypress is immediate; a hold accelerates after the TV's
         // normal repeat delay even when its remote does not emit repeat events.
-        delay(330L)
+        // Earlier v88 hold delay/repeat was 330/95 ms. Lower the deliberate
+        // latency while preserving first-key immediacy and one-step focus movement.
+        delay(240L)
         while (isActive && heldEpisodeArrow == direction) {
             focusEpisodeStep(direction)
-            delay(95L)
+            delay(70L)
         }
     }
     val firstEpisode = currentEpisodes.firstOrNull()

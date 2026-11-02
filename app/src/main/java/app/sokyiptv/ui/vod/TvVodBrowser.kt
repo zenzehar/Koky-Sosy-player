@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -51,6 +53,7 @@ import java.text.DateFormat
 import java.util.Date
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +61,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import androidx.compose.material3.Button
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -88,6 +92,31 @@ private val background = Color(0xFF080D20)
 private val sideBackground = Color(0xFF030408)
 private val teal = Color(0xFF006779)
 private const val PAGE = 72
+// Start the next SQL page with enough runway for a held remote's rapid traversal.
+// Previously 15 cards (2.5 six-column rows); this is 12 four-column rows.
+private const val PAGE_PREFETCH_AHEAD = 48
+
+/**
+ * Focus-driven, minimum-distance scroll: do not bind layoutInfo to composition, which
+ * invalidates the entire grid per pixel and creates its own jank.
+ */
+private suspend fun LazyGridState.revealWholePosterRow(index: Int, count: Int) {
+    if (index !in 0 until count) return
+    withFrameNanos { }
+    var layout = layoutInfo
+    if (layout.visibleItemsInfo.none { it.index == index }) {
+        scrollToItem((index / VOD_COLUMNS) * VOD_COLUMNS)
+        withFrameNanos { }
+        layout = layoutInfo
+    }
+    val bounds = layout.visibleItemsInfo.map {
+        PosterBounds(index = it.index, top = it.offset.y,
+            bottom = it.offset.y + it.size.height)
+    }
+    val delta = fullPosterRowDelta(index, count, VOD_COLUMNS, bounds,
+        layout.viewportStartOffset, layout.viewportEndOffset)
+    if (delta != 0) scrollBy(delta.toFloat())
+}
 
 /** No full-library observations: SQL selects only the visible category/search and a few pages. */
 @Composable
@@ -144,6 +173,14 @@ internal fun TvVodBrowser(
     }
     var reachedEnd by remember { mutableStateOf(false) }
     val grid = rememberLazyGridState()
+    val continueGrid = rememberLazyGridState()
+    // Only the most recently focused poster can scroll the list. Cancelling the
+    // prior focus job avoids stale pending frame callbacks fighting the new target.
+    val revealJob = remember { arrayOfNulls<Job>(1) }
+    fun reveal(state: LazyGridState, index: Int, count: Int) {
+        revealJob[0]?.cancel()
+        revealJob[0] = scope.launch { state.revealWholePosterRow(index, count) }
+    }
     val scopedResume = remember(recentResumes, sourceId, isSeries) {
         recentResumes.filter {
             (sourceId == null || it.sourceId == sourceId) &&
@@ -179,21 +216,27 @@ internal fun TvVodBrowser(
         val query = titleQuery.trim()
         val category = selection.takeUnless { it in setOf("all", "favourites", "recent") }
         val onlyFavourites = selection == "favourites"
-        var offset = 0
+        // A stable keyset cursor avoids SQLite's O(offset) walk on long catalogues.
+        // Kept local to this cancelled/restarted query, never shared across categories.
+        var afterAdded: Long? = null
+        var afterName = ""
+        var afterId = 0L
         suspend fun fetchPage() {
             if (reachedEnd || loading) return
             loading = true
             try {
                 val size = if (selection == "recent") 30 else PAGE
                 if (isSeries) {
-                    val batch = catalog.seriesPage(sourceId, category, onlyFavourites, query, size, offset)
+                    val batch = catalog.seriesPageAfter(sourceId, category, onlyFavourites,
+                        query, size, afterAdded, afterName, afterId)
                     seriesPage.addAll(batch)
-                    offset += batch.size
+                    batch.lastOrNull()?.let { afterAdded = it.addedMillis; afterName = it.name; afterId = it.id }
                     reachedEnd = batch.size < size || selection == "recent"
                 } else {
-                    val batch = catalog.moviePage(sourceId, category, onlyFavourites, query, size, offset)
+                    val batch = catalog.moviePageAfter(sourceId, category, onlyFavourites,
+                        query, size, afterAdded, afterName, afterId)
                     moviePage.addAll(batch)
-                    offset += batch.size
+                    batch.lastOrNull()?.let { afterAdded = it.addedMillis; afterName = it.name; afterId = it.id }
                     reachedEnd = batch.size < size || selection == "recent"
                 }
             } finally {
@@ -205,7 +248,7 @@ internal fun TvVodBrowser(
             .distinctUntilChanged()
             .collect { last ->
                 val count = if (isSeries) seriesPage.size else moviePage.size
-                if (!reachedEnd && !loading && count > 0 && last >= count - 15) {
+                if (!reachedEnd && !loading && count > 0 && last >= count - PAGE_PREFETCH_AHEAD) {
                     fetchPage()
                 }
             }
@@ -288,17 +331,26 @@ internal fun TvVodBrowser(
                     Text("Nothing to continue yet", color = Color.LightGray)
                     Spacer(Modifier.weight(1f))
                 } else {
+                    val filteredResume = remember(scopedResume, titleQuery) {
+                        scopedResume.filter {
+                            titleQuery.isBlank() || it.title.contains(titleQuery.trim(), ignoreCase = true)
+                        }
+                    }
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(6),
+                        columns = GridCells.Fixed(VOD_COLUMNS),
+                        state = continueGrid,
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
-                        gridItems(scopedResume.filter {
-                            titleQuery.isBlank() || it.title.contains(titleQuery.trim(), ignoreCase = true)
-                        }, key = { it.logicalKey }) { item ->
+                        items(count = filteredResume.size, key = { filteredResume[it].logicalKey },
+                            contentType = { "resume" }) { index ->
+                            val item = filteredResume[index]
                             ResumePoster(
                                 item,
+                                onFocusedState = { hasFocus ->
+                                    if (hasFocus) reveal(continueGrid, index, filteredResume.size)
+                                },
                                 onPlay = { onResume(item.mediaKey, item.streamUrl, item.title) },
                                 onOpenTitle = {
                                     scope.launch {
@@ -317,26 +369,36 @@ internal fun TvVodBrowser(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(6),
+                    columns = GridCells.Fixed(VOD_COLUMNS),
                     state = grid,
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
-                    if (isSeries) gridItems(seriesPage, key = { "s:${it.id}" }) { item ->
+                    if (isSeries) items(count = seriesPage.size,
+                        key = { "s:${seriesPage[it].id}" },
+                        contentType = { "series" }) { index ->
+                        val item = seriesPage[index]
                         TvPoster(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenSeries(item) },
                             onFocusedState = { hasFocus ->
                                 seriesPrefetch.onFocusChanged(item, hasFocus)
+                                if (hasFocus) reveal(grid, index, seriesPage.size)
                             },
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
                     }
-                    else gridItems(moviePage, key = { "m:${it.id}" }) { item ->
+                    else items(count = moviePage.size,
+                        key = { "m:${moviePage[it].id}" },
+                        contentType = { "movie" }) { index ->
+                        val item = moviePage[index]
                         TvPoster(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenMovie(item) },
+                            onFocusedState = { hasFocus ->
+                                if (hasFocus) reveal(grid, index, moviePage.size)
+                            },
                             onPlay = { onResume("movie:${item.id}", item.streamUrl, item.displayTitle) },
                             onReset = { viewModel.resetMovieProgress(item.id) },
                         )
@@ -456,6 +518,7 @@ private fun ResumePoster(
     onPlay: () -> Unit,
     onOpenTitle: () -> Unit,
     onReset: () -> Unit,
+    onFocusedState: (Boolean) -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -465,7 +528,12 @@ private fun ResumePoster(
     val resumeText = ResumeCardTime.format(item.positionMs, item.durationMs)
     Column(
         Modifier.fillMaxWidth()
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                if (focused != it.isFocused) {
+                    focused = it.isFocused
+                    onFocusedState(it.isFocused)
+                }
+            }
             .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(4.dp))
             .tvRemoteActions(onPlay, { menuOpen = true }),
     ) {
@@ -498,9 +566,10 @@ private fun ResumePoster(
                 DropdownMenuItem(text = { Text("Reset progress") }, onClick = { menuOpen = false; onReset() })
             }
         }
-        // Unknown total? Do not draw a misleading empty 0% progress bar.
-        verifiedProgress?.let { fraction ->
-            Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
+        // Always reserve the progress strip's four dp, even for unknown
+        // duration: all five cards remain equal height for whole-row reveal.
+        Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
+            verifiedProgress?.let { fraction ->
                 Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(teal))
             }
         }

@@ -145,7 +145,8 @@ fun HomeScreen(
     //  - selectedRow: what the preview pane plays. Only changes when you press OK, so scrolling
     //    the list is calm and silent instead of re-tuning a stream on every keypress.
     val returnedChannelId = remember { LiveReturnState.consume() }
-    var highlightedRow by remember { mutableStateOf<ChannelsViewModel.Row?>(null) }
+    // Keep remote-highlight updates out of the full guide composition.
+    val highlightedState = remember { mutableStateOf<ChannelsViewModel.Row?>(null) }
     var selectedRow by remember { mutableStateOf<ChannelsViewModel.Row?>(null) }
     var restoreFocusToChannel by remember { mutableStateOf(returnedChannelId != null) }
     val previewSound by settings.guidePreviewSound.collectAsState()
@@ -209,9 +210,9 @@ fun HomeScreen(
         val returned = returnedChannelId?.let { id -> rows.firstOrNull { it.primary.id == id } }
         val previous = selectedRow?.let { row -> rows.firstOrNull { it.key == row.key } }
             ?: returned ?: rows.firstOrNull { it.primary.id == settings.lastChannelId }
-        highlightedRow = rows.firstOrNull { it.key == highlightedRow?.key }
+        highlightedState.value = rows.firstOrNull { it.key == highlightedState.value?.key }
             ?: returned ?: previous ?: rows.firstOrNull()
-        selectedRow = previous ?: highlightedRow
+        selectedRow = previous ?: highlightedState.value
     }
 
     // ---- Live preview player -----------------------------------------------------------------
@@ -435,7 +436,7 @@ fun HomeScreen(
                 // Record the highlighted channel's now-programme (bounded to its end), or stop it
                 // if it's already recording. Powers the preview pane's quick record dot.
                 fun recordSelected() {
-                    val row = highlightedRow ?: return
+                    val row = highlightedState.value ?: return
                     val active = activeRecordings.firstOrNull { it.channelId == row.primary.id }
                     if (active != null) {
                         graph.recordingEngine.stop(active.id)
@@ -454,16 +455,15 @@ fun HomeScreen(
                         SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(windowStart))
                     }
                 }
-                GuidePreview(
-                    row = selectedRow ?: highlightedRow,
+                FocusAwareGuidePreview(
+                    highlighted = highlightedState,
+                    selectedRow = selectedRow,
+                    recordingChannels = activeRecordings.map { it.channelId }.toSet(),
                     nowMillis = nowMillis,
-                    onWatch = { (selectedRow ?: highlightedRow)?.let { goFullscreen(it.primary) } },
+                    onWatchChannel = { goFullscreen(it) },
                     onRefresh = onRefresh,
                     onAddSource = onAddSource,
                     previewPlayer = if ((previewEnabled || audibleReturnPreview) && !recordingActive) previewController.player else null,
-                    isRecording = highlightedRow?.primary?.id?.let { id ->
-                        activeRecordings.any { it.channelId == id }
-                    } == true,
                     onRecord = { recordSelected() },
                     dayLabel = dayLabel,
                     canGoPrevDay = guideDayOffset > 0,
@@ -473,8 +473,8 @@ fun HomeScreen(
                 // Shared by both layouts: focus follows the highlight and collapses the rail; LEFT
                 // from the leftmost element reopens the rail (consumed only when it was hidden).
                 val onFocusChannel: (ChannelsViewModel.Row) -> Unit = {
-                    highlightedRow = it
-                    railExpanded = false
+                    highlightedState.value = it
+                    if (railExpanded) railExpanded = false
                 }
                 val onExitLeftChannel: () -> Boolean = {
                     if (!railExpanded) {
@@ -488,7 +488,7 @@ fun HomeScreen(
                 if (channelLayout == AppSettings.ChannelLayout.LIST) {
                     ChannelList(
                         rows = rows,
-                        selectedKey = highlightedRow?.key,
+                        selectedKey = selectedRow?.key,
                         onSelectRow = { row ->
                             selectedRow = row
                             // Keep returned preview audio; browsing focus alone does not retune.
@@ -506,7 +506,7 @@ fun HomeScreen(
                         rows = rows,
                         windowStartMillis = windowStart,
                         dayOffset = guideDayOffset,
-                        selectedKey = highlightedRow?.key,
+                        selectedKey = selectedRow?.key,
                         // OK on a channel opens its menu: Watch, Record now, Schedule a later show,
                         // Record series. The preview already follows the highlight as you browse.
                         onSelectRow = { row ->
@@ -1152,3 +1152,40 @@ private fun EmptyState(onAddSource: () -> Unit) {
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
 private fun formatTime(utcMillis: Long): String = timeFormat.format(Date(utcMillis))
+
+/**
+ * Subcomposition boundary: a D-pad highlight only invalidates the preview,
+ * not the entire channel rail or EPG while the user browses.
+ */
+@Composable
+private fun FocusAwareGuidePreview(
+    highlighted: androidx.compose.runtime.State<ChannelsViewModel.Row?>,
+    selectedRow: ChannelsViewModel.Row?,
+    recordingChannels: Set<Long>,
+    nowMillis: Long,
+    onWatchChannel: (Channel) -> Unit,
+    onRefresh: () -> Unit,
+    onAddSource: () -> Unit,
+    previewPlayer: androidx.media3.exoplayer.ExoPlayer?,
+    onRecord: () -> Unit,
+    dayLabel: String,
+    canGoPrevDay: Boolean,
+    onPrevDay: () -> Unit,
+    onNextDay: () -> Unit,
+) {
+    val highlightedRow = highlighted.value
+    GuidePreview(
+        row = selectedRow ?: highlightedRow,
+        nowMillis = nowMillis,
+        onWatch = { (selectedRow ?: highlighted.value)?.let { onWatchChannel(it.primary) } },
+        onRefresh = onRefresh,
+        onAddSource = onAddSource,
+        previewPlayer = previewPlayer,
+        isRecording = highlightedRow?.primary?.id?.let { it in recordingChannels } == true,
+        onRecord = onRecord,
+        dayLabel = dayLabel,
+        canGoPrevDay = canGoPrevDay,
+        onPrevDay = onPrevDay,
+        onNextDay = onNextDay,
+    )
+}
