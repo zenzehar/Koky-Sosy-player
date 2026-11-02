@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -55,6 +56,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -363,6 +365,14 @@ private fun GuideRow(
     // Focus (the d-pad border) just moves the highlight. Selection (the filled cell) is the
     // channel the preview is playing — it only changes when you press OK.
     var focused by remember { mutableStateOf(false) }
+    // Change the programme detail window only once every 256 scroll pixels,
+    // not on every animation pixel. Preserve ALL focusable programme nodes
+    // so RIGHT/LEFT never gets stuck at a culling boundary.
+    val viewportBucket by remember(scroll) { derivedStateOf { scroll.value / 256 } }
+    val density = LocalDensity.current
+    val viewportStart = with(density) { (viewportBucket * 256).toDp() }
+    val detailStart = viewportStart - 450.dp
+    val detailEnd = viewportStart + 1900.dp
 
     Row(Modifier.fillMaxWidth().height(ROW_HEIGHT)) {
 
@@ -476,6 +486,7 @@ private fun GuideRow(
                 // `debt` and repay it out of the following gaps, so everything downstream stays
                 // aligned with the time header instead of drifting right.
                 var debt = 0.dp
+                var drawnPosition = 0.dp
                 for (programme in programmes) {
                     // Clamp to the window's left edge; a programme that started earlier is
                     // drawn from `windowStart` so its block does not push everything right.
@@ -486,19 +497,26 @@ private fun GuideRow(
                     val spacer = gap - repaid
                     if (spacer > 0.dp) {
                         Spacer(Modifier.width(spacer))
+                        drawnPosition += spacer
                     }
                     val end = programme.endUtcMillis
                     val isNow = nowMillis in programme.startUtcMillis until end
                     val trueWidth = widthFor(start, end)
                     val drawnWidth = maxOf(trueWidth, MIN_BLOCK_WIDTH)
                     debt += drawnWidth - trueWidth
+                    // The 24h EPG must retain full keyboard navigation. Offscreen
+                    // blocks stay focusable, but omit costly text/layout until close
+                    // to the viewing window. A focused block always renders text.
                     ProgrammeBlock(
                         title = programme.title,
                         width = drawnWidth,
                         isNow = isNow,
                         progress = if (isNow) programme.progressAt(nowMillis) else 0f,
+                        renderText = isNow || (drawnPosition + drawnWidth >= detailStart &&
+                            drawnPosition <= detailEnd),
                         onClick = { onProgramme(programme) },
                     )
+                    drawnPosition += drawnWidth
                     cursor = end
                 }
             }
@@ -507,7 +525,8 @@ private fun GuideRow(
 }
 
 @Composable
-private fun ProgrammeBlock(title: String, width: Dp, isNow: Boolean, progress: Float, onClick: () -> Unit) {
+private fun ProgrammeBlock(title: String, width: Dp, isNow: Boolean, progress: Float,
+    renderText: Boolean = true, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
@@ -533,7 +552,7 @@ private fun ProgrammeBlock(title: String, width: Dp, isNow: Boolean, progress: F
             .focusable()
             .clickable(onClick = onClick),
     ) {
-        Text(
+        if (focused || renderText) Text(
             title,
             style = MaterialTheme.typography.bodyMedium,
             color = when {
