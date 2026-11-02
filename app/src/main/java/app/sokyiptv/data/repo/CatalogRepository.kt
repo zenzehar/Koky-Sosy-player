@@ -180,6 +180,18 @@ class CatalogRepository(
     suspend fun seriesPage(sourceId: Long?, categoryId: String?, favs: Boolean,
                            query: String, size: Int, offset: Int): List<Series> =
         withContext(Dispatchers.IO) { seriesDao.page(sourceId, categoryId, favs, query, size, offset) }
+    suspend fun moviePageAfter(sourceId: Long?, categoryId: String?, favs: Boolean,
+        query: String, size: Int, afterAdded: Long?, afterName: String, afterId: Long): List<Movie> =
+        withContext(Dispatchers.IO) {
+            movieDao.pageAfter(sourceId, categoryId, favs, query, size, afterAdded, afterName, afterId)
+        }
+
+    suspend fun seriesPageAfter(sourceId: Long?, categoryId: String?, favs: Boolean,
+        query: String, size: Int, afterAdded: Long?, afterName: String, afterId: Long): List<Series> =
+        withContext(Dispatchers.IO) {
+            seriesDao.pageAfter(sourceId, categoryId, favs, query, size, afterAdded, afterName, afterId)
+        }
+
     suspend fun vodCounts(sourceId: Long?, series: Boolean): List<app.sokyiptv.data.db.VodCategoryCount> =
         withContext(Dispatchers.IO) { if (series) seriesDao.counts(sourceId) else movieDao.counts(sourceId) }
     suspend fun vodFavouriteCount(sourceId: Long?, series: Boolean): Int =
