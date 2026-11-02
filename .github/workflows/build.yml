@@ -322,3 +322,77 @@ jobs:
           FILE="Soky_IPTV_Pro_Rollback_to_v${{ matrix.source_version }}.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$FILE"
           gh release upload v0.1.11.95-buffering-pause-conditional-seek-correction "$FILE" --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish-v96-rollback-companion:
+    name: Build signed previous-version v96 rollback companion
+    needs: [build, publish-tv-alpha]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'fix/v0.1.11.96-') &&
+      needs.publish-tv-alpha.result == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source_tag: v0.1.11.90-provider-validation-recovery
+            source_version: 0.1.11.90-provider-validation-recovery
+            source_code: 110
+          - source_tag: v0.1.11.91-navigation-smoothness
+            source_version: 0.1.11.91-navigation-smoothness
+            source_code: 111
+          - source_tag: v0.1.11.92-24h-rollback
+            source_version: 0.1.11.92-24h-rollback
+            source_code: 112
+          - source_tag: v0.1.11.93-navigation-fluidity-five-column
+            source_version: 0.1.11.93-navigation-fluidity-five-column
+            source_code: 114
+          - source_tag: v0.1.11.94-native-focus-five-column
+            source_version: 0.1.11.94-native-focus-five-column
+            source_code: 116
+          - source_tag: v0.1.11.95-buffering-pause-conditional-seek-correction
+            source_version: 0.1.11.95-buffering-pause-conditional-seek-correction
+            source_code: 118
+    permissions:
+      contents: write
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+      GOOGLE_TV_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_TV_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source_tag }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify exact immutable old source and make rollback updateable
+        run: |
+          set -euo pipefail
+          ORIGINAL_CODE="${{ matrix.source_code }}"
+          ORIGINAL_VERSION="${{ matrix.source_version }}"
+          grep -q "versionCode = $ORIGINAL_CODE" app/build.gradle.kts
+          grep -q "versionName = \"$ORIGINAL_VERSION\"" app/build.gradle.kts
+          # Android forbids smaller versionCode. This builds the unchanged old
+          # CODE with 121 > v96's 120; the next update needs versionCode >= 122.
+          sed -i "s/versionCode = $ORIGINAL_CODE/versionCode = 121/" app/build.gradle.kts
+          sed -i "s/versionName = \"$ORIGINAL_VERSION\"/versionName = \"0.1.11.96-arabic-orthographic-search-restored-to-$ORIGINAL_VERSION\"/" app/build.gradle.kts
+      - name: Require permanent signing certificate
+        env:
+          SOKY_SIGNING_BUNDLE: ${{ secrets.SOKY_SIGNING_BUNDLE }}
+        run: python3 scripts/prepare_signing.py --required
+      - name: Compile and test old-code recovery APK
+        run: ./gradlew testDebugUnitTest assembleDebug --stacktrace
+      - name: Verify immutable trusted signing identity
+        run: python3 scripts/verify_apk_signing.py app/build/outputs/apk/debug/app-debug.apk
+      - name: Attach rollback APK to matching v96 release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          FILE="Soky_IPTV_Pro_Rollback_to_v${{ matrix.source_version }}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$FILE"
+          gh release upload v0.1.11.96-arabic-orthographic-search "$FILE" --repo "$GITHUB_REPOSITORY" --clobber
