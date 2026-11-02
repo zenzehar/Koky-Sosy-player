@@ -1,8 +1,8 @@
 /* GPL-3.0-or-later: pure visibility calculation, independently regression-tested. */
 package app.sokyiptv.ui.vod
 
-/** Four full poster tiles constitute a row in every VOD grid. */
-internal const val VOD_COLUMNS = 4
+/** Five full poster tiles constitute a row in every VOD grid. */
+internal const val VOD_COLUMNS = 5
 
 internal data class PosterBounds(val index: Int, val top: Int, val bottom: Int)
 
