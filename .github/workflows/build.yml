@@ -166,7 +166,7 @@ jobs:
           # Android forbids smaller versionCode. This builds the unchanged old
           # CODE with 113 > v92's 112; the next update needs versionCode >= 114.
           sed -i "s/versionCode = $ORIGINAL_CODE/versionCode = 113/" app/build.gradle.kts
-          sed -i "s/versionName = \"$ORIGINAL_VERSION\"/versionName = \"0.1.11.92-rollback-to-$ORIGINAL_VERSION\"/" app/build.gradle.kts
+          sed -i "s/versionName = \"$ORIGINAL_VERSION\"/versionName = \"0.1.11.92-24h-rollback-restored-to-$ORIGINAL_VERSION\"/" app/build.gradle.kts
       - name: Require permanent signing certificate
         env:
           SOKY_SIGNING_BUNDLE: ${{ secrets.SOKY_SIGNING_BUNDLE }}
