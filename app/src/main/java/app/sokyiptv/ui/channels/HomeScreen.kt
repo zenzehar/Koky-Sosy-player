@@ -1181,7 +1181,7 @@ private fun FocusAwareGuidePreview(
         onRefresh = onRefresh,
         onAddSource = onAddSource,
         previewPlayer = previewPlayer,
-        isRecording = highlightedRow?.primary?.id in recordingChannels,
+        isRecording = highlightedRow?.primary?.id?.let { it in recordingChannels } == true,
         onRecord = onRecord,
         dayLabel = dayLabel,
         canGoPrevDay = canGoPrevDay,
