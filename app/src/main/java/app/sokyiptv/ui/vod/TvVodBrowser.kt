@@ -566,9 +566,10 @@ private fun ResumePoster(
                 DropdownMenuItem(text = { Text("Reset progress") }, onClick = { menuOpen = false; onReset() })
             }
         }
-        // Unknown total? Do not draw a misleading empty 0% progress bar.
-        verifiedProgress?.let { fraction ->
-            Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
+        // Always reserve the progress strip's four dp, even for unknown
+        // duration: all five cards remain equal height for whole-row reveal.
+        Box(Modifier.fillMaxWidth().height(4.dp).background(Color.DarkGray)) {
+            verifiedProgress?.let { fraction ->
                 Box(Modifier.fillMaxWidth(fraction).height(4.dp).background(teal))
             }
         }
