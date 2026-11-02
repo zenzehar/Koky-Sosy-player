@@ -88,6 +88,9 @@ private val background = Color(0xFF080D20)
 private val sideBackground = Color(0xFF030408)
 private val teal = Color(0xFF006779)
 private const val PAGE = 72
+// Five cards per row; the built-in LazyVerticalGrid focus scroll owns the viewport.
+// Never manually scroll from a poster focus callback: that competes with Compose.
+internal const val VOD_COLUMNS = 5
 
 /** No full-library observations: SQL selects only the visible category/search and a few pages. */
 @Composable
@@ -289,7 +292,7 @@ internal fun TvVodBrowser(
                     Spacer(Modifier.weight(1f))
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(6),
+                        columns = GridCells.Fixed(VOD_COLUMNS),
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -317,7 +320,7 @@ internal fun TvVodBrowser(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(6),
+                    columns = GridCells.Fixed(VOD_COLUMNS),
                     state = grid,
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -405,22 +408,25 @@ private fun TvPoster(
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth()) {
+    // One focus target includes both artwork AND its two-line title. The lazy
+    // grid naturally scrolls the entire focused tile into view while allowing
+    // a neighbouring row to remain partially visible. No second scroll job.
+    Column(
+        Modifier.fillMaxWidth()
+            .onFocusChanged {
+                if (focused != it.isFocused) {
+                    focused = it.isFocused
+                    onFocusedState(it.isFocused)
+                }
+            }
+            .tvRemoteActions(
+                onClick = onClick,
+                onLongPress = { menuOpen = true },
+            ),
+    ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(.69f)
-                .onFocusChanged {
-                    if (focused != it.isFocused) {
-                        focused = it.isFocused
-                        onFocusedState(it.isFocused)
-                    }
-                }
                 .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
-                .tvRemoteActions(
-                    // tvRemoteActions already fires one click on KeyUp;
-                    // a second 500 ms refractory gate discarded fast taps.
-                    onClick = onClick,
-                    onLongPress = { menuOpen = true },
-                )
                 .background(Color(0xFF151B2B)),
         ) {
             AsyncImage(model = poster, contentDescription = title,
