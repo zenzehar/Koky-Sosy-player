@@ -216,21 +216,27 @@ internal fun TvVodBrowser(
         val query = titleQuery.trim()
         val category = selection.takeUnless { it in setOf("all", "favourites", "recent") }
         val onlyFavourites = selection == "favourites"
-        var offset = 0
+        // A stable keyset cursor avoids SQLite's O(offset) walk on long catalogues.
+        // Kept local to this cancelled/restarted query, never shared across categories.
+        var afterAdded: Long? = null
+        var afterName = ""
+        var afterId = 0L
         suspend fun fetchPage() {
             if (reachedEnd || loading) return
             loading = true
             try {
                 val size = if (selection == "recent") 30 else PAGE
                 if (isSeries) {
-                    val batch = catalog.seriesPage(sourceId, category, onlyFavourites, query, size, offset)
+                    val batch = catalog.seriesPageAfter(sourceId, category, onlyFavourites,
+                        query, size, afterAdded, afterName, afterId)
                     seriesPage.addAll(batch)
-                    offset += batch.size
+                    batch.lastOrNull()?.let { afterAdded = it.addedMillis; afterName = it.name; afterId = it.id }
                     reachedEnd = batch.size < size || selection == "recent"
                 } else {
-                    val batch = catalog.moviePage(sourceId, category, onlyFavourites, query, size, offset)
+                    val batch = catalog.moviePageAfter(sourceId, category, onlyFavourites,
+                        query, size, afterAdded, afterName, afterId)
                     moviePage.addAll(batch)
-                    offset += batch.size
+                    batch.lastOrNull()?.let { afterAdded = it.addedMillis; afterName = it.name; afterId = it.id }
                     reachedEnd = batch.size < size || selection == "recent"
                 }
             } finally {
