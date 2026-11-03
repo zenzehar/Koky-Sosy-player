@@ -234,7 +234,7 @@ fun VodPlayerScreen(
                 liveRecording = growingRec,
                 // VOD has its own five-attempt on-screen recovery now.
                 // Disable PlayerController's hidden, overlapping auto-restarts.
-                visibleLiveRecovery = true,
+                visibleLiveRecovery = !growingRec,
             )
         }
     }
@@ -377,7 +377,7 @@ fun VodPlayerScreen(
     var recoveryStopped by remember(mediaKey) { mutableStateOf(false) }
 
     fun noteConnectionIssue(message: String) {
-        if (recoveryStopped) return
+        if (recoveryStopped || growingRec) return
         // One failure per attempted connection, even if VLC signals both
         // EndReached and EncounteredError for the same dropped stream.
         if (recoveryIssue == null || recoveryInFlight) {
@@ -648,7 +648,8 @@ fun VodPlayerScreen(
     // Use its actual advancing clock; user pause and screen saver stop the timer.
     LaunchedEffect(usingVlc, recoveryRetryEpoch, recoveryTimeout,
         paused, screenSaverSuspended, resumeLoaded) {
-        if (usingVlc || paused || screenSaverSuspended || !resumeLoaded) return@LaunchedEffect
+        if (usingVlc || growingRec || paused || screenSaverSuspended || !resumeLoaded)
+            return@LaunchedEffect
         var prior = controller.player.currentPosition.coerceAtLeast(0L)
         var lastAdvance = android.os.SystemClock.elapsedRealtime()
         while (isActive && !advanced.get() && !recoveryStopped &&
