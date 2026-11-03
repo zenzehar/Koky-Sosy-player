@@ -243,10 +243,21 @@ class AppSettings private constructor(context: Context) {
         _livePauseEnabled.value = enabled
     }
 
+    // Bounded retries are shared across Live and on-demand playback. Existing
+    // installs preserve five attempts by default.
+    private val _playbackRetryCount = MutableStateFlow(
+        prefs.getInt("playback_retry_count", 5).coerceIn(1, 10))
+    val playbackRetryCount: StateFlow<Int> = _playbackRetryCount.asStateFlow()
+
+    fun setPlaybackRetryCount(count: Int) {
+        val safe = count.coerceIn(1, 10)
+        prefs.edit().putInt("playback_retry_count", safe).apply()
+        _playbackRetryCount.value = safe
+    }
+
     // ---- Live playback connection recovery ------------------------------------------------
-    // The five attempts are fixed for predictable TV behaviour. Only the response
-    // after all attempts is configurable. Default WAIT avoids unwanted channel
-    // changes while a provider is down, especially around active recordings.
+    // Retry count is configurable; default WAIT avoids unwanted channel
+    // changes and protects recordings during a provider outage.
     enum class LiveRecoveryEnd { AUTO_SKIP, WAIT_FOR_USER }
 
     private val _liveRecoveryEnd = MutableStateFlow(

@@ -157,6 +157,7 @@ fun PlayerScreen(
     val noResponseSeconds by settings.liveNoResponseSeconds.collectAsState()
     val skipDelaySeconds by settings.liveSkipCountdownSeconds.collectAsState()
     val playbackRetryGap by settings.playbackRetryDelaySeconds.collectAsState()
+    val playbackRetryCount by settings.playbackRetryCount.collectAsState()
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     val subtitlesDefault by settings.subtitlesEnabled.collectAsState()
     val controller = remember {
@@ -401,7 +402,8 @@ fun PlayerScreen(
     // Exactly five counted retries for full-screen Live. Media3 handles transport;
     // VOD playback, guide previews and recording have their own independent policy.
     LaunchedEffect(currentId, state, recoveryToken, recoveryPaused,
-        recoveryEnd, noResponseSeconds, skipDelaySeconds, playbackRetryGap) {
+        recoveryEnd, noResponseSeconds, skipDelaySeconds, playbackRetryGap,
+        playbackRetryCount) {
         if (currentId == null || recoveryPaused) return@LaunchedEffect
         when (val playback = state) {
             is PlayerController.State.Playing -> {
@@ -432,7 +434,7 @@ fun PlayerScreen(
             else -> return@LaunchedEffect
         }
         controlsVisible = false
-        if (retriesUsed < MAX_LIVE_RETRIES) {
+        if (retriesUsed < playbackRetryCount) {
             for (seconds in app.sokyiptv.core.PlaybackRecoveryPolicy.retryDelaySeconds(playbackRetryGap) downTo 1) {
                 retrySeconds = seconds
                 delay(1_000L)
@@ -928,6 +930,7 @@ fun PlayerScreen(
         if (problem != null && !inPip) {
             val index = queue.indexOfFirst { it.id == currentId }
             LiveRecoveryOverlay(
+                maxRetries = playbackRetryCount,
                 title = queue.firstOrNull { it.id == currentId }?.name.orEmpty(),
                 message = problem,
                 attempted = retriesUsed,

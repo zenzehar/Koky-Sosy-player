@@ -114,6 +114,8 @@ fun VlcFallbackScreen(
     noResponseSeconds: Int = 20,
     onConnectionIssue: (String) -> Unit = {},
     onPlaybackStable: () -> Unit = {},
+    onManualRecovery: () -> Unit = {},
+    manualRecoveryAvailable: Boolean = false,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -776,6 +778,15 @@ fun VlcFallbackScreen(
     }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
+    // The modal and its focusable buttons are gone. Once automatic retries
+    // finish, focus the existing video root so OK can retry and Back can exit.
+    // Ordinary playback focus routes remain entirely unchanged.
+    LaunchedEffect(failed, recoveryManaged, manualRecoveryAvailable) {
+        if (failed && recoveryManaged && manualRecoveryAvailable) {
+            delay(50L)
+            runCatching { rootFocus.requestFocus() }
+        }
+    }
     LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed,
         diagnosticsState, recoveryManaged) {
         // Diagnostics is itself a modal. When it closes, restore focus to the
@@ -832,9 +843,19 @@ fun VlcFallbackScreen(
             .onPreviewKeyEvent { event ->
                 if (!failed && onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 if (leaving.get()) return@onPreviewKeyEvent true
-                // The parent's five-retry Dialog is the sole recovery input
-                // target. The old VLC error menu must never consume remote OK.
-                if (failed && recoveryManaged) return@onPreviewKeyEvent false
+                // The inline reconnection message is NOT a dialog and never
+                // owns focus. D-pad directions retain native player handling;
+                // while failed, OK is an explicit manual retry and Back leaves.
+                if (failed && recoveryManaged) {
+                    if (manualRecoveryAvailable &&
+                        event.key in setOf(Key.DirectionCenter, Key.Enter)) {
+                        if (event.type == KeyEventType.KeyDown &&
+                            event.nativeKeyEvent.repeatCount == 0)
+                            onManualRecovery()
+                        return@onPreviewKeyEvent true
+                    }
+                    return@onPreviewKeyEvent false
+                }
                 if (failed && (event.key == Key.Back || event.key == Key.Escape)) {
                     // Keep the Activity/Compose BackHandler usable.
                     return@onPreviewKeyEvent false
@@ -1019,7 +1040,9 @@ fun VlcFallbackScreen(
                 Modifier.fillMaxSize().clickable(
                     interactionSource = tapInteraction, indication = null,
                 ) {
-                    if (!failed) {
+                    if (failed && recoveryManaged && manualRecoveryAvailable) {
+                        onManualRecovery() // Touch video to retry after exhaustion.
+                    } else if (!failed) {
                         if (skipPromptVisible) showControls()
                         else if (controlsVisible) controlsVisible = false
                         else showControls()

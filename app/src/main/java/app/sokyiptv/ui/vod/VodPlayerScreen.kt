@@ -170,6 +170,7 @@ fun VodPlayerScreen(
     val recoverySkipWait by settings.liveSkipCountdownSeconds.collectAsState()
     val recoveryTimeout by settings.liveNoResponseSeconds.collectAsState()
     val recoveryRetryGap by settings.playbackRetryDelaySeconds.collectAsState()
+    val recoveryMaxRetries by settings.playbackRetryCount.collectAsState()
     val uiStyle by settings.playerUiStyle.collectAsState()
     val thumbnailMode by settings.thumbnailSeekMode.collectAsState()
     val predictiveTrickplay =
@@ -376,7 +377,15 @@ fun VodPlayerScreen(
     var recoverySkipCountdown by remember(mediaKey) { mutableIntStateOf(0) }
     var recoveryInFlight by remember(mediaKey) { mutableStateOf(false) }
     var recoveryStopped by remember(mediaKey) { mutableStateOf(false) }
-    var showVlcAdvancedMenu by remember(mediaKey) { mutableStateOf(false) }
+    // Exhausted recovery text auto-fades. The failure remains retryable with OK
+    // or tappable video, while Back retains the original player behaviour.
+    var recoveryExhaustedHintVisible by remember(mediaKey) { mutableStateOf(true) }
+    LaunchedEffect(recoveryStopped, recoveryIssue) {
+        if (recoveryStopped && recoveryIssue != null) {
+            delay(7_000L)
+            recoveryExhaustedHintVisible = false
+        } else recoveryExhaustedHintVisible = true
+    }
 
     fun noteConnectionIssue(message: String) {
         if (recoveryStopped || growingRec) return
@@ -384,6 +393,8 @@ fun VodPlayerScreen(
         // EndReached and EncounteredError for the same dropped stream.
         if (recoveryIssue == null || recoveryInFlight) {
             recoveryIssue = message
+            controlsVisible = false // No playback chrome behind reconnecting text.
+            recoveryExhaustedHintVisible = true
             recoveryInFlight = false
             recoverySerial++
         }
@@ -400,15 +411,16 @@ fun VodPlayerScreen(
     }
 
     fun performRecoveryRetry(manual: Boolean = false) {
-        if (manual && recoveryAttempts >= app.sokyiptv.core.PlaybackRecoveryPolicy.MAX_RETRIES)
+        if (manual && recoveryAttempts >= recoveryMaxRetries)
             recoveryAttempts = 0
-        if (!app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(recoveryAttempts, false))
+        if (!app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(
+                recoveryAttempts, false, recoveryMaxRetries))
             return
         recoveryStopped = false
+        recoveryExhaustedHintVisible = true
         recoveryCountdown = 0
         recoverySkipCountdown = 0
         recoveryAttempts++
-        showVlcAdvancedMenu = false
         recoveryInFlight = true
         recoveryRetryEpoch++
         if (!usingVlc) {
@@ -545,10 +557,12 @@ fun VodPlayerScreen(
 
     LaunchedEffect(
         recoverySerial, recoveryIssue, recoveryStopped, recoveryInFlight,
-        recoveryEnd, recoverySkipWait, recoveryRetryGap, followingEpisode,
+        recoveryEnd, recoverySkipWait, recoveryRetryGap, recoveryMaxRetries,
+        followingEpisode,
     ) {
         if (recoveryIssue == null || recoveryStopped || recoveryInFlight) return@LaunchedEffect
-        if (app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(recoveryAttempts, false)) {
+        if (app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(
+                recoveryAttempts, false, recoveryMaxRetries)) {
             for (seconds in app.sokyiptv.core.PlaybackRecoveryPolicy
                 .retryDelaySeconds(recoveryRetryGap) downTo 1) {
                 recoveryCountdown = seconds
@@ -559,6 +573,7 @@ fun VodPlayerScreen(
                 recoveryAttempts,
                 recoveryEnd == AppSettings.LiveRecoveryEnd.AUTO_SKIP,
                 mediaKey.startsWith("ep:"), followingEpisode != null,
+                recoveryMaxRetries,
             )) {
             for (seconds in recoverySkipWait downTo 1) {
                 recoverySkipCountdown = seconds
@@ -1123,10 +1138,15 @@ fun VodPlayerScreen(
             onEnded = { naturalEnd() },
             suspendPlayback = screenSaverSuspended ||
                 (recoveryStopped && recoveryIssue != null),
-            recoveryManaged = !showVlcAdvancedMenu,
+            recoveryManaged = true,
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
             onPlaybackStable = ::noteStablePlayback,
+            manualRecoveryAvailable = recoveryStopped && recoveryIssue != null,
+            onManualRecovery = {
+                if (recoveryStopped && recoveryIssue != null)
+                    performRecoveryRetry(manual = true)
+            },
             onProgress = { pos, dur ->
                 if (pos > 0L && recoveryIssue == null) lastHealthyPositionMs = pos
                 val keptPos = if (recoveryIssue != null && lastHealthyPositionMs > 0L)
@@ -1152,6 +1172,13 @@ fun VodPlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onPreviewKeyEvent { event ->
+                if (recoveryIssue != null && recoveryStopped &&
+                    event.key in setOf(Key.DirectionCenter, Key.Enter)) {
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.nativeKeyEvent.repeatCount == 0)
+                        performRecoveryRetry(manual = true)
+                    return@onPreviewKeyEvent true
+                }
                 if (onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 val hardwareKeyCode = event.nativeKeyEvent.keyCode
                 when {
@@ -1240,8 +1267,13 @@ fun VodPlayerScreen(
             .focusRequester(rootFocus)
             .onFocusChanged { rootOwnsFocus = it.isFocused }
             .focusable()
-            .pointerInput(Unit) {
-                detectTapGestures { if (controlsVisible) controlsVisible = false else reveal() }
+            .pointerInput(recoveryStopped, recoveryIssue != null) {
+                detectTapGestures {
+                    if (recoveryIssue != null && recoveryStopped)
+                        performRecoveryRetry(manual = true)
+                    else if (controlsVisible) controlsVisible = false
+                    else reveal()
+                }
             },
     ) {
         AndroidView(
@@ -1269,7 +1301,7 @@ fun VodPlayerScreen(
         when (val current = state) {
             is PlayerController.State.Buffering -> Unit
 
-            is PlayerController.State.Error ->
+            is PlayerController.State.Error -> if (recoveryIssue == null)
                 Box(
                     Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
                     contentAlignment = Alignment.Center,
@@ -1639,63 +1671,18 @@ fun VodPlayerScreen(
             )
         }
     }
-    val activeRecovery = recoveryIssue
-    if (activeRecovery != null) {
-        VodConnectionRecoveryOverlay(
-            title = title,
-            reason = activeRecovery,
-            attempts = recoveryAttempts,
-            retryCountdown = recoveryCountdown,
-            skipCountdown = recoverySkipCountdown,
-            retrying = recoveryInFlight,
-            stopped = recoveryStopped,
-            canSkipEpisode = mediaKey.startsWith("ep:") && followingEpisode != null,
-            usingVlc = usingVlc,
-            onRetryNow = {
-                recoveryStopped = false
-                performRecoveryRetry(manual = true)
-            },
-            onStop = {
-                recoveryStopped = true
-                recoveryInFlight = false
-                recoveryCountdown = 0
-                recoverySkipCountdown = 0
-                if (!usingVlc) {
-                    runCatching { controller.player.pause() }
-                    paused = true
-                }
-                // VLC is paused by its existing suspendPlayback lifecycle hook.
-            },
-            onNextEpisode = {
-                val next = followingEpisode
-                if (next != null) {
-                    recoveryStopped = true
-                    scope.launch { savePosition(); onNextEpisode(next) }
-                }
-            },
-            onTryMedia3 = {
-                recoveryStopped = false
-                showVlcAdvancedMenu = false
-                recoveryIssue = null
-                recoveryAttempts = 0
-                recoveryInFlight = false
-                media3PrematureEnd = false
-                media3HadError = false
-                usingVlc = false
-            },
-            onAdvancedVlc = {
-                // Preserve v104 diagnostic QR, external VLC application and
-                // native Media3 fallback without another on-screen overlay.
-                recoveryStopped = true
-                recoveryIssue = null
-                showVlcAdvancedMenu = true
-            },
-            onBack = {
-                recoveryStopped = true
-                onBack()
-            },
-        )
-    }
+    // Inline IPTV-style text only. No Dialog, focus, click target, modal
+    // window or extra D-pad focus stop. AnimatedVisibility fades when stable.
+    VodConnectionRecoveryOverlay(
+        reason = recoveryIssue,
+        attempts = recoveryAttempts,
+        maxRetries = recoveryMaxRetries,
+        retryCountdown = recoveryCountdown,
+        skipCountdown = recoverySkipCountdown,
+        retrying = recoveryInFlight,
+        stopped = recoveryStopped,
+        showExhaustedHint = recoveryExhaustedHintVisible,
+    )
 
     if (!usingVlc && markerDialogVisible && !seriesGroup.isNullOrBlank() &&
         mediaKey.startsWith("ep:")) {

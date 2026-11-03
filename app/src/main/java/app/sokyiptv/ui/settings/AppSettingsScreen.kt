@@ -359,19 +359,25 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             val timeout by settings.liveNoResponseSeconds.collectAsState()
             val countdown by settings.liveSkipCountdownSeconds.collectAsState()
             val retryGap by settings.playbackRetryDelaySeconds.collectAsState()
+            val retryCount by settings.playbackRetryCount.collectAsState()
             SettingsSection("Playback · Connection recovery") {
-                Text("Live TV, Movies and Series retry a failed or unresponsive stream five times. " +
-                    "Each retry and its countdown are shown on screen. A connection failure " +
-                    "never marks an episode complete.",
+                Text("Discrete text over the video shows reconnecting attempts without " +
+                    "interrupting remote or touch navigation. Connection failures never " +
+                    "mark an episode complete.",
                     style = MaterialTheme.typography.bodySmall)
+                val countChoices = listOf(1, 2, 3, 4, 5, 6, 7, 10)
+                SettingsChoiceDropdown("Reconnection attempts",
+                    countChoices.map { it.toString() + " attempts" },
+                    countChoices.indexOf(retryCount).coerceAtLeast(0),
+                ) { settings.setPlaybackRetryCount(countChoices[it]) }
                 val gapChoices = listOf(2, 3, 5, 10)
                 SettingsChoiceDropdown("Wait between retry attempts",
                     gapChoices.map { it.toString() + " seconds" },
                     gapChoices.indexOf(retryGap).coerceAtLeast(0),
                 ) { settings.setPlaybackRetryDelaySeconds(gapChoices[it]) }
-                SettingsChoiceDropdown("After five failed attempts",
+                SettingsChoiceDropdown("After all retry attempts fail",
                     listOf("Stop and let me intervene (default)",
-                           "Auto-skip after countdown (Live: next channel; Series: next episode)"),
+                           "Next after countdown (Live: channel; Series: episode)"),
                     if (end == AppSettings.LiveRecoveryEnd.WAIT_FOR_USER) 0 else 1,
                 ) { settings.setLiveRecoveryEnd(
                     if (it == 0) AppSettings.LiveRecoveryEnd.WAIT_FOR_USER
