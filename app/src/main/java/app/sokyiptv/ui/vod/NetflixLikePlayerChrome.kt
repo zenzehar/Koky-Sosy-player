@@ -82,6 +82,8 @@ import app.sokyiptv.player.ManualSeriesSkips
 import app.sokyiptv.player.SkipMark
 import app.sokyiptv.player.SeekDirection
 import app.sokyiptv.player.TvSeekPolicy
+import app.sokyiptv.ui.isHandheldPortrait
+import app.sokyiptv.ui.isHandheldTouch
 import kotlin.math.max
 import kotlin.math.min
 
@@ -125,6 +127,7 @@ internal fun NetflixLikePlayerChrome(
     onTracks: () -> Unit,
     onNext: () -> Unit,
 ) {
+    val portraitTouch = isHandheldPortrait()
     val closeFocus = remember { FocusRequester() }
     val backwardFocus = remember { FocusRequester() }
     val forwardFocus = remember { FocusRequester() }
@@ -318,7 +321,7 @@ internal fun NetflixLikePlayerChrome(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier.weight(1f).height(48.dp)
+                modifier = Modifier.weight(1f).height(if (isHandheldTouch()) 48.dp else 42.dp)
                     .handheldTimelineGestures(
                         durationMs = durationMs,
                         onSeek = { target ->
@@ -542,6 +545,7 @@ internal fun NetflixLikePlayerChrome(
                     .focusProperties {
                     up = timelineFocus; right = if (markersEnabled) markersFocus else tracksFocus
                 }, onClick = onEpisodes, onActivity = onActivity,
+                iconOnly = portraitTouch,
             )
             if (isEpisode && markersEnabled) NText(
                 "Mark skips", Icons.Filled.BookmarkAdd,
@@ -553,6 +557,7 @@ internal fun NetflixLikePlayerChrome(
                         up = timelineFocus; left = episodesFocus; right = tracksFocus
                     },
                 onClick = onMarkers, onActivity = onActivity,
+                iconOnly = portraitTouch,
             )
             NText(
                 "Audio & Subtitles", Icons.Filled.Subtitles,
@@ -564,6 +569,7 @@ internal fun NetflixLikePlayerChrome(
                     else if (isEpisode) left = episodesFocus
                     if (isEpisode && nextAvailable) right = nextFocus
                 }, onClick = onTracks, onActivity = onActivity,
+                iconOnly = portraitTouch,
             )
             if (isEpisode && nextAvailable) NText(
                 "Next Episode", Icons.Filled.SkipNext,
@@ -572,6 +578,7 @@ internal fun NetflixLikePlayerChrome(
                     .focusProperties {
                     up = timelineFocus; left = tracksFocus
                 }, onClick = onNext, onActivity = onActivity,
+                iconOnly = portraitTouch,
             )
         }
     }
@@ -619,6 +626,7 @@ private fun NText(
     label: String, icon: ImageVector? = null, modifier: Modifier = Modifier,
     onClick: () -> Unit, onActivity: () -> Unit = {}, emphasized: Boolean = false,
     countdownFraction: Float? = null,
+    iconOnly: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(7.dp)
@@ -646,14 +654,17 @@ private fun NText(
             }
             .border(if (focused) 2.dp else 1.dp, outline, shape)
             .clickable { onActivity(); onClick() }
-            .padding(horizontal = 15.dp, vertical = 10.dp),
+            .padding(horizontal = if (iconOnly) 12.dp else 15.dp,
+                vertical = if (iconOnly) 14.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(9.dp),
     ) {
-        if (icon != null) Icon(icon, null, tint = Color(0xFFE8F6F2),
-            modifier = Modifier.size(22.dp))
-        Text(label, color = Color(0xFFEBEFF2),
-            fontSize = 16.sp,
+        if (icon != null) Icon(icon,
+            contentDescription = if (iconOnly) label else null,
+            tint = Color(0xFFE8F6F2), modifier = Modifier.size(22.dp))
+        if (!iconOnly) Text(label, color = Color(0xFFEBEFF2),
+            fontSize = 16.sp, maxLines = 1, softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             fontWeight = if (focused || emphasized) FontWeight.SemiBold else FontWeight.Medium)
     }
 }
