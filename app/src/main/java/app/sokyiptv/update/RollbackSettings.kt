@@ -23,6 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.core.ServiceLocator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +38,7 @@ internal object RollbackUi {
 @Composable
 fun RollbackSettings() {
     val context = LocalContext.current
+    val handheld = isHandheldPortrait()
     val http = remember(context) { ServiceLocator.get(context).httpClient }
     val repository = remember(http) { RollbackRepository(http) }
     val scope = rememberCoroutineScope()
@@ -92,8 +95,15 @@ fun RollbackSettings() {
                 color = MaterialTheme.colorScheme.error)
             else -> OutlinedButton(
                 enabled = !installing,
+                modifier = if (handheld) Modifier.fillMaxWidth() else Modifier,
                 onClick = { confirmation = true },
-            ) { Text(if (installing) "Preparing rollback…" else "Rollback to " + offer.previousVersion) }
+            ) {
+                Text(
+                    if (installing) "Preparing rollback…" else if (handheld)
+                        "Rollback to previous version" else "Rollback to " + offer.previousVersion,
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         if (installing) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         info?.let { Text(it) }

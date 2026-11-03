@@ -13,6 +13,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -776,6 +779,7 @@ internal fun TvChoiceDialog(
     onClose: () -> Unit,
 ) {
     val focusTargets = remember(items.size) { List(items.size) { FocusRequester() } }
+    val handheld = isHandheldPortrait()
     var selected by remember(items.size) { mutableStateOf(0) }
     val scroll = rememberScrollState()
     val pixels = with(LocalDensity.current) { 49.dp.toPx() }
@@ -792,9 +796,10 @@ internal fun TvChoiceDialog(
             val target = (selected * pixels - 100f).toInt().coerceAtLeast(0)
             scroll.animateScrollTo(target.coerceAtMost(scroll.maxValue))
         }
-        Box(
+        BoxWithConstraints(
             Modifier.fillMaxSize()
                 .background(Color.Black.copy(alpha = .55f))
+                .then(if (handheld) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
@@ -815,13 +820,15 @@ internal fun TvChoiceDialog(
             contentAlignment = Alignment.Center,
         ) {
             Column(
-                Modifier.fillMaxWidth(.62f).heightIn(max = 500.dp)
+                Modifier.fillMaxWidth(if (handheld) .94f else .62f)
+                    .heightIn(max = if (handheld) maxHeight * .84f else 500.dp)
                     .background(Color(0xFA141414), RoundedCornerShape(10.dp))
-                    .padding(21.dp),
+                    .padding(if (handheld) 14.dp else 21.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(heading, color = Color.White, fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp)
+                    fontSize = if (handheld) 19.sp else 22.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(details, color = Color.White.copy(alpha = .74f), fontSize = 14.sp)
                 Column(Modifier.weight(1f, fill = false).verticalScroll(scroll),
                     verticalArrangement = Arrangement.spacedBy(3.dp)) {

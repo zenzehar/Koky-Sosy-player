@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,6 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.BuildConfig
 import app.sokyiptv.R
 import app.sokyiptv.core.ServiceLocator
@@ -58,6 +62,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val handheld = isHandheldPortrait()
     val scope = rememberCoroutineScope()
     var updateLine by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
@@ -66,12 +71,19 @@ fun AboutScreen(onBack: () -> Unit) {
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 32.dp, vertical = 24.dp),
+            .padding(horizontal = if (handheld) 16.dp else 32.dp,
+                vertical = if (handheld) 14.dp else 24.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.about_title), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.about_title),
+                style = MaterialTheme.typography.headlineMedium,
+                fontSize = if (handheld) 21.sp else 26.sp,
+                modifier = Modifier.weight(1f),
+                maxLines = if (handheld) 2 else 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onBack) {
+                Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false)
+            }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -79,8 +91,9 @@ fun AboutScreen(onBack: () -> Unit) {
         Section(stringResource(R.string.about_version)) {
             Text("Soky IPTV Pro ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val actions: @Composable () -> Unit = {
                 OutlinedButton(
+                    modifier = if (handheld) Modifier.fillMaxWidth() else Modifier,
                     enabled = !checking,
                     onClick = {
                         checking = true
@@ -103,16 +116,30 @@ fun AboutScreen(onBack: () -> Unit) {
                             checking = false
                         }
                     },
-                ) { Text(if (checking) stringResource(R.string.about_checking) else stringResource(R.string.about_check_updates)) }
-                OutlinedButton(onClick = {
+                ) {
+                    Text(if (checking) stringResource(R.string.about_checking)
+                         else stringResource(R.string.about_check_updates),
+                        maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(modifier = if (handheld) Modifier.fillMaxWidth() else Modifier,
+                    onClick = {
                     val url = "https://github.com/zenzehar/Koky-Sosy-player/actions/workflows/build.yml"
                     context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
                         android.net.Uri.parse(url)))
-                }) { Text("View test APK builds") }
-                updateLine?.let {
-                    Spacer(Modifier.width(16.dp))
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }) {
+                    Text(if (handheld) "Test APK builds" else "View test APK builds",
+                        maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
+                updateLine?.let {
+                    Spacer(if (handheld) Modifier.height(6.dp) else Modifier.width(16.dp))
+                    Text(it, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            if (handheld) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions()
+            } else Row(verticalAlignment = Alignment.CenterVertically) {
+                actions()
             }
         }
 

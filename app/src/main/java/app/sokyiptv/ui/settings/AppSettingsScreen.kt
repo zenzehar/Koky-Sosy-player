@@ -5,6 +5,8 @@
  */
 package app.sokyiptv.ui.settings
 
+import app.sokyiptv.ui.isHandheldPortrait
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -108,9 +110,12 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     ) {
         item(key = "header") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.settings_display_title), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
+            Text(stringResource(R.string.settings_display_title), style = MaterialTheme.typography.headlineMedium,
+                modifier = if (isHandheldPortrait()) Modifier.weight(1f) else Modifier,
+                maxLines = if (isHandheldPortrait()) 2 else Int.MAX_VALUE,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Spacer(if (isHandheldPortrait()) Modifier.width(8.dp) else Modifier.weight(1f))
+            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false) }
         }
         }
         item(key = "appearance") {

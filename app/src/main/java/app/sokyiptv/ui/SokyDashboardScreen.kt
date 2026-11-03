@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -379,42 +380,50 @@ private fun PortraitDashboard(
     onSeriesRefresh: () -> Unit,
     statusMessage: String?,
 ) {
-    Column(
-        Modifier.fillMaxSize().background(background)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    // Width-driven sizes keep small phones usable and large tablets proportional.
+    // The column scrolls instead of squeezing cards when the screen is short.
+    BoxWithConstraints(Modifier.fillMaxSize().background(background)) {
+      val cardHeight = (maxWidth * 0.40f).coerceIn(156.dp, 224.dp)
+      val actionHeight = (maxWidth * 0.23f).coerceIn(76.dp, 116.dp)
+      Column(
+          Modifier.fillMaxSize()
+              .verticalScroll(rememberScrollState())
+              .padding(horizontal = 16.dp, vertical = 12.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("SOKY IPTV PRO", color = Color.White, fontWeight = FontWeight.Bold,
                 fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f))
-            HeaderAction(Icons.Filled.Search, "Search", onSearch)
-            HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
-            HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
+            HeaderAction(Icons.Filled.Search, "Search", onSearch, compact = true)
+            HeaderAction(Icons.Filled.Person, "Profiles", onProfiles, compact = true)
+            HeaderAction(Icons.Filled.Settings, "Settings", onSettings, compact = true)
         }
         DashboardTile(
             label = "LIVE TV", icon = Icons.Filled.LiveTv,
             shades = listOf(Color(0xFF31CEA1), Color(0xFF3442C8)),
             vodUpdate = liveUpdate, onVodRefresh = onLiveRefresh,
-            modifier = Modifier.fillMaxWidth().height(142.dp),
+            handheld = true,
+            modifier = Modifier.fillMaxWidth().height(cardHeight),
             onClick = if (hasSources) onLive else onAddProvider,
         )
         DashboardTile(
             label = "MOVIES", icon = Icons.Filled.Movie,
             shades = listOf(Color(0xFFDB2D53), Color(0xFFF49A3D)),
             vodUpdate = movieUpdate, onVodRefresh = onMoviesRefresh,
-            modifier = Modifier.fillMaxWidth().height(142.dp),
+            handheld = true,
+            modifier = Modifier.fillMaxWidth().height(cardHeight),
             onClick = if (hasSources) onMovies else onAddProvider,
         )
         DashboardTile(
             label = "SERIES", icon = Icons.Filled.Tv,
             shades = listOf(Color(0xFF953FAF), Color(0xFF4B9EDD)),
             vodUpdate = seriesUpdate, onVodRefresh = onSeriesRefresh,
-            modifier = Modifier.fillMaxWidth().height(142.dp),
+            handheld = true,
+            modifier = Modifier.fillMaxWidth().height(cardHeight),
             onClick = if (hasSources) onSeries else onAddProvider,
         )
-        Row(Modifier.fillMaxWidth().height(90.dp),
+        Row(Modifier.fillMaxWidth().height(actionHeight),
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             DashboardTile(
                 label = "RECORDINGS", icon = Icons.Filled.FiberManualRecord,
@@ -441,22 +450,23 @@ private fun PortraitDashboard(
             color = Color.White.copy(alpha = .83f),
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
+      }
     }
 }
 
 @Composable
-private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun HeaderAction(icon: ImageVector, label: String, onClick: () -> Unit, compact: Boolean = false) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     Box(
-        Modifier.padding(start = 8.dp).size(54.dp).clip(shape)
+        Modifier.padding(start = if (compact) 5.dp else 8.dp).size(if (compact) 42.dp else 54.dp).clip(shape)
             .background(if (focused) Color(0xFF263968) else Color(0xFF131C3D))
             .border(if (focused) 3.dp else 0.dp, Color.White, shape)
             .onFocusChanged { focused = it.isFocused }
              .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(29.dp))
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(if (compact) 23.dp else 29.dp))
     }
 }
 
@@ -467,6 +477,7 @@ private fun DashboardTile(
     shades: List<Color>,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    handheld: Boolean = false,
     locked: Boolean = false,
     loading: Boolean = false,
     ready: Boolean = false,
@@ -495,6 +506,8 @@ private fun DashboardTile(
     ) {
         Column(
             Modifier.fillMaxSize().background(Brush.verticalGradient(shades))
+                // Phone refresh strips get their own reserved area; never cover card titles.
+                .then(if (handheld && vodUpdate != null) Modifier.padding(bottom = 58.dp) else Modifier)
                 .focusRequester(tileFocus)
             .onFocusChanged { focused = it.isFocused }
             .focusProperties { if (vodUpdate != null) down = barFocus }
@@ -511,10 +524,10 @@ private fun DashboardTile(
             verticalArrangement = Arrangement.Center,
         ) {
             Icon(icon, contentDescription = null, tint = Color.White,
-                modifier = Modifier.size(if (compact) 27.dp else 68.dp))
-            Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
+                modifier = Modifier.size(if (compact) 27.dp else if (handheld) 44.dp else 68.dp))
+            Spacer(Modifier.height(if (compact || handheld) 6.dp else 12.dp))
             Text(label, color = Color.White, fontWeight = FontWeight.SemiBold,
-                fontSize = if (compact) 14.sp else 27.sp,
+                fontSize = if (compact) 14.sp else if (handheld) 20.sp else 27.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (vodUpdate != null) {

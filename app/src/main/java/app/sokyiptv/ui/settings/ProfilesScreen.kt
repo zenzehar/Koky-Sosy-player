@@ -88,7 +88,7 @@ fun ProfilesScreen(
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(12.dp))
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
+            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false) }
         }
 
         Spacer(Modifier.height(20.dp))
