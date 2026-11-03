@@ -600,7 +600,7 @@ private fun TvPoster(
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             // Avoid inserting a second focus target when the poster acquires focus.
             // Long-press OK or the Menu key still opens title options.
-            if (isHandheldTouch()) IconButton(
+            if (isHandheldPortrait()) IconButton(
                 onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Title options", tint = Color.White)
             } else if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
@@ -648,7 +648,7 @@ private fun ResumePoster(
         Box(Modifier.fillMaxWidth().aspectRatio(.69f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (isHandheldTouch()) IconButton(
+            if (isHandheldPortrait()) IconButton(
                 onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Resume options", tint = Color.White)
             } else if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
