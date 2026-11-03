@@ -132,6 +132,7 @@ fun MainScreen(
     // returning from a series recreates the screen on the default LIVE tab.
     var tab by rememberSaveable { mutableStateOf(homeTab) }
     var showDashboard by rememberSaveable { mutableStateOf(true) }
+    var launchLiveGuide by rememberSaveable { mutableStateOf(false) }
     // All saved catalogues remain browsable during independent/full background
     // WorkManager updates. A stale full-catalogue timestamp must NEVER lock
     // Live TV after its own successful refresh (v0.1.11.9 hardware regression).
@@ -175,7 +176,12 @@ fun MainScreen(
                   hasSources = hasSources,
                   sourceForFooter = sourceForFooter,
                   onAddProvider = onAddSource,
-                  onLive = { if (allowTab(Tab.LIVE)) { tab = Tab.LIVE; showDashboard = false } },
+                  onLive = { if (allowTab(Tab.LIVE)) {
+                      launchLiveGuide = false; tab = Tab.LIVE; showDashboard = false
+                  } },
+                  onLiveWithEpg = { if (allowTab(Tab.LIVE)) {
+                      launchLiveGuide = true; tab = Tab.LIVE; showDashboard = false
+                  } },
                   onMovies = { if (allowTab(Tab.MOVIES)) { tab = Tab.MOVIES; showDashboard = false } },
                   onSeries = { if (allowTab(Tab.SHOWS)) { tab = Tab.SHOWS; showDashboard = false } },
                   onRecordings = { tab = Tab.RECORDINGS; showDashboard = false },
@@ -216,6 +222,7 @@ fun MainScreen(
             } else when (tab) {
                 Tab.LIVE -> HomeScreen(
                     isTelevision = isTelevision,
+                    initiallyGuide = launchLiveGuide,
                     hasSources = hasSources,
                     isSyncing = isSyncing,
                     onPlayChannel = onPlayChannel,

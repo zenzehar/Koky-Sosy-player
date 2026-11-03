@@ -89,6 +89,7 @@ fun SokyDashboardScreen(
     sourceForFooter: Source?,
     onAddProvider: () -> Unit,
     onLive: () -> Unit,
+    onLiveWithEpg: () -> Unit,
     onMovies: () -> Unit,
     onSeries: () -> Unit,
     onRecordings: () -> Unit,
@@ -307,7 +308,7 @@ fun SokyDashboardScreen(
                         label = "LIVE WITH EPG", icon = Icons.Filled.LiveTv,
                         shades = listOf(Color(0xFF5B9D82), Color(0xFF5B9D82)),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
-                        onClick = if (hasSources) onLive else onAddProvider, compact = true,
+                        onClick = if (hasSources) onLiveWithEpg else onAddProvider, compact = true,
                     )
                     DashboardTile(
                         label = "RECORDINGS", icon = Icons.Filled.FiberManualRecord,

@@ -48,6 +48,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -115,6 +116,7 @@ import app.sokyiptv.player.PlayerController
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.ui.RecordingBackgroundDialog
 import app.sokyiptv.ui.RecordingBackgroundPrompt
+import app.sokyiptv.ui.isHandheldPortrait
 import coil.compose.AsyncImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +146,7 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    val handheldPortrait = isHandheldPortrait()
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
@@ -591,7 +594,11 @@ fun PlayerScreen(
                     Spacer(Modifier.height(12.dp))
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = if (handheldPortrait) Modifier.fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()) else Modifier,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (controller.isSeekable) {
                         BarChip(Icons.Filled.FastRewind, stringResource(R.string.player_rewind), false) {
                             controller.seekBackward(); interaction++
@@ -963,7 +970,8 @@ private fun BarChip(
     ) {
         Icon(icon, contentDescription = label, tint = if (focused) content else (iconTint ?: content))
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = content)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = content,
+            maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 

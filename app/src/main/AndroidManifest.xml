@@ -139,6 +139,15 @@
             android:name=".update.RollbackInstallReceiver"
             android:exported="false" />
 
+        <!-- Android sends this only to the application that was successfully replaced. -->
+        <receiver
+            android:name=".update.UpdateRelaunchReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Serves the downloaded update APK to the system installer via a content:// uri. -->
         <provider
             android:name="androidx.core.content.FileProvider"

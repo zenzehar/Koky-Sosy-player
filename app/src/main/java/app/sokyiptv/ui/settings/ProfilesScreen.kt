@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,12 +26,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -40,8 +47,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sokyiptv.R
 import app.sokyiptv.ui.ProfilesViewModel
 import app.sokyiptv.ui.isHandheldPortrait
-import app.sokyiptv.ui.isHandheldTouch
-import app.sokyiptv.ui.channels.OnScreenKeyboard
 
 /**
  * Who's watching. Add, rename, remove and switch between local profiles; the active one decides
@@ -166,58 +171,50 @@ private fun NameEntry(
     onCancel: () -> Unit,
     onSave: (String) -> Unit,
 ) {
-    var name by remember { mutableStateOf(initial) }
-    if (isHandheldTouch()) {
-        Column(Modifier.fillMaxSize().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(heading, style = MaterialTheme.typography.titleLarge,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            OutlinedTextField(
-                value = name,
-                onValueChange = { if (it.length <= 24) name = it },
-                label = { Text("Profile name") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(enabled = name.isNotBlank(), modifier = Modifier.weight(1f),
-                    onClick = { onSave(name) }) {
-                    Text(stringResource(R.string.common_save),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                OutlinedButton(modifier = Modifier.weight(1f), onClick = onCancel) {
-                    Text(stringResource(R.string.common_cancel),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-        return
+    var name by remember(initial) { mutableStateOf(initial) }
+    val fieldFocus = remember { FocusRequester() }
+    val portrait = isHandheldPortrait()
+    // Android's system IME (including Android TV's installed keyboard) owns all input.
+    // This replaces Soky's custom D-pad key grid for BOTH add and rename.
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching { fieldFocus.requestFocus() }
     }
     Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 24.dp),
+        Modifier.fillMaxSize().imePadding().padding(
+            horizontal = if (portrait) 16.dp else 32.dp,
+            vertical = if (portrait) 16.dp else 24.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(heading, style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.width(20.dp))
-            Text(
-                name.ifEmpty { "…" },
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.weight(1f))
-            Button(enabled = name.isNotBlank(), onClick = { onSave(name) }) { Text(stringResource(R.string.common_save)) }
-            Spacer(Modifier.width(12.dp))
-            OutlinedButton(onClick = onCancel) { Text(stringResource(R.string.common_cancel)) }
-        }
-        Spacer(Modifier.height(24.dp))
-        OnScreenKeyboard(
-            onKey = { if (name.length < 24) name += it },
-            onSpace = { if (name.length < 24) name += " " },
-            onBackspace = { name = name.dropLast(1) },
-            onClear = { name = "" },
+        Text(heading, style = if (portrait) MaterialTheme.typography.titleLarge
+            else MaterialTheme.typography.headlineMedium,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        OutlinedTextField(
+            value = name,
+            onValueChange = { if (it.length <= 24) name = it },
+            label = { Text("Profile name") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = {
+                if (name.isNotBlank()) onSave(name.trim())
+            }),
+            modifier = Modifier.fillMaxWidth().focusRequester(fieldFocus),
         )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(enabled = name.isNotBlank(), modifier = Modifier.weight(1f),
+                onClick = { onSave(name.trim()) }) {
+                Text(stringResource(R.string.common_save),
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            }
+            OutlinedButton(modifier = Modifier.weight(1f), onClick = onCancel) {
+                Text(stringResource(R.string.common_cancel),
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }
 

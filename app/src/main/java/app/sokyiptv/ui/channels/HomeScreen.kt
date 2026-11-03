@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
@@ -69,6 +71,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.res.Configuration
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import android.view.WindowManager
@@ -115,6 +118,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     isTelevision: Boolean,
+    initiallyGuide: Boolean = false,
     hasSources: Boolean,
     isSyncing: Boolean,
     onPlayChannel: (Channel) -> Unit,
@@ -127,6 +131,13 @@ fun HomeScreen(
     val phonePortrait = isHandheldPortrait()
     val handheld = !isTelevision
     var phoneCategoriesOpen by remember { mutableStateOf(false) }
+    // An actual portrait television keeps the established ten-foot EPG.
+    val tvPortrait = isTelevision &&
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    var catalogueMode by rememberSaveable { mutableStateOf(!tvPortrait && !initiallyGuide) }
+    LaunchedEffect(tvPortrait, initiallyGuide) {
+        if (tvPortrait || initiallyGuide) catalogueMode = false
+    }
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     val previewEnabled by settings.guidePreviewVideo.collectAsState()
@@ -314,9 +325,9 @@ fun HomeScreen(
     // While a recording is running the preview is silenced entirely: on a single-connection line a
     // muted preview is still a second stream, which fights the recording and risks a provider ban.
     val recordingActive = activeRecordings.isNotEmpty()
-    LaunchedEffect(selectedRow?.key, previewEnabled, screenResumed, recordingActive, audibleReturnPreview) {
+    LaunchedEffect(selectedRow?.key, previewEnabled, screenResumed, recordingActive, audibleReturnPreview, catalogueMode) {
         val row = selectedRow
-        if ((!previewEnabled && !audibleReturnPreview) || !screenResumed || recordingActive || row == null) {
+        if (catalogueMode || (!previewEnabled && !audibleReturnPreview) || !screenResumed || recordingActive || row == null) {
             previewController.stop()
             return@LaunchedEffect
         }
@@ -333,6 +344,23 @@ fun HomeScreen(
         )
     }
 
+    if (catalogueMode) {
+        // New Live TV catalogue: same data, quality variants and guarded player handoff.
+        // The original EPG remains one tap away; it is not deleted.
+        LiveCatalogueScreen(
+            rows = rows,
+            categories = categories,
+            selectedCategory = selectedCategory,
+            favouritesOnly = favouritesOnly,
+            sources = sources,
+            selectedSource = selectedSource,
+            onCategory = viewModel::selectCategory,
+            onFavourites = viewModel::selectFavourites,
+            onSource = viewModel::selectSource,
+            onPlay = ::requestLive,
+            onGuide = { catalogueMode = false; railExpanded = true },
+        )
+    } else {
     Row(Modifier.fillMaxSize()) {
 
         // ---- Category rail -----------------------------------------------------------------
@@ -352,7 +380,11 @@ fun HomeScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(12.dp))
-            // The top "Search channels" bar was removed — Search now lives in the global nav rail.
+            // Back to the poster catalogue without leaving Live TV.
+            if (!tvPortrait) TextButton(onClick = { catalogueMode = true },
+                modifier = Modifier.fillMaxWidth()) {
+                Text("Channel tiles", maxLines = 1, softWrap = false)
+            }
 
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -430,6 +462,9 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { catalogueMode = true }) {
+                    Text("Tiles", maxLines = 1, softWrap = false)
+                }
             }
             if (rows.isEmpty()) {
                 when {
@@ -544,11 +579,12 @@ fun HomeScreen(
             }
         }
     }
+    }
 
     // Portrait phones cannot recover a focus-collapsed rail using a D-pad.
     // Present the very same source/category actions in a touch-accessible
     // modal. This is not composed for TV or landscape screens.
-    if (phonePortrait && phoneCategoriesOpen) {
+    if (!catalogueMode && phonePortrait && phoneCategoriesOpen) {
         Dialog(onDismissRequest = { phoneCategoriesOpen = false }) {
             Column(Modifier.widthIn(max = 360.dp).heightIn(max = 570.dp)
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
