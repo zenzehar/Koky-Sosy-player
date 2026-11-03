@@ -186,6 +186,7 @@ fun PlayerScreen(
 
     var variants by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var currentId by remember { mutableStateOf<Long?>(null) }
+    var activeResolvedUrl by remember { mutableStateOf<String?>(null) }
     var favouriteNow by remember { mutableStateOf(false) }
     var livePositionMs by remember { mutableLongStateOf(0L) }
     var liveDurationMs by remember { mutableLongStateOf(0L) }
@@ -276,6 +277,9 @@ fun PlayerScreen(
     }
 
     fun tuneTo(channel: Channel) {
+        // Invalidate previous stream identity before changing the channel id.
+        // Otherwise the old stream's Playing state could pollute Recent history.
+        activeResolvedUrl = null
         favouriteNow = channel.favourite
         currentId = channel.id
         paused = false
@@ -284,6 +288,8 @@ fun PlayerScreen(
             val source = graph.sourceRepository.byId(channel.sourceId)
             // Xtream/M3U carry a ready URL; a Stalker channel's URL is minted here from its cmd.
             val url = graph.catalogRepository.resolvePlaybackUrl(channel, source)
+            // Match real Media3 media item identity before counting as watched.
+            activeResolvedUrl = url
             controller.play(
                 PlayerController.Request(
                     url = url,
@@ -339,10 +345,15 @@ fun PlayerScreen(
     // History only counts a channel after playback actually reports Playing.
     // Preview selection, failed tune attempts and mere D-pad highlighting do not count.
     // Keep the history per profile and deduplicate quality variants into one channel.
-    LaunchedEffect(currentId, state) {
-        if (state !is PlayerController.State.Playing) return@LaunchedEffect
+    LaunchedEffect(currentId, state, activeResolvedUrl) {
+        val playing = state as? PlayerController.State.Playing ?: return@LaunchedEffect
+        val currentMediaUri = controller.player.currentMediaItem
+            ?.localConfiguration?.uri?.toString()
+        if (activeResolvedUrl == null || currentMediaUri != activeResolvedUrl)
+            return@LaunchedEffect
         val channel = currentId?.let { graph.catalogRepository.channel(it) }
             ?: return@LaunchedEffect
+        if (playing.title != channel.shownName) return@LaunchedEffect
         val logicalKey = browsePreferences.orderKey(channel)
         if (logicalKey != lastRecordedLogicalChannel) {
             browsePreferences.recordLive(settings.activeProfileId.value, channel)
