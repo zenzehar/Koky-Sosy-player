@@ -779,7 +779,7 @@ internal fun TvChoiceDialog(
     onClose: () -> Unit,
 ) {
     val focusTargets = remember(items.size) { List(items.size) { FocusRequester() } }
-    val handheld = isHandheldTouch()
+    val handheld = isHandheldPortrait()
     var selected by remember(items.size) { mutableStateOf(0) }
     val scroll = rememberScrollState()
     val pixels = with(LocalDensity.current) { 49.dp.toPx() }
