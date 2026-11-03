@@ -40,9 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import android.app.ActivityManager
 import android.content.Context
@@ -87,38 +84,19 @@ fun SettingsHubScreen(
     val context = LocalContext.current
     val handheld = isHandheldPortrait()
     var confirmFactoryReset by remember { mutableStateOf(false) }
-    var expandedGroup by rememberSaveable { mutableStateOf("playback") }
-    val groups = listOf(
-        HubGroup("content", "Content & providers", "Provider accounts, addons and channels", listOf(
-            HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title),
-                stringResource(R.string.settings_providers_subtitle), onOpenProviders),
-            HubEntry(Icons.Filled.Extension, stringResource(R.string.settings_addons_title),
-                stringResource(R.string.settings_addons_subtitle), onOpenAddons),
-            HubEntry(Icons.Filled.GridView, stringResource(R.string.common_channels),
-                stringResource(R.string.settings_channels_subtitle), onOpenChannels),
-        )),
-        HubGroup("playback", "Playback & display", "Live recovery, controls, TV guide and appearance", listOf(
-            HubEntry(Icons.Filled.Tune, stringResource(R.string.settings_display_title),
-                stringResource(R.string.settings_display_subtitle), onOpenDisplay),
-            HubEntry(Icons.Filled.LiveTv, stringResource(R.string.settings_guide_title),
-                stringResource(R.string.settings_guide_subtitle), onOpenGuide),
-        )),
-        HubGroup("storage", "Recording, sync & devices", "Storage, synchronisation and remote management", listOf(
-            HubEntry(Icons.Filled.Storage, stringResource(R.string.settings_recording_title),
-                stringResource(R.string.settings_recording_subtitle), onOpenRecordings),
-            HubEntry(Icons.Filled.Sync, stringResource(R.string.settings_sync_title),
-                stringResource(R.string.settings_sync_subtitle), onOpenSync),
-            HubEntry(Icons.Filled.PhoneAndroid, stringResource(R.string.settings_webmanager_title),
-                stringResource(R.string.settings_webmanager_subtitle), onOpenWebManager),
-        )),
-        HubGroup("advanced", "Security & advanced", "Parental controls, diagnostics and factory reset", listOf(
-            HubEntry(Icons.Filled.Lock, stringResource(R.string.settings_parental_title),
-                stringResource(R.string.settings_parental_subtitle), onOpenParental),
-            HubEntry(Icons.Filled.Info, stringResource(R.string.settings_about_title),
-                stringResource(R.string.settings_about_subtitle), onOpenAbout),
-            HubEntry(Icons.Filled.DeleteForever, "Factory reset",
-                "Clear all app settings, logins and history", { confirmFactoryReset = true }),
-        )),
+    val entries = listOf(
+        HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title), stringResource(R.string.settings_providers_subtitle), onOpenProviders),
+        HubEntry(Icons.Filled.Extension, stringResource(R.string.settings_addons_title), stringResource(R.string.settings_addons_subtitle), onOpenAddons),
+        HubEntry(Icons.Filled.LiveTv, stringResource(R.string.settings_guide_title), stringResource(R.string.settings_guide_subtitle), onOpenGuide),
+        HubEntry(Icons.Filled.GridView, stringResource(R.string.common_channels), stringResource(R.string.settings_channels_subtitle), onOpenChannels),
+        HubEntry(Icons.Filled.PhoneAndroid, stringResource(R.string.settings_webmanager_title), stringResource(R.string.settings_webmanager_subtitle), onOpenWebManager),
+        HubEntry(Icons.Filled.Tune, stringResource(R.string.settings_display_title), stringResource(R.string.settings_display_subtitle), onOpenDisplay),
+        HubEntry(Icons.Filled.Storage, stringResource(R.string.settings_recording_title), stringResource(R.string.settings_recording_subtitle), onOpenRecordings),
+        HubEntry(Icons.Filled.Lock, stringResource(R.string.settings_parental_title), stringResource(R.string.settings_parental_subtitle), onOpenParental),
+        HubEntry(Icons.Filled.Sync, stringResource(R.string.settings_sync_title), stringResource(R.string.settings_sync_subtitle), onOpenSync),
+        HubEntry(Icons.Filled.Info, stringResource(R.string.settings_about_title), stringResource(R.string.settings_about_subtitle), onOpenAbout),
+        HubEntry(Icons.Filled.DeleteForever, "Factory reset", "Clear all app settings, logins and history",
+            { confirmFactoryReset = true }),
     )
 
     if (confirmFactoryReset) {
@@ -173,51 +151,8 @@ fun SettingsHubScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.widthIn(max = 760.dp),
         ) {
-            groups.forEach { group ->
-                item(key = "group:" + group.id) {
-                    HubGroupRow(group, expanded = expandedGroup == group.id,
-                        onClick = { expandedGroup = if (expandedGroup == group.id) "" else group.id })
-                }
-                if (expandedGroup == group.id) {
-                    items(group.entries, key = { "entry:" + group.id + ":" + it.title }) { entry ->
-                        HubRow(entry)
-                    }
-                }
-            }
+            items(entries) { entry -> HubRow(entry) }
         }
-    }
-}
-
-private data class HubGroup(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val entries: List<HubEntry>,
-)
-
-@Composable
-private fun HubGroupRow(group: HubGroup, expanded: Boolean, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth()
-            .onFocusChanged { focused = it.isFocused }
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (focused) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 15.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(group.title, fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (focused) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.primary)
-            Text(group.subtitle, style = MaterialTheme.typography.bodySmall,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-            contentDescription = if (expanded) "Collapse" else "Expand")
     }
 }
 

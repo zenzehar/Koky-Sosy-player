@@ -32,6 +32,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
@@ -92,7 +96,6 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
     val playbackBuffer by settings.playbackBufferPreset.collectAsState()
     val vlcMode by settings.vlcPlaybackMode.collectAsState()
     var diagnosticReport by remember { mutableStateOf<String?>(null) }
-    var refreshMenuOpen by remember { mutableStateOf(false) }
     var languageMenuOpen by remember { mutableStateOf(false) }
     var languageSearch by remember { mutableStateOf("") }
 
@@ -127,14 +130,23 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
         }
         item(key = "appearance") {
         SettingsSection(stringResource(R.string.settings_appearance)) {
-            ThemeOption(stringResource(R.string.settings_theme_system), themeMode == AppSettings.ThemeMode.SYSTEM) {
-                settings.setThemeMode(AppSettings.ThemeMode.SYSTEM)
-            }
-            ThemeOption(stringResource(R.string.settings_theme_dark), themeMode == AppSettings.ThemeMode.DARK) {
-                settings.setThemeMode(AppSettings.ThemeMode.DARK)
-            }
-            ThemeOption(stringResource(R.string.settings_theme_light), themeMode == AppSettings.ThemeMode.LIGHT) {
-                settings.setThemeMode(AppSettings.ThemeMode.LIGHT)
+            val themes = listOf(
+                stringResource(R.string.settings_theme_system),
+                stringResource(R.string.settings_theme_dark),
+                stringResource(R.string.settings_theme_light),
+            )
+            SettingsChoiceDropdown("Appearance", themes,
+                when (themeMode) {
+                    AppSettings.ThemeMode.SYSTEM -> 0
+                    AppSettings.ThemeMode.DARK -> 1
+                    AppSettings.ThemeMode.LIGHT -> 2
+                }
+            ) { choice ->
+                settings.setThemeMode(when (choice) {
+                    1 -> AppSettings.ThemeMode.DARK
+                    2 -> AppSettings.ThemeMode.LIGHT
+                    else -> AppSettings.ThemeMode.SYSTEM
+                })
             }
             Spacer(Modifier.height(4.dp))
             Text(
@@ -149,43 +161,23 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             Text("Series automatic next episode", style = MaterialTheme.typography.titleMedium)
             Text("Automatically continue to the next episode, including across seasons.",
                 style = MaterialTheme.typography.bodySmall)
-            ThemeOption("Autoplay next episode: On", autoNext) { settings.setSeriesAutoplay(true) }
-            ThemeOption("Autoplay next episode: Off", !autoNext) { settings.setSeriesAutoplay(false) }
+            SettingsChoiceDropdown("Automatically play next episode",
+                listOf("On — only after confirmed completion", "Off — ask me"),
+                if (autoNext) 0 else 1,
+            ) { settings.setSeriesAutoplay(it == 0) }
             Spacer(Modifier.height(16.dp))
             Text("Catalogue refresh: at app launch, only when due",
                 style = MaterialTheme.typography.titleMedium)
             Text("Opening Movies or Series uses saved titles; manual Update is always available.",
                 style = MaterialTheme.typography.bodySmall)
             val refreshOptions = listOf(0, 1, 3, 6, 12, 24)
-            val refreshLabel = if (refreshHours == 0) "Off — manual update only"
-                else "Every " + refreshHours +
-                    (if (refreshHours == 1) " hour" else " hours")
-            OutlinedButton(
-                onClick = { refreshMenuOpen = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("$refreshLabel  ▾") }
-            if (refreshMenuOpen) {
-                AlertDialog(
-                    onDismissRequest = { refreshMenuOpen = false },
-                    title = { Text("Catalogue update frequency") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            refreshOptions.forEach { hours ->
-                                val label = if (hours == 0) "Off — manual update only"
-                                    else "Every $hours " +
-                                        (if (hours == 1) "hour" else "hours")
-                                ThemeOption(label, refreshHours == hours) {
-                                    settings.setCatalogueRefreshHours(hours)
-                                    refreshMenuOpen = false
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { refreshMenuOpen = false }) { Text("Close") }
-                    },
-                )
-            }
+            SettingsChoiceDropdown("Catalogue refresh interval",
+                refreshOptions.map { hours ->
+                    if (hours == 0) "Off — manual update only"
+                    else "Every " + hours + if (hours == 1) " hour" else " hours"
+                },
+                refreshOptions.indexOf(refreshHours).coerceAtLeast(0),
+            ) { choice -> settings.setCatalogueRefreshHours(refreshOptions[choice]) }
             Spacer(Modifier.height(16.dp))
             Text(
                 stringResource(R.string.settings_content_note),
@@ -237,14 +229,12 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 stringResource(R.string.settings_channel_layout_title),
                 style = MaterialTheme.typography.titleMedium,
             )
-            ThemeOption(
+            SettingsChoiceDropdown("Channel guide layout", listOf(
                 stringResource(R.string.settings_channel_layout_grid),
-                channelLayout == AppSettings.ChannelLayout.GRID,
-            ) { settings.setChannelLayout(AppSettings.ChannelLayout.GRID) }
-            ThemeOption(
                 stringResource(R.string.settings_channel_layout_list),
-                channelLayout == AppSettings.ChannelLayout.LIST,
-            ) { settings.setChannelLayout(AppSettings.ChannelLayout.LIST) }
+            ), if (channelLayout == AppSettings.ChannelLayout.GRID) 0 else 1
+            ) { settings.setChannelLayout(
+                if (it == 0) AppSettings.ChannelLayout.GRID else AppSettings.ChannelLayout.LIST) }
             Spacer(Modifier.height(8.dp))
             ToggleRow(
                 title = stringResource(R.string.settings_live_preview_title),
@@ -272,12 +262,12 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             Text("Video player controls", style = MaterialTheme.typography.titleMedium)
             Text("Choose the control layout for Movies and Series. Playback engine and seeking remain unchanged.",
                 style = MaterialTheme.typography.bodySmall)
-            ThemeOption("Current style", playerUiStyle == AppSettings.PlayerUiStyle.CURRENT) {
-                settings.setPlayerUiStyle(AppSettings.PlayerUiStyle.CURRENT)
-            }
-            ThemeOption("Netflix-like style", playerUiStyle == AppSettings.PlayerUiStyle.NETFLIX_LIKE) {
-                settings.setPlayerUiStyle(AppSettings.PlayerUiStyle.NETFLIX_LIKE)
-            }
+            SettingsChoiceDropdown("Player controls style",
+                listOf("Current style", "Netflix-like style"),
+                if (playerUiStyle == AppSettings.PlayerUiStyle.CURRENT) 0 else 1,
+            ) { settings.setPlayerUiStyle(
+                if (it == 0) AppSettings.PlayerUiStyle.CURRENT
+                else AppSettings.PlayerUiStyle.NETFLIX_LIKE) }
             Spacer(Modifier.height(14.dp))
             Text("Thumbnail seek preview", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -285,14 +275,13 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            ThemeOption(
-                "Netflix-like thumbnail seek preview (default)",
-                thumbnailSeekMode == AppSettings.ThumbnailSeekMode.NETFLIX_LIKE,
-            ) { settings.setThumbnailSeekMode(AppSettings.ThumbnailSeekMode.NETFLIX_LIKE) }
-            ThemeOption(
-                "Current disk-cached thumbnail preview",
-                thumbnailSeekMode == AppSettings.ThumbnailSeekMode.CURRENT_DISK,
-            ) { settings.setThumbnailSeekMode(AppSettings.ThumbnailSeekMode.CURRENT_DISK) }
+            SettingsChoiceDropdown("Thumbnail preview style", listOf(
+                "Netflix-like seek thumbnails (default)",
+                "Current disk-cached thumbnails",
+            ), if (thumbnailSeekMode == AppSettings.ThumbnailSeekMode.NETFLIX_LIKE) 0 else 1
+            ) { settings.setThumbnailSeekMode(
+                if (it == 0) AppSettings.ThumbnailSeekMode.NETFLIX_LIKE
+                else AppSettings.ThumbnailSeekMode.CURRENT_DISK) }
             Text(
                 "Netflix-like: predictive broad-to-fine storyboard and current-seek priority, using a separate disk cache. " +
                     "Current: the existing five-second whole-video disk index. " +
@@ -320,16 +309,12 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            BufferPresetRow(
-                label = stringResource(R.string.settings_vlc_mode_native),
-                selected = vlcMode == VlcPlaybackMode.NATIVE,
-                onSelect = { settings.setVlcPlaybackMode(VlcPlaybackMode.NATIVE) },
-            )
-            BufferPresetRow(
-                label = stringResource(R.string.settings_vlc_mode_tuned),
-                selected = vlcMode == VlcPlaybackMode.TUNED,
-                onSelect = { settings.setVlcPlaybackMode(VlcPlaybackMode.TUNED) },
-            )
+            SettingsChoiceDropdown("VLC playback mode", listOf(
+                stringResource(R.string.settings_vlc_mode_native),
+                stringResource(R.string.settings_vlc_mode_tuned),
+            ), if (vlcMode == VlcPlaybackMode.NATIVE) 0 else 1
+            ) { settings.setVlcPlaybackMode(
+                if (it == 0) VlcPlaybackMode.NATIVE else VlcPlaybackMode.TUNED) }
             Spacer(Modifier.height(10.dp))
             Text(
                 stringResource(R.string.settings_playback_buffer_help),
@@ -342,18 +327,18 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            PlaybackBufferPreset.entries.forEach { preset ->
-                BufferPresetRow(
-                    label = when (preset) {
-                        PlaybackBufferPreset.FAST -> stringResource(R.string.settings_buffer_fast)
-                        PlaybackBufferPreset.BALANCED -> stringResource(R.string.settings_buffer_balanced)
-                        PlaybackBufferPreset.STABLE -> stringResource(R.string.settings_buffer_stable)
-                        PlaybackBufferPreset.LARGE -> stringResource(R.string.settings_buffer_large)
-                    },
-                    selected = playbackBuffer == preset,
-                    onSelect = { settings.setPlaybackBufferPreset(preset) },
-                )
-            }
+            val bufferChoices = PlaybackBufferPreset.entries
+            SettingsChoiceDropdown("Buffering preset",
+                bufferChoices.map { preset ->
+                    when (preset) {
+                        PlaybackBufferPreset.FAST -> context.getString(R.string.settings_buffer_fast)
+                        PlaybackBufferPreset.BALANCED -> context.getString(R.string.settings_buffer_balanced)
+                        PlaybackBufferPreset.STABLE -> context.getString(R.string.settings_buffer_stable)
+                        PlaybackBufferPreset.LARGE -> context.getString(R.string.settings_buffer_large)
+                    }
+                },
+                bufferChoices.indexOf(playbackBuffer).coerceAtLeast(0),
+            ) { settings.setPlaybackBufferPreset(bufferChoices[it]) }
             Spacer(Modifier.height(12.dp))
             ToggleRow(
                 title = stringResource(R.string.settings_subtitles_title),
@@ -377,29 +362,25 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                 Text("Automatically retry a failed or unresponsive Live TV channel up to five times. " +
                     "Attempts and remaining time are shown on screen.",
                     style = MaterialTheme.typography.bodySmall)
-                Text("When all five attempts fail", style = MaterialTheme.typography.titleMedium)
-                ThemeOption("Stop and let me intervene (default)",
-                    end == AppSettings.LiveRecoveryEnd.WAIT_FOR_USER) {
-                    settings.setLiveRecoveryEnd(AppSettings.LiveRecoveryEnd.WAIT_FOR_USER)
-                }
-                ThemeOption("Skip to next channel after a countdown",
-                    end == AppSettings.LiveRecoveryEnd.AUTO_SKIP) {
-                    settings.setLiveRecoveryEnd(AppSettings.LiveRecoveryEnd.AUTO_SKIP)
-                }
+                SettingsChoiceDropdown("After five failed attempts",
+                    listOf("Stop and let me intervene (default)",
+                           "Skip to next channel after a countdown"),
+                    if (end == AppSettings.LiveRecoveryEnd.WAIT_FOR_USER) 0 else 1,
+                ) { settings.setLiveRecoveryEnd(
+                    if (it == 0) AppSettings.LiveRecoveryEnd.WAIT_FOR_USER
+                    else AppSettings.LiveRecoveryEnd.AUTO_SKIP) }
                 if (end == AppSettings.LiveRecoveryEnd.AUTO_SKIP) {
-                    Text("Auto-skip countdown", style = MaterialTheme.typography.titleMedium)
-                    listOf(5, 10, 15, 30, 60).forEach { seconds ->
-                        ThemeOption("${seconds}s", countdown == seconds) {
-                            settings.setLiveSkipCountdownSeconds(seconds)
-                        }
-                    }
+                    val secondsChoices = listOf(5, 10, 15, 30, 60)
+                    SettingsChoiceDropdown("Automatic skip countdown",
+                        secondsChoices.map { it.toString() + " seconds" },
+                        secondsChoices.indexOf(countdown).coerceAtLeast(0),
+                    ) { settings.setLiveSkipCountdownSeconds(secondsChoices[it]) }
                 }
-                Text("No response / buffering timeout", style = MaterialTheme.typography.titleMedium)
-                listOf(10, 20, 30, 60).forEach { seconds ->
-                    ThemeOption("${seconds}s", timeout == seconds) {
-                        settings.setLiveNoResponseSeconds(seconds)
-                    }
-                }
+                val timeoutChoices = listOf(10, 20, 30, 60)
+                SettingsChoiceDropdown("No response / buffering timeout",
+                    timeoutChoices.map { it.toString() + " seconds" },
+                    timeoutChoices.indexOf(timeout).coerceAtLeast(0),
+                ) { settings.setLiveNoResponseSeconds(timeoutChoices[it]) }
                 Text("The connection timeout applies only to Live TV playback. " +
                     "Recordings, Movies, and Series are never automatically skipped.",
                     style = MaterialTheme.typography.bodySmall,
@@ -615,93 +596,43 @@ private fun SleepTimerSection() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(4.dp))
-            SleepOption(stringResource(R.string.settings_sleep_off), selected = remaining == null) { SleepTimer.clear() }
-            SleepTimer.presets.forEach { mins ->
-                SleepOption(stringResource(R.string.settings_sleep_minutes, mins), selected = false) { SleepTimer.armMinutes(mins) }
+            val minuteOptions = SleepTimer.presets
+            SettingsChoiceDropdown(
+                label = stringResource(R.string.settings_sleep_timer),
+                choices = listOf(stringResource(R.string.settings_sleep_off)) +
+                    minuteOptions.map { stringResource(R.string.settings_sleep_minutes, it) },
+                selectedIndex = if (remaining == null) 0
+                    else (minuteOptions.indexOfFirst { it >= remaining }.takeIf { it >= 0 } ?: 0) + 1,
+                selectedOverride = remaining?.let { "Running · " + it + " minutes left" },
+            ) { selected ->
+                if (selected == 0) SleepTimer.clear()
+                else SleepTimer.armMinutes(minuteOptions[selected - 1])
             }
         }
     }
 }
 
-@Composable
-private fun SleepOption(label: String, selected: Boolean, onSelect: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, onClick = onSelect)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // The parent row is the single TV focus/click target.
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium)
-    }
-}
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    // The section header is a single focusable/clickable D-pad stop; collapsed
-    // controls are not composed, so the remote never focuses invisible widgets.
-    var expanded by rememberSaveable(title) { mutableStateOf(false) }
-    var focused by remember { mutableStateOf(false) }
+    Text(title, style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary)
+    Spacer(Modifier.height(8.dp))
     Card {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth()
-                    .onFocusChanged { focused = it.isFocused }
-                    .background(if (focused)
-                        MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(title, style = MaterialTheme.typography.titleMedium,
-                    color = if (focused) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f), maxLines = 2)
-                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand")
-            }
-            if (expanded) {
-                Column(
-                    Modifier.fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) { content() }
-            }
-        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
     }
 }
 
-@Composable
-private fun BufferPresetRow(label: String, selected: Boolean, onSelect: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth()
-            .selectable(selected = selected, onClick = onSelect)
-            .padding(vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // One focus target for D-pad navigation. Avoid duplicate click handlers on the radio.
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium)
-    }
-}
+/** One visible, D-pad focusable control per mutually exclusive choice group. */
 
 @Composable
 private fun ThemeOption(label: String, selected: Boolean, onSelect: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .selectable(selected = selected, onClick = onSelect)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // The parent row is the single TV focus/click target.
-        RadioButton(selected = selected, onClick = null)
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium)
+    // Searchable language choices only. No radio-button list in Settings.
+    TextButton(onClick = onSelect, modifier = Modifier.fillMaxWidth()) {
+        Text((if (selected) "✓  " else "") + label,
+            modifier = Modifier.fillMaxWidth(),
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

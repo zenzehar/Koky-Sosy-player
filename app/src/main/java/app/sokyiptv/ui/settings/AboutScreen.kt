@@ -90,6 +90,7 @@ fun AboutScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(20.dp))
 
         Section(stringResource(R.string.about_version)) {
+            val transfer by app.sokyiptv.update.UpdateTransfer.state.collectAsState()
             Text("Soky IPTV Pro ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(12.dp))
             val actions: @Composable () -> Unit = {
@@ -122,7 +123,6 @@ fun AboutScreen(onBack: () -> Unit) {
                          else stringResource(R.string.about_check_updates),
                         maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                 }
-                val transfer by app.sokyiptv.update.UpdateTransfer.state.collectAsState()
                 if (transfer.stage in listOf("downloading", "paused", "failed", "ready")) {
                     OutlinedButton(
                         modifier = if (handheld) Modifier.fillMaxWidth() else Modifier,
@@ -152,6 +152,35 @@ fun AboutScreen(onBack: () -> Unit) {
                 actions()
             } else Row(verticalAlignment = Alignment.CenterVertically) {
                 actions()
+            }
+            if (transfer.stage in listOf("downloading", "paused", "failed", "ready")) {
+                Spacer(Modifier.height(10.dp))
+                Text("Update download: " + transfer.stage +
+                    if (transfer.expectedBytes > 0L)
+                        " · " + (transfer.fraction * 100).toInt() + "%" else "",
+                    style = MaterialTheme.typography.bodyMedium)
+                // Separate TV-focusable actions remain available even after the
+                // transfer dialog is dismissed or the activity is backgrounded.
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    when (transfer.stage) {
+                        "downloading" -> OutlinedButton(onClick = {
+                            app.sokyiptv.update.UpdateTransfer.pause(context)
+                        }) { Text("Pause") }
+                        "paused", "failed" -> OutlinedButton(onClick = {
+                            app.sokyiptv.update.UpdateTransfer.resume(context)
+                        }) { Text("Resume") }
+                        "ready" -> OutlinedButton(onClick = {
+                            app.sokyiptv.update.UpdateHub.showTransferControls()
+                        }) { Text("Install") }
+                    }
+                    if (transfer.stage != "ready")
+                        OutlinedButton(onClick = {
+                            app.sokyiptv.update.UpdateTransfer.abort(context)
+                        }) { Text("Abort") }
+                }
+                Text("The download continues in the background. Resume after interruption " +
+                    "without discarding completed bytes.",
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
 

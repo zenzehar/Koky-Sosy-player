@@ -197,23 +197,24 @@ fun RecordingSettingsScreen(onBack: () -> Unit) {
 
         Spacer(Modifier.height(20.dp))
         SectionCard(stringResource(R.string.recset_save_to)) {
-            TargetRow(
-                label = stringResource(R.string.recset_internal_label),
-                subtitle = RecordingStorage.internalDir(context).absolutePath,
-                selected = target == AppSettings.RecordingTarget.INTERNAL,
-            ) { target = AppSettings.RecordingTarget.INTERNAL }
-            Spacer(Modifier.height(8.dp))
-            TargetRow(
-                label = stringResource(R.string.recset_smb_label),
-                subtitle = stringResource(R.string.recset_smb_subtitle),
-                selected = target == AppSettings.RecordingTarget.SMB,
-            ) { target = AppSettings.RecordingTarget.SMB }
-            Spacer(Modifier.height(8.dp))
-            TargetRow(
-                label = stringResource(R.string.recset_usb_label),
-                subtitle = stringResource(R.string.recset_usb_subtitle),
-                selected = target == AppSettings.RecordingTarget.USB,
-            ) { target = AppSettings.RecordingTarget.USB }
+            val targets = listOf(AppSettings.RecordingTarget.INTERNAL,
+                AppSettings.RecordingTarget.SMB,
+                AppSettings.RecordingTarget.USB)
+            SettingsChoiceDropdown(stringResource(R.string.recset_save_to),
+                listOf(stringResource(R.string.recset_internal_label),
+                    stringResource(R.string.recset_smb_label),
+                    stringResource(R.string.recset_usb_label)),
+                targets.indexOf(target).coerceAtLeast(0),
+            ) { index -> target = targets[index] }
+            Text(
+                when (target) {
+                    AppSettings.RecordingTarget.INTERNAL -> RecordingStorage.internalDir(context).absolutePath
+                    AppSettings.RecordingTarget.SMB -> context.getString(R.string.recset_smb_subtitle)
+                    AppSettings.RecordingTarget.USB -> context.getString(R.string.recset_usb_subtitle)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         if (target == AppSettings.RecordingTarget.SMB) {
@@ -530,29 +531,6 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
     }
 }
 
-@Composable
-private fun TargetRow(label: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (selected) Icons.Filled.RadioButtonChecked else Icons.Filled.RadioButtonUnchecked,
-            contentDescription = null,
-            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (selected) Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-    }
-}
 
 @Composable
 private fun Field(

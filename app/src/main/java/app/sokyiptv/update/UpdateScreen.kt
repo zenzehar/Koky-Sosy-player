@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,54 +51,64 @@ fun UpdateGate(viewModel: UpdateViewModel = viewModel()) {
     if (transfer.stage in listOf("downloading", "paused", "failed", "ready") &&
         dialogVisible) {
         AlertDialog(
-            onDismissRequest = { dialogVisible = false }, // Transfer continues independently.
+            onDismissRequest = { dialogVisible = false }, // WorkManager keeps running.
             title = {
                 Text(when (transfer.stage) {
                     "paused" -> "Update paused"
                     "failed" -> "Download interrupted"
                     "ready" -> "Update ready to install"
-                    else -> "Downloading update"
+                    else -> "Downloading update in the background"
                 })
             },
             confirmButton = {
-                when (transfer.stage) {
-                    "downloading" -> TextButton(onClick = viewModel::pause) { Text("Pause") }
-                    "paused", "failed" -> TextButton(onClick = viewModel::resume) { Text("Resume") }
-                    "ready" -> TextButton(onClick = viewModel::installReady) { Text("Install") }
+                if (transfer.stage == "ready")
+                    TextButton(onClick = viewModel::installReady) { Text("Install") }
+                else TextButton(onClick = { dialogVisible = false }) {
+                    Text("Continue in background")
                 }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    if (transfer.stage == "ready") {
-                        dialogVisible = false
-                    } else viewModel.abort()
-                }) {
-                    Text(if (transfer.stage == "ready") "Later" else "Abort")
-                }
-                TextButton(onClick = { dialogVisible = false }) {
-                    Text("Background")
-                }
+                if (transfer.stage == "ready")
+                    TextButton(onClick = { dialogVisible = false }) { Text("Later") }
             },
             text = {
-                Column {
-                    Text("Version " + transfer.version)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Version " + transfer.version, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis)
                     if (transfer.stage != "ready") {
                         if (transfer.fraction >= 0f) {
                             LinearProgressIndicator(
                                 progress = { transfer.fraction },
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            Text((transfer.fraction * 100).toInt().toString() + "%",
-                                Modifier.padding(top = 8.dp))
+                            Text((transfer.fraction * 100).toInt().toString() + "%")
                         } else LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
-                    if (transfer.stage == "failed")
-                        Text("Download stopped: " + transfer.error +
-                            ". Resume will continue from the verified partial file.")
-                    if (transfer.stage == "ready")
-                        Text("Download complete. Android will ask you to approve installation.")
-                    if (transfer.stage == "downloading")
-                        Text("You can send the app to the background; downloading continues.")
+                    when (transfer.stage) {
+                        "failed" -> Text("Connection interrupted: " + transfer.error +
+                            ". Resume keeps the valid downloaded bytes.")
+                        "paused" -> Text("Paused at " +
+                            (transfer.downloadedBytes / (1024 * 1024)).toString() +
+                            " MB. Resume keeps downloaded data.")
+                        "ready" -> Text("Verified download ready. Android will ask for " +
+                            "installation approval.")
+                        else -> Text("The transfer continues even if Soky is in the background.")
+                    }
+                    if (transfer.stage != "ready") {
+                        // Persistent visible controls, not cramped AlertDialog
+                        // confirm/dismiss buttons that can disappear on narrow TVs.
+                        Row(Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (transfer.stage == "downloading")
+                                OutlinedButton(onClick = viewModel::pause,
+                                    modifier = Modifier.weight(1f)) { Text("Pause") }
+                            else
+                                OutlinedButton(onClick = viewModel::resume,
+                                    modifier = Modifier.weight(1f)) { Text("Resume") }
+                            OutlinedButton(onClick = viewModel::abort,
+                                modifier = Modifier.weight(1f)) { Text("Abort") }
+                        }
+                    }
                 }
             },
         )
