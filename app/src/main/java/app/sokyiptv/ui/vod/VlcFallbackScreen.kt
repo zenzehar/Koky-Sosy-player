@@ -321,12 +321,32 @@ fun VlcFallbackScreen(
                 }
                 MediaPlayer.Event.EndReached -> scope.launch {
                     if (leaving.get() || nativeReleased.get()) return@launch
-                    if (!ended) {
-                        PlaybackDiagnostics.event(context, "VLC_END", persistNow = true)
-                        ended = true
-                        onProgress(durationMs, durationMs)
-                        onEnded()
+                    if (ended) return@launch
+                    // Many providers close a broken HTTP stream as a native
+                    // EndReached event. Only auto-advance after actual video
+                    // playback has reached the known end of the episode.
+                    val endingTime = maxOf(positionMs,
+                        runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L))
+                    val endingLength = maxOf(durationMs,
+                        runCatching { player.length }.getOrDefault(0L).coerceAtLeast(0L))
+                    val confirmed = VodEndGuard.confirmed(
+                        hadPlayback = ready,
+                        playbackFailed = failed || diagHealth.networkBuffering ||
+                            healthSnapshot.state == VlcPlaybackHealth.State.STALLED,
+                        durationMs = endingLength,
+                        lastPositionMs = endingTime,
+                    )
+                    if (!confirmed) {
+                        PlaybackDiagnostics.event(context, "VLC_PREMATURE_END", persistNow = true)
+                        failed = true
+                        ready = false
+                        showControls()
+                        return@launch // Never move to another episode on lost connection.
                     }
+                    PlaybackDiagnostics.event(context, "VLC_END", persistNow = true)
+                    ended = true
+                    onProgress(endingTime, endingLength)
+                    onEnded()
                     showControls()
                 }
             }
