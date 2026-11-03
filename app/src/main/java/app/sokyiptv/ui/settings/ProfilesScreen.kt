@@ -21,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,10 +34,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sokyiptv.R
 import app.sokyiptv.ui.ProfilesViewModel
+import app.sokyiptv.ui.isHandheldPortrait
+import app.sokyiptv.ui.isHandheldTouch
 import app.sokyiptv.ui.channels.OnScreenKeyboard
 
 /**
@@ -50,6 +54,7 @@ fun ProfilesScreen(
 ) {
     val profiles by viewModel.profiles.collectAsState()
     val activeId by viewModel.activeProfileId.collectAsState()
+    val portrait = isHandheldPortrait()
 
     // null = list; NEW = adding; a positive id = renaming that profile.
     var editing by remember { mutableStateOf<Long?>(null) }
@@ -70,12 +75,18 @@ fun ProfilesScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 24.dp),
+            .padding(horizontal = if (portrait) 12.dp else 32.dp,
+                vertical = if (portrait) 14.dp else 24.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.profiles_title), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
-            Button(onClick = { editing = NEW }) { Text(stringResource(R.string.profiles_add)) }
+            Text(stringResource(R.string.profiles_title),
+                style = if (portrait) MaterialTheme.typography.titleLarge
+                    else MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Button(onClick = { editing = NEW }) {
+                Text(stringResource(R.string.profiles_add),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.width(12.dp))
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
         }
@@ -89,8 +100,10 @@ fun ProfilesScreen(
             items(profiles, key = { it.id }) { profile ->
                 val active = profile.id == activeId
                 Card {
+                    Column {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = if (portrait) 12.dp else 18.dp,
+                            vertical = if (portrait) 8.dp else 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
@@ -107,13 +120,38 @@ fun ProfilesScreen(
                                 )
                             }
                         }
-                        if (!active) {
-                            TextButton(onClick = { viewModel.select(profile.id) }) { Text(stringResource(R.string.profiles_use)) }
+                        if (!portrait) {
+                            if (!active) {
+                                TextButton(onClick = { viewModel.select(profile.id) }) {
+                                    Text(stringResource(R.string.profiles_use))
+                                }
+                            }
+                            TextButton(onClick = { editing = profile.id }) {
+                                Text(stringResource(R.string.profiles_rename))
+                            }
+                            if (profile.id != 1L) {
+                                TextButton(onClick = { viewModel.remove(profile.id) }) {
+                                    Text(stringResource(R.string.common_remove))
+                                }
+                            }
                         }
-                        TextButton(onClick = { editing = profile.id }) { Text(stringResource(R.string.profiles_rename)) }
-                        if (profile.id != 1L) {
-                            TextButton(onClick = { viewModel.remove(profile.id) }) { Text(stringResource(R.string.common_remove)) }
+                    }
+                    if (portrait) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly) {
+                        if (!active) TextButton(onClick = { viewModel.select(profile.id) }) {
+                            Text(stringResource(R.string.profiles_use),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                        TextButton(onClick = { editing = profile.id }) {
+                            Text(stringResource(R.string.profiles_rename),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (profile.id != 1L)
+                            TextButton(onClick = { viewModel.remove(profile.id) }) {
+                                Text(stringResource(R.string.common_remove),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                    }
                     }
                 }
             }
@@ -129,6 +167,32 @@ private fun NameEntry(
     onSave: (String) -> Unit,
 ) {
     var name by remember { mutableStateOf(initial) }
+    if (isHandheldTouch()) {
+        Column(Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(heading, style = MaterialTheme.typography.titleLarge,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            OutlinedTextField(
+                value = name,
+                onValueChange = { if (it.length <= 24) name = it },
+                label = { Text("Profile name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(enabled = name.isNotBlank(), modifier = Modifier.weight(1f),
+                    onClick = { onSave(name) }) {
+                    Text(stringResource(R.string.common_save),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(modifier = Modifier.weight(1f), onClick = onCancel) {
+                    Text(stringResource(R.string.common_cancel),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        return
+    }
     Column(
         Modifier
             .fillMaxSize()
