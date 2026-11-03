@@ -82,6 +82,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -165,6 +166,10 @@ fun VodPlayerScreen(
     // to be captured locally in Room; no cloud gate/network work on video exit.
     val settings = remember { graph.settings }
     val autoplay by settings.seriesAutoplay.collectAsState()
+    val recoveryEnd by settings.liveRecoveryEnd.collectAsState()
+    val recoverySkipWait by settings.liveSkipCountdownSeconds.collectAsState()
+    val recoveryTimeout by settings.liveNoResponseSeconds.collectAsState()
+    val recoveryRetryGap by settings.playbackRetryDelaySeconds.collectAsState()
     val uiStyle by settings.playerUiStyle.collectAsState()
     val thumbnailMode by settings.thumbnailSeekMode.collectAsState()
     val predictiveTrickplay =
@@ -227,6 +232,9 @@ fun VodPlayerScreen(
                 growingDataSourceFactory =
                     app.sokyiptv.player.GrowingRecordingDataSource.Factory(context.applicationContext),
                 liveRecording = growingRec,
+                // VOD has its own five-attempt on-screen recovery now.
+                // Disable PlayerController's hidden, overlapping auto-restarts.
+                visibleLiveRecovery = true,
             )
         }
     }
@@ -357,6 +365,105 @@ fun VodPlayerScreen(
     val media3SeekClock = remember(mediaKey, controller) { VlcSeekClock() }
     val postSeekGate = remember(mediaKey, controller) { PostSeekPlaybackGate() }
     var awaitingSeekPlayback by remember(mediaKey, controller) { mutableStateOf(false) }
+    // Recovery state lives ABOVE the native VLC/Media3 surface. A clean VLC
+    // renderer is remounted only after a verified failure, never during seeking.
+    var recoveryIssue by remember(mediaKey) { mutableStateOf<String?>(null) }
+    var recoverySerial by remember(mediaKey) { mutableIntStateOf(0) }
+    var recoveryAttempts by remember(mediaKey) { mutableIntStateOf(0) }
+    var recoveryRetryEpoch by remember(mediaKey) { mutableIntStateOf(0) }
+    var recoveryCountdown by remember(mediaKey) { mutableIntStateOf(0) }
+    var recoverySkipCountdown by remember(mediaKey) { mutableIntStateOf(0) }
+    var recoveryInFlight by remember(mediaKey) { mutableStateOf(false) }
+    var recoveryStopped by remember(mediaKey) { mutableStateOf(false) }
+
+    fun noteConnectionIssue(message: String) {
+        if (recoveryStopped) return
+        // One failure per attempted connection, even if VLC signals both
+        // EndReached and EncounteredError for the same dropped stream.
+        if (recoveryIssue == null || recoveryInFlight) {
+            recoveryIssue = message
+            recoveryInFlight = false
+            recoverySerial++
+        }
+    }
+
+    fun noteStablePlayback() {
+        if (recoveryIssue != null && !recoveryStopped) {
+            recoveryIssue = null
+            recoveryAttempts = 0
+            recoveryInFlight = false
+            recoveryCountdown = 0
+            recoverySkipCountdown = 0
+        }
+    }
+
+    fun performRecoveryRetry(manual: Boolean = false) {
+        if (manual && recoveryAttempts >= app.sokyiptv.core.PlaybackRecoveryPolicy.MAX_RETRIES)
+            recoveryAttempts = 0
+        if (!app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(recoveryAttempts, false))
+            return
+        recoveryStopped = false
+        recoveryCountdown = 0
+        recoverySkipCountdown = 0
+        recoveryAttempts++
+        recoveryInFlight = true
+        recoveryRetryEpoch++
+        if (!usingVlc) {
+            // Retune at the latest watched position, not the stale original
+            // start offset. Keep the approved native seeking path untouched.
+            media3PrematureEnd = false
+            media3HadError = false
+            controller.play(
+                PlayerController.Request(
+                    url = streamUrl,
+                    title = title,
+                    userAgent = userAgent,
+                    startPositionMillis = if (positionMs > 0L) positionMs else resumeFromMs,
+                    isLive = false,
+                ),
+                debounce = false,
+            )
+            endWatchGeneration++
+        }
+        // VLC is remounted under key(recoveryRetryEpoch) below. That reopens
+        // the URL in a fresh native MediaPlayer; it reuses the last watch clock.
+    }
+
+    LaunchedEffect(
+        recoverySerial, recoveryIssue, recoveryStopped, recoveryInFlight,
+        recoveryEnd, recoverySkipWait, recoveryRetryGap, followingEpisode,
+    ) {
+        if (recoveryIssue == null || recoveryStopped || recoveryInFlight) return@LaunchedEffect
+        if (app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(recoveryAttempts, false)) {
+            for (seconds in app.sokyiptv.core.PlaybackRecoveryPolicy
+                .retryDelaySeconds(recoveryRetryGap) downTo 1) {
+                recoveryCountdown = seconds
+                delay(1_000L)
+            }
+            performRecoveryRetry()
+        } else if (app.sokyiptv.core.PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
+                recoveryAttempts,
+                recoveryEnd == AppSettings.LiveRecoveryEnd.AUTO_SKIP,
+                mediaKey.startsWith("ep:"), followingEpisode != null,
+            )) {
+            for (seconds in recoverySkipWait downTo 1) {
+                recoverySkipCountdown = seconds
+                delay(1_000L)
+            }
+            val next = followingEpisode
+            if (next != null && recoveryIssue != null && !recoveryStopped) {
+                // Skipping due to a provider outage does NOT mark this
+                // episode finished; save only its actual elapsed progress.
+                savePosition()
+                onNextEpisode(next)
+            } else recoveryStopped = true
+        } else {
+            recoveryStopped = true
+            recoveryCountdown = 0
+            recoverySkipCountdown = 0
+        }
+    }
+
     fun reveal() { controlsVisible = true; interaction++ }
 
     var media3ResumeGeneration by remember(controller) { mutableIntStateOf(0) }
