@@ -74,6 +74,12 @@ import app.sokyiptv.ui.ChannelsViewModel
 import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import app.sokyiptv.ui.vod.tvRemoteActions
+import app.sokyiptv.ui.vod.grabFavouriteKeys
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -119,6 +125,29 @@ internal fun LiveCatalogueScreen(
     val history = remember(profileId, browseRevision) { browse.recentLive(profileId) }
     val sortMode = browse.sort("live", favouritesOnly)
     val grid = rememberLazyGridState()
+    // Reorder in memory on arrows and save once on OK/Drop, never write prefs on
+    // each D-pad repeat and never take focus away from the grabbed poster.
+    var grabbedKey by remember { mutableStateOf<String?>(null) }
+    var tentativeOrder by remember { mutableStateOf<List<String>>(emptyList()) }
+    val beginMove: (String, List<String>) -> Unit = { key, keys ->
+        tentativeOrder = keys
+        grabbedKey = key
+    }
+    val finishMove: () -> Unit = {
+        if (grabbedKey != null) browse.saveFavouriteOrder("live", tentativeOrder)
+        grabbedKey = null
+        tentativeOrder = emptyList()
+    }
+    val stepMove: (String, Int) -> Unit = { key, delta ->
+        val index = tentativeOrder.indexOf(key)
+        val target = index + delta
+        if (index >= 0 && target in tentativeOrder.indices) {
+            tentativeOrder = tentativeOrder.toMutableList().apply {
+                java.util.Collections.swap(this, index, target)
+            }
+        }
+    }
+    BackHandler(grabbedKey != null) { finishMove() }
     val portrait = isHandheldPortrait()
     val categoriesFiltered = remember(categories, categoryQuery) {
         val q = categoryQuery.trim()
@@ -130,7 +159,7 @@ internal fun LiveCatalogueScreen(
     // No EPG data, no per-focus scroll jobs; sort and filter off-main for large
     // playlists. Newly watched channels update only the per-profile Recently list.
     val visibleRows by produceState(initialValue = rows, rows, titleQuery, recentOnly,
-                                    favouritesOnly, sortMode, profileId, browseRevision) {
+                                    favouritesOnly, sortMode, profileId, browseRevision, tentativeOrder) {
         val q = titleQuery.trim()
         if (q.isNotBlank()) delay(90L)
         value = withContext(Dispatchers.Default) {
@@ -143,8 +172,16 @@ internal fun LiveCatalogueScreen(
                 it.primary.shownName.lowercase(java.util.Locale.ROOT)
             }.thenBy { it.primary.id }
             when {
-                favouritesOnly && sortMode == BrowseSort.CUSTOM ->
-                    browse.customSort("live", scoped) { browse.orderKey(it.primary) }
+                favouritesOnly && sortMode == BrowseSort.CUSTOM -> {
+                    if (grabbedKey != null && tentativeOrder.isNotEmpty()) {
+                        val rank = tentativeOrder.withIndex().associate { it.value to it.index }
+                        scoped.withIndex().sortedWith(
+                            compareBy<IndexedValue<ChannelsViewModel.Row>> {
+                                rank[browse.orderKey(it.value.primary)] ?: Int.MAX_VALUE
+                            }.thenBy { it.index }
+                        ).map { it.value }
+                    } else browse.customSort("live", scoped) { browse.orderKey(it.primary) }
+                }
                 recentOnly && sortMode == BrowseSort.DEFAULT ->
                     scoped.sortedBy { historyRanks[browse.orderKey(it.primary)] ?: Int.MAX_VALUE }
                 sortMode == BrowseSort.NAME_ASC -> scoped.sortedWith(tie)
@@ -193,11 +230,8 @@ internal fun LiveCatalogueScreen(
         titleQuery = ""
         onCategory(null) // Recent history is not limited to a previously selected category.
     }
-    val moveFavourite: (ChannelsViewModel.Row, Int) -> Unit = { row, delta ->
-        if (favouritesOnly && sortMode == BrowseSort.CUSTOM && titleQuery.isBlank()) {
-            browse.moveFavourite("live", browse.orderKey(row.primary), delta,
-                visibleRows.map { browse.orderKey(it.primary) })
-        }
+    LaunchedEffect(favouritesOnly, selectedSource, selectedCategory, sortMode, titleQuery) {
+        if (grabbedKey != null) finishMove()
     }
 
     @Composable
@@ -240,8 +274,16 @@ internal fun LiveCatalogueScreen(
                     onClick = { onPlay(row.primary) },
                     onOptions = { onOptions(row) },
                     onToggleFavourite = { onToggleFavourite(row) },
-                    onMove = if (favouritesOnly && sortMode == BrowseSort.CUSTOM &&
-                                 titleQuery.isBlank()) ({ delta -> moveFavourite(row, delta) }) else null,
+                    canMove = favouritesOnly && sortMode == BrowseSort.CUSTOM &&
+                        titleQuery.isBlank() && !recentOnly,
+                    grabbed = grabbedKey == browse.orderKey(row.primary),
+                    columns = columns,
+                    onGrab = {
+                        beginMove(browse.orderKey(row.primary),
+                            visibleRows.map { browse.orderKey(it.primary) })
+                    },
+                    onMove = { delta -> stepMove(browse.orderKey(row.primary), delta) },
+                    onDrop = finishMove,
                 )
             }
         }
@@ -445,13 +487,27 @@ private fun LivePoster(
     onClick: () -> Unit,
     onOptions: () -> Unit,
     onToggleFavourite: () -> Unit,
-    onMove: ((Int) -> Unit)?,
+    canMove: Boolean,
+    grabbed: Boolean,
+    columns: Int,
+    onGrab: () -> Unit,
+    onMove: (Int) -> Unit,
+    onDrop: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    val restoreFocus = remember { FocusRequester() }
+    LaunchedEffect(grabbed) {
+        if (grabbed) {
+            delay(75)
+            runCatching { restoreFocus.requestFocus() }
+        }
+    }
     Column(
         Modifier.fillMaxWidth()
+            .focusRequester(restoreFocus)
             .onFocusChanged { focused = it.isFocused }
+            .grabFavouriteKeys(grabbed, columns, onMove, onDrop)
             // One D-pad focus target per channel, as in Movies.
             // A hardware yellow key makes favouriting a single keypress on TV
             // remotes that offer it. Ordinary Menu/long-OK opens the full menu.
@@ -465,7 +521,8 @@ private fun LivePoster(
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(.69f)
-                .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
+                .border(if (grabbed) 3.dp else if (focused) 2.dp else 0.dp,
+                    if (grabbed) Color(0xFFFFD466) else Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
                 .background(Color(0xFF151B2B)),
             contentAlignment = Alignment.Center,
         ) {
@@ -517,15 +574,15 @@ private fun LivePoster(
             DropdownMenuItem(
                 text = { Text(if (channel.favourite) "Remove from favourites" else "Add to favourites") },
                 onClick = { menuOpen = false; onToggleFavourite() })
-            if (onMove != null) {
-                DropdownMenuItem(text = { Text("Move earlier in favourites") },
-                    onClick = { menuOpen = false; onMove(-1) })
-                DropdownMenuItem(text = { Text("Move later in favourites") },
-                    onClick = { menuOpen = false; onMove(1) })
-            }
+            if (canMove) DropdownMenuItem(
+                text = { Text("Move — grab title") },
+                onClick = { menuOpen = false; onGrab() },
+            )
             DropdownMenuItem(text = { Text("More channel options") },
                 onClick = { menuOpen = false; onOptions() })
         }
+        if (grabbed) Text("MOVING · Arrows to move · OK to drop",
+            color = Color(0xFFFFD466), maxLines = 1, fontSize = 10.sp)
         Text(
             channel.shownName, color = Color.White,
             fontSize = 12.sp, lineHeight = 16.sp,
