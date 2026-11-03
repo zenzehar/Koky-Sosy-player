@@ -188,7 +188,7 @@ fun MainScreen(
       } else {
       Row(Modifier.weight(1f).fillMaxWidth()) {
         // Movies/Series have their own category rail; remove the global rail.
-        if (tab == Tab.RECORDINGS) NavRail(
+        if (tab == Tab.RECORDINGS && !isHandheldPortrait()) NavRail(
             tabs = visibleTabs,
             current = tab,
             onSelect = { desired -> if (allowTab(desired)) tab = desired },
@@ -199,7 +199,21 @@ fun MainScreen(
         )
 
         Box(Modifier.weight(1f).fillMaxHeight()) {
-            when (tab) {
+            if (tab == Tab.RECORDINGS && isHandheldPortrait()) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(Modifier.fillMaxWidth().height(50.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { showDashboard = true }) {
+                            Text("Home", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text("Recordings", style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        RecordingsScreen(onPlay = onPlayRecording)
+                    }
+                }
+            } else when (tab) {
                 Tab.LIVE -> HomeScreen(
                     isTelevision = isTelevision,
                     hasSources = hasSources,
