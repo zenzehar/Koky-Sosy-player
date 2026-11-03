@@ -5,6 +5,11 @@
  */
 package app.sokyiptv.ui.settings
 
+import app.sokyiptv.ui.isHandheldPortrait
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -66,7 +71,8 @@ fun WebManagerScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize().padding(if (isHandheldPortrait()) 16.dp else 32.dp),
+        contentAlignment = Alignment.Center) {
         when (val current = state) {
             is ManagerServer.State.Listening -> Listening(current.session, onBack)
 
@@ -100,16 +106,17 @@ private fun Listening(session: ManagerServer.Session, onBack: () -> Unit) {
     // Generated once per session — encoding is not free and the content does not change.
     val qr = remember(session.url) { QrCodes.render(session.url, QR_SIZE_PX) }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(48.dp),
-    ) {
+    val handheld = isHandheldPortrait()
+    val qrSize = if (handheld)
+        ((LocalConfiguration.current.screenWidthDp - 32) * .65f).coerceIn(140f, 280f).dp
+        else 300.dp
+    val body: @Composable () -> Unit = {
         if (qr != null) {
             Image(
                 bitmap = qr.asImageBitmap(),
                 contentDescription = stringResource(R.string.webmanager_qr_desc),
                 modifier = Modifier
-                    .size(300.dp)
+                    .size(qrSize)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color.White)
                     .padding(12.dp),
@@ -144,8 +151,22 @@ private fun Listening(session: ManagerServer.Session, onBack: () -> Unit) {
             )
 
             Spacer(Modifier.height(32.dp))
-            OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
+            OutlinedButton(onClick = onBack) {
+                Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false)
+            }
         }
+    }
+    if (handheld) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) { body() }
+    } else {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(48.dp),
+        ) { body() }
     }
 }
 
