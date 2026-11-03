@@ -365,6 +365,7 @@ fun HomeScreen(
             onSource = viewModel::selectSource,
             onPlay = ::requestLive,
             onOptions = { channelMenu = it },
+            onToggleFavourite = viewModel::toggleFavourite,
             onGuide = { catalogueMode = false; railExpanded = true },
             onExit = onExit,
         )
@@ -887,6 +888,12 @@ fun HomeScreen(
                     RecordActionRow(stringResource(R.string.guide_watch)) {
                         channelMenu = null
                         requestLive(channel)
+                    }
+                    RecordActionRow(
+                        if (channel.favourite) "Remove from favourites" else "Add to favourites"
+                    ) {
+                        channelMenu = null
+                        viewModel.toggleFavourite(menuRow)
                     }
                     RecordActionRow(stringResource(R.string.guide_open_external)) {
                         channelMenu = null
