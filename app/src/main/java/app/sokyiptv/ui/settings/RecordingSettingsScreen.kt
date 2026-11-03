@@ -5,7 +5,7 @@
  */
 package app.sokyiptv.ui.settings
 
-import app.sokyiptv.ui.isHandheldTouch
+import app.sokyiptv.ui.isHandheldPortrait
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -148,10 +148,10 @@ fun RecordingSettingsScreen(onBack: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.settings_recording_title), style = MaterialTheme.typography.headlineMedium,
-                modifier = if (isHandheldTouch()) Modifier.weight(1f) else Modifier,
-                maxLines = if (isHandheldTouch()) 2 else Int.MAX_VALUE,
+                modifier = if (isHandheldPortrait()) Modifier.weight(1f) else Modifier,
+                maxLines = if (isHandheldPortrait()) 2 else Int.MAX_VALUE,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Spacer(if (isHandheldTouch()) Modifier.width(8.dp) else Modifier.weight(1f))
+            Spacer(if (isHandheldPortrait()) Modifier.width(8.dp) else Modifier.weight(1f))
             OutlinedButton(onClick = { persist(); onBack() }) { Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false) }
         }
         Spacer(Modifier.height(8.dp))
