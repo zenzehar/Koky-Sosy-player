@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -50,7 +51,7 @@ internal fun VodConnectionRecoveryOverlay(
     val firstFocus = remember { FocusRequester() }
     Dialog(onDismissRequest = onStop,
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Card(modifier = Modifier.fillMaxWidth(.90f).heightIn(max = 560.dp),
+        Card(modifier = Modifier.fillMaxWidth(.90f).widthIn(max = 520.dp).heightIn(max = 560.dp),
             shape = RoundedCornerShape(16.dp)) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
