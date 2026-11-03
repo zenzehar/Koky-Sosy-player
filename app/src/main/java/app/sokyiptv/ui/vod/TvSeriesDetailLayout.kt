@@ -7,6 +7,7 @@ package app.sokyiptv.ui.vod
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,6 +82,7 @@ import app.sokyiptv.data.model.Episode
 import app.sokyiptv.data.model.Series
 import app.sokyiptv.data.parser.displayTitle
 import app.sokyiptv.ui.VodViewModel
+import app.sokyiptv.ui.isHandheldPortrait
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -95,6 +97,7 @@ internal fun TvSeriesDetailLayout(
     viewModel: VodViewModel,
     onOpenPerson: (String) -> Unit = {},
 ) {
+    val portrait = isHandheldPortrait()
     var series by remember(seriesId) { mutableStateOf<Series?>(null) }
     var expandedPlot by rememberSaveable(seriesId) { mutableStateOf(false) }
     var selectedSeason by rememberSaveable(seriesId) { mutableStateOf(-1) }
@@ -246,7 +249,7 @@ internal fun TvSeriesDetailLayout(
     // The primary Play/Resume button is disabled until the episodes are loaded.
     // Focus it only once when enabled, without stealing focus again on season changes.
     LaunchedEffect(seriesId, playEpisode?.id) {
-        if (!initialActionFocused && playEpisode != null) {
+        if (!portrait && !initialActionFocused && playEpisode != null) {
             repeat(8) {
                 kotlinx.coroutines.delay(85L)
                 if (runCatching { playFocus.requestFocus() }.isSuccess) {
@@ -261,14 +264,15 @@ internal fun TvSeriesDetailLayout(
         Row(
             Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 19.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(22.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (portrait) 6.dp else 22.dp),
         ) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White) }
-            Text("SOKY IPTV PRO", color = Color.White, fontWeight = FontWeight.Bold,
+            if (!portrait) Text("SOKY IPTV PRO", color = Color.White, fontWeight = FontWeight.Bold,
                 fontSize = 17.sp)
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Text(s.displayTitle, color = Color.White, fontWeight = FontWeight.Bold,
-                    fontSize = 21.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    fontSize = if (portrait) 17.sp else 21.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onClick = {
                 viewModel.toggleSeriesFavourite(s)
@@ -278,6 +282,96 @@ internal fun TvSeriesDetailLayout(
                     contentDescription = "Favourite", tint = Color.White)
             }
         }
+        if (portrait) {
+            // Portrait hero is short and scrollable where necessary; no wide
+            // horizontal TV button bar can push actions off the phone screen.
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AsyncImage(model = s.posterUrl, contentDescription = s.displayTitle,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.width(82.dp).height(120.dp))
+                Column(Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(s.displayTitle, color = Color.White,
+                        fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("Year: " + (s.year?.toString() ?: "N/A"),
+                        color = Color.LightGray, fontSize = 13.sp, maxLines = 1)
+                    Text("Genre: " + (s.genre ?: "N/A"),
+                        color = Color.LightGray, fontSize = 13.sp,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (!s.plot.isNullOrBlank()) TextButton(onClick = { expandedPlot = true }) {
+                        Text("Read synopsis", maxLines = 1, softWrap = false,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    playEpisode?.let { ep ->
+                        lastPlayedEpisode = ep.id
+                        onPlayEpisode("ep:" + ep.id, ep.streamUrl,
+                            "S" + ep.season + "E" + ep.episodeNumber + " - " + ep.title)
+                    }
+                }, enabled = playEpisode != null,
+                    modifier = Modifier.weight(1f).height(50.dp)) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Text(if (playEpisode?.id == resumeEpisode?.id && resumeEpisode != null)
+                        "Resume" else "Play",
+                        maxLines = 1, softWrap = false,
+                        overflow = TextOverflow.Ellipsis)
+                }
+                Box(Modifier.weight(1f)) {
+                    Button(onClick = { seasonMenuOpen = true },
+                        enabled = bySeason.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                        Text("Season " + activeSeason, maxLines = 1,
+                            softWrap = false, overflow = TextOverflow.Ellipsis)
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = seasonMenuOpen,
+                        onDismissRequest = { seasonMenuOpen = false }) {
+                        bySeason.keys.forEach { number ->
+                            DropdownMenuItem(text = { Text("Season " + number) },
+                                onClick = { selectedSeason = number; seasonMenuOpen = false })
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = { preferences.setSeriesAutoplay(!autoNext) },
+                ) {
+                    Text(if (autoNext) "Autoplay: On" else "Autoplay: Off",
+                        maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(modifier = Modifier.weight(1f),
+                    onClick = { showResetConfirm = true }) {
+                    Text("Reset Progress", maxLines = 1, softWrap = false,
+                        overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (expandedPlot && !s.plot.isNullOrBlank()) {
+                AlertDialog(
+                    onDismissRequest = { expandedPlot = false },
+                    title = { Text(s.displayTitle, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis) },
+                    text = {
+                        Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                            Text(s.plot.orEmpty())
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { expandedPlot = false }) { Text("Close") }
+                    },
+                )
+            }
+        } else {
         Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             AsyncImage(
@@ -359,10 +453,11 @@ internal fun TvSeriesDetailLayout(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(start = 25.dp)) {
+        } // end portrait-specific hero; TV/landscape hero remains unchanged.
+        Row(Modifier.fillMaxWidth().padding(start = if (portrait) 8.dp else 25.dp)) {
             TvDetailTab("Episodes (${episodes.size})", !showCast) { showCast = false }
             TvDetailTab("Cast", showCast) { showCast = true }
-            if (!showCast && durationScanStatus.isNotBlank()) {
+            if (!portrait && !showCast && durationScanStatus.isNotBlank()) {
                 Text(
                     durationScanStatus,
                     modifier = Modifier.padding(start = 16.dp, top = 5.dp),
@@ -512,13 +607,18 @@ private fun DetailAttribute(label: String, value: String) {
 private fun TvDetailTab(label: String, selected: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
-        Modifier.width(182.dp).height(47.dp)
+        Modifier.width(if (isHandheldPortrait()) {
+            ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 24) / 2)
+                .coerceAtLeast(100).dp
+        } else 182.dp).height(47.dp)
             .background(if (selected) Color(0xFF202641) else Color.Transparent)
             .onFocusChanged { focused = it.isFocused }
             .clickable(onClick = onClick), contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 17.sp, color = Color.White)
+            Text(label, fontSize = if (isHandheldPortrait()) 14.sp else 17.sp,
+                color = Color.White, maxLines = 1, softWrap = false,
+                overflow = TextOverflow.Ellipsis)
             if (selected || focused) Box(
                 Modifier.fillMaxWidth().height(if (focused) 3.dp else 2.dp)
                     .background(if (focused) Color(0xFF7AE4F0) else Color(0xFFDB8AD2))

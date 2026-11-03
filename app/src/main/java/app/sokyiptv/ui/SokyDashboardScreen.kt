@@ -11,6 +11,8 @@ import androidx.compose.ui.draw.alpha
 import app.sokyiptv.data.work.CatalogueGate
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -207,6 +209,28 @@ fun SokyDashboardScreen(
             }
         }
     }
+    if (isHandheldPortrait()) {
+        PortraitDashboard(
+            hasSources = hasSources,
+            sourceName = sourceForFooter?.name,
+            expiryText = expiryText,
+            liveUpdate = liveFooter,
+            movieUpdate = movieFooter,
+            seriesUpdate = seriesFooter,
+            onAddProvider = onAddProvider,
+            onLive = onLive, onMovies = onMovies, onSeries = onSeries,
+            onRecordings = onRecordings, onSearch = onSearch,
+            onProfiles = onProfiles, onSettings = onSettings, onRefresh = onRefresh,
+            onLiveRefresh = { LiveSectionSyncWorker.refresh(context) },
+            onMoviesRefresh = { VodSectionSyncWorker.refresh(context, isSeries = false, sourceId = null) },
+            onSeriesRefresh = { VodSectionSyncWorker.refresh(context, isSeries = true, sourceId = null) },
+            statusMessage = if (gated && update.phase == CatalogueGate.Phase.FAILED)
+                update.message else if (gated && update.phase == CatalogueGate.Phase.BUILDING)
+                "Finalising guide and catalogue…" else null,
+        )
+        return
+    }
+
     LaunchedEffect(Unit) { initialFocus.requestFocus() }
     Column(
         Modifier.fillMaxSize().background(background).padding(horizontal = 28.dp, vertical = 20.dp),
@@ -325,6 +349,98 @@ fun SokyDashboardScreen(
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/**
+ * This is a distinct handheld portrait composition. The TV dashboard is below
+ * unchanged and runs as soon as the device rotates to landscape. In portrait,
+ * cards have fixed comfortable touch heights and the entire page can scroll.
+ */
+@Composable
+private fun PortraitDashboard(
+    hasSources: Boolean,
+    sourceName: String?,
+    expiryText: String,
+    liveUpdate: VodTileUpdate,
+    movieUpdate: VodTileUpdate,
+    seriesUpdate: VodTileUpdate,
+    onAddProvider: () -> Unit,
+    onLive: () -> Unit,
+    onMovies: () -> Unit,
+    onSeries: () -> Unit,
+    onRecordings: () -> Unit,
+    onSearch: () -> Unit,
+    onProfiles: () -> Unit,
+    onSettings: () -> Unit,
+    onRefresh: () -> Unit,
+    onLiveRefresh: () -> Unit,
+    onMoviesRefresh: () -> Unit,
+    onSeriesRefresh: () -> Unit,
+    statusMessage: String?,
+) {
+    Column(
+        Modifier.fillMaxSize().background(background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("SOKY IPTV PRO", color = Color.White, fontWeight = FontWeight.Bold,
+                fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f))
+            HeaderAction(Icons.Filled.Search, "Search", onSearch)
+            HeaderAction(Icons.Filled.Person, "Profiles", onProfiles)
+            HeaderAction(Icons.Filled.Settings, "Settings", onSettings)
+        }
+        DashboardTile(
+            label = "LIVE TV", icon = Icons.Filled.LiveTv,
+            shades = listOf(Color(0xFF31CEA1), Color(0xFF3442C8)),
+            vodUpdate = liveUpdate, onVodRefresh = onLiveRefresh,
+            modifier = Modifier.fillMaxWidth().height(142.dp),
+            onClick = if (hasSources) onLive else onAddProvider,
+        )
+        DashboardTile(
+            label = "MOVIES", icon = Icons.Filled.Movie,
+            shades = listOf(Color(0xFFDB2D53), Color(0xFFF49A3D)),
+            vodUpdate = movieUpdate, onVodRefresh = onMoviesRefresh,
+            modifier = Modifier.fillMaxWidth().height(142.dp),
+            onClick = if (hasSources) onMovies else onAddProvider,
+        )
+        DashboardTile(
+            label = "SERIES", icon = Icons.Filled.Tv,
+            shades = listOf(Color(0xFF953FAF), Color(0xFF4B9EDD)),
+            vodUpdate = seriesUpdate, onVodRefresh = onSeriesRefresh,
+            modifier = Modifier.fillMaxWidth().height(142.dp),
+            onClick = if (hasSources) onSeries else onAddProvider,
+        )
+        Row(Modifier.fillMaxWidth().height(90.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            DashboardTile(
+                label = "RECORDINGS", icon = Icons.Filled.FiberManualRecord,
+                shades = listOf(Color(0xFF308B84), Color(0xFF308B84)),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                compact = true, onClick = onRecordings,
+            )
+            DashboardTile(
+                label = "UPDATE", icon = Icons.Filled.Refresh,
+                shades = listOf(Color(0xFF308B84), Color(0xFF308B84)),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                compact = true, onClick = onRefresh,
+            )
+        }
+        if (statusMessage != null) Text(statusMessage, color = Color(0xFFFFD5B0),
+            fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+            sourceName?.let { "Playlist: $it" } ?: "Add an IPTV provider to start",
+            color = Color.White.copy(alpha = .83f),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Text("Subscription expiry: $expiryText",
+            color = Color.White.copy(alpha = .83f),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

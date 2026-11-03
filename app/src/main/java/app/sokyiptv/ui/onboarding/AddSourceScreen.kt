@@ -20,6 +20,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -71,6 +77,7 @@ import app.sokyiptv.R
 import app.sokyiptv.data.model.Source
 import app.sokyiptv.data.model.SourceKind
 import app.sokyiptv.isRunningOnTelevision
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.SourcesViewModel
 import app.sokyiptv.ui.settings.CredentialBackupControls
 import app.sokyiptv.ui.settings.DeviceCredentialVaultControls
@@ -190,6 +197,134 @@ fun AddSourceScreen(
         disabledContainerColor = Color.White.copy(alpha = 0.45f),
         disabledContentColor = Color(0xFF5F5762),
     )
+
+    if (isHandheldPortrait()) {
+        // A scrollable one-column credential form is necessary on phones:
+        // fixed TV-side-by-side panels otherwise become unusable under the IME.
+        // The original TV/landscape composition begins below and is untouched.
+        Column(
+            Modifier.fillMaxSize()
+                .background(Brush.horizontalGradient(listOf(
+                    Color(0xFF4E28CB), Color(0xFF8D40A7), Color(0xFFE97893))))
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("SOKY IPTV PRO", color = Color.White, fontSize = 25.sp,
+                fontWeight = FontWeight.Bold, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(if (existing == null) "Add IPTV Provider" else "Edit IPTV Provider",
+                color = Color.White, fontSize = 19.sp,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                for (choice in SourceKind.entries) {
+                    FilterChip(
+                        selected = kind == choice,
+                        onClick = { kind = choice },
+                        label = {
+                            Text(choice.name, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            TvNativeTextField(value = name, onValueChange = { name = it },
+                label = "Playlist name", modifier = Modifier.fillMaxWidth(),
+                smartersStyle = true)
+            if (kind == SourceKind.XTREAM) {
+                TvNativeTextField(value = username, onValueChange = { username = it },
+                    label = "Username", modifier = Modifier.fillMaxWidth(), smartersStyle = true)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TvNativeTextField(value = password, onValueChange = { password = it },
+                        label = "Password", modifier = Modifier.weight(1f),
+                        visualTransformation = if (showPassword)
+                            androidx.compose.ui.text.input.VisualTransformation.None
+                            else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        smartersStyle = true)
+                    IconButton(onClick = { showPassword = !showPassword },
+                        modifier = Modifier.size(54.dp)) {
+                        Icon(if (showPassword) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                            tint = Color.White)
+                    }
+                }
+            } else if (kind == SourceKind.STALKER) {
+                TvNativeTextField(value = mac, onValueChange = { mac = it },
+                    label = "MAC address", modifier = Modifier.fillMaxWidth(), smartersStyle = true)
+            }
+            TvNativeTextField(value = url, onValueChange = { url = it },
+                label = when (kind) {
+                    SourceKind.XTREAM -> "http://server-address:port"
+                    SourceKind.M3U -> "M3U playlist URL"
+                    SourceKind.STALKER -> "Portal URL"
+                }, modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                smartersStyle = true)
+            Button(
+                onClick = { viewModel.saveAndSync(draft()) { ok -> if (ok) onFinished() } },
+                enabled = canSubmit && !ui.testing && !ui.syncing,
+                modifier = Modifier.fillMaxWidth().height(55.dp),
+                colors = whiteButtonColors,
+            ) {
+                Text(if (ui.syncing) "VALIDATING…" else "ADD USER", maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            OutlinedButton(onClick = { viewModel.test(draft()) },
+                enabled = canSubmit && !ui.testing && !ui.syncing,
+                modifier = Modifier.fillMaxWidth()) {
+                if (ui.testing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("TEST CONNECTION", color = Color.White, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            if (allowListUsers) OutlinedButton(onClick = onListUsers,
+                modifier = Modifier.fillMaxWidth()) {
+                Text("LIST USERS", color = Color.White, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            OutlinedButton(onClick = { restoreBackup = true },
+                modifier = Modifier.fillMaxWidth()) {
+                Text("RESTORE LOGIN BACKUP", color = Color.White, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            TextButton(onClick = { showAdvanced = !showAdvanced },
+                modifier = Modifier.fillMaxWidth()) {
+                Text(if (showAdvanced) "HIDE ADVANCED SETTINGS" else "ADVANCED SETTINGS",
+                    color = Color.White, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            if (showAdvanced) {
+                TvNativeTextField(value = epgUrl, onValueChange = { epgUrl = it },
+                    label = "EPG URL (optional)", modifier = Modifier.fillMaxWidth(),
+                    smartersStyle = true)
+                TvNativeTextField(value = userAgent, onValueChange = { userAgent = it },
+                    label = "User-Agent", modifier = Modifier.fillMaxWidth(),
+                    smartersStyle = true)
+            }
+            TextButton(onClick = {
+                runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
+                    .onFailure { Toast.makeText(context,
+                        "VPN settings not available.", Toast.LENGTH_LONG).show() }
+            }) {
+                Text("CONNECT VPN", color = Color.White, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            listOfNotNull(
+                startupError?.takeIf { ui.testError == null && !ui.syncing },
+                ui.testResult, ui.testError, ui.syncMessage,
+            ).forEach { status ->
+                Text(status, color = Color.White,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        return
+    }
+
     Row(
         modifier = Modifier.fillMaxSize()
             .background(Brush.horizontalGradient(listOf(

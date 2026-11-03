@@ -30,6 +30,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,6 +62,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.sokyiptv.R
 import app.sokyiptv.data.model.shownName
 import app.sokyiptv.ui.ChannelsViewModel
+import app.sokyiptv.ui.isHandheldPortrait
+import app.sokyiptv.ui.isHandheldTouch
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 
@@ -96,6 +102,7 @@ fun ChannelManagerScreen(
     // selected category, or Search) carries this requester, so LEFT from a channel row lands
     // straight back on it. The rail is always visible, so if the requester's node is scrolled out
     // this returns false and ordinary left-navigation still reaches a visible entry.
+    val portrait = isHandheldPortrait()
     val railFocusRequester = remember { FocusRequester() }
     val onExitLeftToRail: () -> Boolean = {
         runCatching { railFocusRequester.requestFocus() }.isSuccess
@@ -115,11 +122,108 @@ fun ChannelManagerScreen(
     // category re-emit later (a background sync) never yanks focus out of the channel list.
     var initialFocusDone by remember { mutableStateOf(false) }
     LaunchedEffect(categoryGroups, searchMode) {
-        if (!initialFocusDone && !searchMode && categoryGroups.isNotEmpty()) {
+        if (!portrait &&
+            !initialFocusDone && !searchMode && categoryGroups.isNotEmpty()) {
             delay(80)
             runCatching { railFocusRequester.requestFocus() }
             initialFocusDone = true
         }
+    }
+
+    if (portrait) {
+        var categoryMenuOpen by remember { mutableStateOf(false) }
+        var providerMenuOpen by remember { mutableStateOf(false) }
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.channels_manager_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = onBack) {
+                    Text(stringResource(R.string.common_done), maxLines = 1)
+                }
+            }
+            Row(Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(modifier = Modifier.weight(1f),
+                    onClick = { searchMode = false }) {
+                    Text("Browse", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(modifier = Modifier.weight(1f),
+                    onClick = { searchMode = true }) {
+                    Text("Search", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (searchMode) {
+                SearchPane(query = query, results = searchResults,
+                    onKey = { if (query.length < 40) query += it },
+                    onSpace = { if (query.length < 40) query += " " },
+                    onBackspace = { query = query.dropLast(1) },
+                    onClear = { query = "" },
+                    onQueryChange = { query = it.take(40) },
+                    onToggleHidden = { row, hidden ->
+                        viewModel.setRowHidden(row, !hidden)
+                    },
+                    onToggleFavourite = { viewModel.toggleFavourite(it) })
+            } else {
+                Row(Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (sources.size > 1) Box(Modifier.weight(1f)) {
+                        OutlinedButton(onClick = { providerMenuOpen = true },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(sources.firstOrNull { it.id == selectedSource }?.name ?: "All providers",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        DropdownMenu(expanded = providerMenuOpen,
+                            onDismissRequest = { providerMenuOpen = false }) {
+                            DropdownMenuItem(text = { Text("All providers") },
+                                onClick = {
+                                    viewModel.selectManagerSource(null); providerMenuOpen = false
+                                })
+                            sources.forEach { source ->
+                                DropdownMenuItem(
+                                    text = { Text(source.name, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis) },
+                                    onClick = {
+                                        viewModel.selectManagerSource(source.id)
+                                        providerMenuOpen = false
+                                    })
+                            }
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        OutlinedButton(onClick = { categoryMenuOpen = true },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(categoryGroups.firstOrNull { it.key == selectedCategory }?.label
+                                ?: "Choose category",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        DropdownMenu(expanded = categoryMenuOpen,
+                            onDismissRequest = { categoryMenuOpen = false }) {
+                            categoryGroups.forEach { group ->
+                                DropdownMenuItem(
+                                    text = { Text(group.label, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis) },
+                                    onClick = {
+                                        viewModel.selectManagerCategory(group.key)
+                                        categoryMenuOpen = false
+                                    })
+                            }
+                        }
+                    }
+                }
+                BrowsePane(hasCategories = categoryGroups.isNotEmpty(),
+                    categorySelected = selectedCategory != null,
+                    rows = browseRows,
+                    onExitLeft = { false },
+                    onToggleHidden = { row, hidden ->
+                        viewModel.setRowHidden(row, !hidden)
+                    },
+                    onToggleFavourite = { viewModel.toggleFavourite(it) })
+            }
+        }
+        return
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -200,6 +304,7 @@ fun ChannelManagerScreen(
                         onSpace = { if (query.length < 40) query += " " },
                         onBackspace = { query = query.dropLast(1) },
                         onClear = { query = "" },
+                        onQueryChange = { query = it.take(40) },
                         onToggleHidden = { row, hidden -> viewModel.setRowHidden(row, !hidden) },
                         onToggleFavourite = { viewModel.toggleFavourite(it) },
                     )
@@ -227,9 +332,32 @@ private fun SearchPane(
     onSpace: () -> Unit,
     onBackspace: () -> Unit,
     onClear: () -> Unit,
+    onQueryChange: (String) -> Unit,
     onToggleHidden: (ChannelsViewModel.Row, Boolean) -> Unit,
     onToggleFavourite: (ChannelsViewModel.Row) -> Unit,
 ) {
+    if (isHandheldTouch()) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = query, onValueChange = onQueryChange,
+                label = { Text("Search channels") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            when {
+                query.isBlank() -> Hint(stringResource(R.string.channels_manager_search_hint))
+                query.trim().length < 2 -> Hint(stringResource(R.string.common_keep_typing))
+                results.isEmpty() -> Hint(stringResource(R.string.channels_manager_no_match, query))
+                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(results, key = { it.key }) { row ->
+                        val hidden = row.variants.all { it.hidden }
+                        ManagerRow(row, hidden,
+                            onToggleHidden = { onToggleHidden(row, hidden) },
+                            onToggleFavourite = { onToggleFavourite(row) })
+                    }
+                }
+            }
+        }
+        return
+    }
     Row(Modifier.fillMaxSize()) {
         OnScreenKeyboard(onKey = onKey, onSpace = onSpace, onBackspace = onBackspace, onClear = onClear)
         Spacer(Modifier.width(24.dp))

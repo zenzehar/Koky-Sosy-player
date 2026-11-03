@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import app.sokyiptv.ui.onboarding.TvNativeTextField
+import app.sokyiptv.ui.isHandheldPortrait
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -90,11 +91,15 @@ fun SearchScreen(
     }
     BackHandler { onBack() }
 
+    val portrait = isHandheldPortrait()
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 20.dp),
+        Modifier.fillMaxSize().padding(horizontal = if (portrait) 12.dp else 28.dp,
+            vertical = if (portrait) 12.dp else 20.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Master Search", style = MaterialTheme.typography.headlineMedium)
+            Text("Master Search", style = if (portrait) MaterialTheme.typography.titleLarge
+                else MaterialTheme.typography.headlineMedium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done)) }
         }

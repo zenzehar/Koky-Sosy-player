@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -79,6 +80,8 @@ import app.sokyiptv.data.model.Category
 import app.sokyiptv.data.parser.displayTitle
 import app.sokyiptv.data.parser.ArabicSearch
 import app.sokyiptv.ui.VodViewModel
+import app.sokyiptv.ui.isHandheldPortrait
+import app.sokyiptv.ui.isHandheldTouch
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
@@ -220,6 +223,148 @@ internal fun TvVodBrowser(
             }
     }
 
+
+    if (isHandheldPortrait()) {
+        // Entire TV/landscape branch below is untouched. The portrait layout
+        // keeps source/category, lazy paging, Continue Watching and search.
+        val columns = if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600)
+            3 else 2
+        val heading = when (selection) {
+            "all" -> "ALL"
+            "continue" -> "CONTINUE WATCHING"
+            "favourites" -> "FAVOURITES"
+            "recent" -> "RECENTLY ADDED"
+            else -> categoriesState.firstOrNull { it.id == selection }?.name ?: "ALL"
+        }
+        Column(Modifier.fillMaxSize().background(background)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onExit) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Text(if (isSeries) "SERIES" else "MOVIES",
+                    color = Color.White, fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                IconButton(onClick = onOpenSearch) {
+                    Icon(Icons.Default.Search, contentDescription = "Master Search", tint = Color.White)
+                }
+            }
+            TvNativeTextField(titleQuery, { titleQuery = it },
+                if (isSeries) "Search Series" else "Search Movies",
+                modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    TvNativeTextField(categoryQuery, { categoryQuery = it },
+                        "Filter categories", modifier = Modifier.fillMaxWidth())
+                }
+                if (sources.size > 1) Box {
+                    TextButton(onClick = { sourceMenu = true }) {
+                        Text("Provider", color = Color.White, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = sourceMenu,
+                        onDismissRequest = { sourceMenu = false }) {
+                        DropdownMenuItem(text = { Text("All providers") }, onClick = {
+                            viewModel.selectVodSource(null); sourceMenu = false
+                        })
+                        sources.forEach { src ->
+                            DropdownMenuItem(
+                                text = { Text(src.name, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis) },
+                                onClick = { viewModel.selectVodSource(src.id); sourceMenu = false })
+                        }
+                    }
+                }
+            }
+            LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                item(key = "all") {
+                    PortraitCategoryChip("ALL", selection == "all") { chooseCategory("all") }
+                }
+                item(key = "fav") {
+                    PortraitCategoryChip("FAVOURITES", selection == "favourites") {
+                        chooseCategory("favourites")
+                    }
+                }
+                item(key = "continue") {
+                    PortraitCategoryChip("CONTINUE WATCHING", selection == "continue") {
+                        chooseCategory("continue")
+                    }
+                }
+                item(key = "recent") {
+                    PortraitCategoryChip("RECENTLY ADDED", selection == "recent") {
+                        chooseCategory("recent")
+                    }
+                }
+                items(categories, key = { "p:" + it.sourceId + ":" + it.id }) { cat ->
+                    PortraitCategoryChip(cat.name, selection == cat.id) {
+                        chooseCategory(cat.id)
+                    }
+                }
+            }
+            Text(heading, color = Color.White.copy(alpha = .9f),
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (selection == "continue") {
+                val filtered = remember(scopedResume, titleQuery) {
+                    scopedResume.filter {
+                        titleQuery.isBlank() || if (ArabicSearch.hasArabic(titleQuery))
+                            ArabicSearch.matches(it.title, titleQuery)
+                        else it.title.contains(titleQuery.trim(), ignoreCase = true)
+                    }
+                }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    gridItems(filtered, key = { it.logicalKey }) { item ->
+                        ResumePoster(item,
+                            onPlay = { onResume(item.mediaKey, item.streamUrl, item.title) },
+                            onOpenTitle = {
+                                scope.launch {
+                                    if (item.seriesProviderId != null) {
+                                        catalog.seriesByProviderId(item.sourceId, item.seriesProviderId)
+                                            ?.let(onOpenSeries)
+                                    } else {
+                                        item.mediaKey.removePrefix("movie:").toLongOrNull()
+                                            ?.let { catalog.movie(it) }?.let(onOpenMovie)
+                                    }
+                                }
+                            },
+                            onReset = { resetTarget = item })
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns), state = grid,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    if (isSeries) gridItems(seriesPage, key = { "s:" + it.id }) { item ->
+                        TvPoster(title = item.displayTitle, poster = item.posterUrl,
+                            onClick = { onOpenSeries(item) },
+                            onFocusedState = { hasFocus ->
+                                seriesPrefetch.onFocusChanged(item, hasFocus)
+                            }, onReset = { viewModel.resetSeriesProgress(item) })
+                    } else gridItems(moviePage, key = { "m:" + it.id }) { item ->
+                        TvPoster(title = item.displayTitle, poster = item.posterUrl,
+                            onClick = { onOpenMovie(item) },
+                            onPlay = { onResume("movie:" + item.id, item.streamUrl, item.displayTitle) },
+                            onReset = { viewModel.resetMovieProgress(item.id) })
+                    }
+                    if (loading) item(key = "loading") {
+                        Box(Modifier.fillMaxWidth().height(64.dp),
+                            contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    }
+                }
+                if (!loading && (if (isSeries) seriesPage.isEmpty() else moviePage.isEmpty())) {
+                    Text(if (titleQuery.isBlank()) "No titles in this category"
+                        else "No matching titles", color = Color.LightGray, maxLines = 2)
+                }
+            }
+        }
+    } else {
     Row(Modifier.fillMaxSize().background(background)) {
         Column(
             Modifier.weight(0.94f).fillMaxSize().background(sideBackground)
@@ -367,6 +512,7 @@ internal fun TvVodBrowser(
 
         }
     }
+    } // end portrait vs unchanged TV/landscape
     resetTarget?.let { item ->
         AlertDialog(
             onDismissRequest = { resetTarget = null },
@@ -377,6 +523,18 @@ internal fun TvVodBrowser(
             }) { Text("Reset title") } },
             dismissButton = { TextButton(onClick = { resetTarget = null }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun PortraitCategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(Modifier
+        .background(if (selected) teal else Color(0xFF1A2443), shape)
+        .clickable(onClick = onClick)
+        .padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(label, color = Color.White, fontSize = 13.sp,
+            maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -442,7 +600,10 @@ private fun TvPoster(
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             // Avoid inserting a second focus target when the poster acquires focus.
             // Long-press OK or the Menu key still opens title options.
-            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+            if (isHandheldPortrait()) IconButton(
+                onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Title options", tint = Color.White)
+            } else if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
                 tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 if (onPlay != null) DropdownMenuItem(
@@ -487,7 +648,10 @@ private fun ResumePoster(
         Box(Modifier.fillMaxWidth().aspectRatio(.69f)) {
             AsyncImage(item.posterUrl, contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
+            if (isHandheldPortrait()) IconButton(
+                onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Resume options", tint = Color.White)
+            } else if (focused) Icon(Icons.Default.MoreVert, contentDescription = null,
                 tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
             Box(Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()

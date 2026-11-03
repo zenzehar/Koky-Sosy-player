@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,6 +82,7 @@ import app.sokyiptv.player.VlcNativeSeekCorrection
 import app.sokyiptv.player.ManualSeriesSkips
 import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.ui.diagnostics.PlaybackDiagnosticsDialog
+import app.sokyiptv.ui.isHandheldTouch
 import kotlin.math.max
 import kotlin.math.min
 import java.util.concurrent.atomic.AtomicBoolean
@@ -935,6 +937,24 @@ fun VlcFallbackScreen(
                 }
             },
         )
+        // AndroidView's native VLC surface can otherwise consume touchscreen
+        // taps before Compose sees them. This transparent handheld-only layer
+        // sits ABOVE video but BELOW all on-screen controls and error actions.
+        // Never installed on television; D-pad focus tree remains untouched.
+        if (isHandheldTouch()) {
+            val tapInteraction = remember { MutableInteractionSource() }
+            Box(
+                Modifier.fillMaxSize().clickable(
+                    interactionSource = tapInteraction, indication = null,
+                ) {
+                    if (!failed) {
+                        if (skipPromptVisible) showControls()
+                        else if (controlsVisible) controlsVisible = false
+                        else showControls()
+                    }
+                },
+            )
+        }
         if (failed) {
             Column(
                 Modifier.align(Alignment.Center).padding(28.dp),
@@ -1037,6 +1057,19 @@ fun VlcFallbackScreen(
                         Text(clock(if (scrubbing) previewMs else positionMs), color = Color.White)
                         Box(
                             modifier = Modifier.weight(1f).padding(horizontal = 14.dp).height(48.dp)
+                                .handheldTimelineGestures(
+                                    durationMs = durationMs,
+                                    onSeek = ::seekTo,
+                                    onPreview = { target ->
+                                        previewMs = target
+                                        scrubbing = true
+                                        showControls()
+                                    },
+                                    onSeekingChanged = { selecting ->
+                                        scrubbing = selecting
+                                        showControls()
+                                    },
+                                )
                                 .focusRequester(seekFocus)
                                 .onFocusChanged {
                                     timelineFocused = it.isFocused
