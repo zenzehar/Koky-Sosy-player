@@ -202,6 +202,10 @@ fun VodPlayerScreen(
     var skipPromptUserLeft by remember(mediaKey) { mutableStateOf(false) }
     var markerDialogVisible by remember(mediaKey) { mutableStateOf(false) }
     val advanced = remember(mediaKey) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    var media3HadPlayback by remember(mediaKey) { mutableStateOf(false) }
+    var media3HadError by remember(mediaKey) { mutableStateOf(false) }
+    var media3PrematureEnd by remember(mediaKey) { mutableStateOf(false) }
+    var endWatchGeneration by remember(mediaKey) { mutableIntStateOf(0) }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     // A recording that's still being written plays through the tail-following source. It behaves a
     // little differently in the transport: the "length" is how much has been recorded so far, which
@@ -455,6 +459,19 @@ fun VodPlayerScreen(
     }
 
     fun naturalEnd() {
+        if (!usingVlc && !VodEndGuard.confirmed(
+                hadPlayback = media3HadPlayback,
+                playbackFailed = media3HadError,
+                durationMs = controller.player.duration,
+                lastPositionMs = controller.player.currentPosition,
+            )) {
+            // Network disconnection may masquerade as ENDED; do not mark
+            // episode complete, create a next-episode resume record or advance.
+            PlaybackDiagnostics.event(context, "MEDIA3_PREMATURE_END", persistNow = true)
+            media3PrematureEnd = true
+            controlsVisible = false
+            return
+        }
         // VLC and Media3 may report end more than once. Also suppress stale
         // disposal progress so the completed episode never reappears at 98%.
         if (!advanced.compareAndSet(false, true)) return
@@ -499,21 +516,26 @@ fun VodPlayerScreen(
     LaunchedEffect(state, usingVlc) {
         if (!usingVlc) {
             when (val current = state) {
-                is PlayerController.State.Error ->
+                is PlayerController.State.Error -> {
+                    media3HadError = true
                     PlaybackDiagnostics.event(
                         context, "MEDIA3_ERROR", current.errorCode ?: -1, persistNow = true,
                     )
+                }
                 is PlayerController.State.Buffering ->
                     PlaybackDiagnostics.event(context, "MEDIA3_STATE", 1, persistNow = true)
-                is PlayerController.State.Playing ->
+                is PlayerController.State.Playing -> {
+                    media3HadPlayback = true
+                    media3HadError = false
                     PlaybackDiagnostics.event(context, "MEDIA3_STATE", 2)
+                }
                 else -> Unit
             }
         }
     }
-    LaunchedEffect(mediaKey, usingVlc) {
+    LaunchedEffect(mediaKey, usingVlc, endWatchGeneration) {
         if (usingVlc) return@LaunchedEffect
-        while (isActive && !advanced.get()) {
+        while (isActive && !advanced.get() && !media3PrematureEnd) {
             if (controller.player.playbackState == Player.STATE_ENDED) {
                 naturalEnd()
                 break
@@ -1402,6 +1424,26 @@ fun VodPlayerScreen(
                         }
                     },
                 )
+            }
+        }
+        if (media3PrematureEnd && !usingVlc) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .88f)),
+                contentAlignment = Alignment.Center) {
+                Column(Modifier.padding(32.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Playback connection interrupted", color = Color.White,
+                        style = MaterialTheme.typography.titleLarge)
+                    Text("The episode was not completed. It will not advance automatically.",
+                        color = Color.White, textAlign = TextAlign.Center)
+                    Button(onClick = {
+                        media3PrematureEnd = false
+                        media3HadError = false
+                        controller.retry()
+                        endWatchGeneration++
+                    }) { Text("Retry this episode") }
+                    Button(onClick = onBack) { Text("Back to title") }
+                }
             }
         }
         media3Diagnostic?.let { report ->
