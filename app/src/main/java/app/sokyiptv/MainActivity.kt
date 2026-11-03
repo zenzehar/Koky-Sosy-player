@@ -17,11 +17,15 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +47,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -53,6 +58,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
@@ -154,6 +160,12 @@ class MainActivity : ComponentActivity() {
                 AppSettings.ThemeMode.LIGHT -> false
                 // A living-room screen defaults to dark; a phone/tablet follows the system.
                 AppSettings.ThemeMode.SYSTEM -> isTelevision || isSystemInDarkTheme()
+            }
+            SideEffect {
+                // Edge-to-edge is enabled, so contrast for the OS status icons must
+                // follow the app palette rather than Android's light-mode default.
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .isAppearanceLightStatusBars = !darkTheme
             }
             SokyIptvTheme(darkTheme = darkTheme) {
                 Surface(
@@ -537,8 +549,17 @@ private fun SokyIptvApp(isTelevision: Boolean) {
         }
     }
 
+    // Apply system-bar safe insets only to handheld navigation content.
+    // Video remains immersive; any TV (including portrait TV) is unchanged.
+    val currentEntry by navController.currentBackStackEntryAsState()
+    val isImmersivePlayback = currentEntry?.destination?.route in
+        setOf(Routes.PLAYER, Routes.VOD_PLAYER)
+    val navigationInsets = if (!isTelevision && !isImmersivePlayback) {
+        Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+    } else Modifier
     Box(Modifier.fillMaxSize()) {
-        NavHost(navController = navController, startDestination = start) {
+        NavHost(navController = navController, startDestination = start,
+            modifier = Modifier.then(navigationInsets)) {
             composable(Routes.ADD_SOURCE) {
                 AddSourceScreen(
                     viewModel = sourcesViewModel,
