@@ -321,7 +321,7 @@ internal fun NetflixLikePlayerChrome(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier.weight(1f).height(if (isHandheldTouch()) 48.dp else 42.dp)
+                modifier = Modifier.weight(1f).height(if (portraitTouch) 48.dp else 42.dp)
                     .handheldTimelineGestures(
                         durationMs = durationMs,
                         onSeek = { target ->
