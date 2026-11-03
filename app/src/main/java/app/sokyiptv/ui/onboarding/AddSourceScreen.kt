@@ -206,8 +206,7 @@ fun AddSourceScreen(
             Modifier.fillMaxSize()
                 .background(Brush.horizontalGradient(listOf(
                     Color(0xFF4E28CB), Color(0xFF8D40A7), Color(0xFFE97893))))
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(
-                    WindowInsetsSides.Horizontal + WindowInsetsSides.Top))
+                // The handheld NavHost now supplies status/navigation insets once.
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 16.dp),
