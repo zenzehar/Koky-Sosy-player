@@ -1037,6 +1037,19 @@ fun VlcFallbackScreen(
                         Text(clock(if (scrubbing) previewMs else positionMs), color = Color.White)
                         Box(
                             modifier = Modifier.weight(1f).padding(horizontal = 14.dp).height(48.dp)
+                                .handheldTimelineGestures(
+                                    durationMs = durationMs,
+                                    onSeek = ::seekTo,
+                                    onPreview = { target ->
+                                        previewMs = target
+                                        scrubbing = true
+                                        showControls()
+                                    },
+                                    onSeekingChanged = { selecting ->
+                                        scrubbing = selecting
+                                        showControls()
+                                    },
+                                )
                                 .focusRequester(seekFocus)
                                 .onFocusChanged {
                                     timelineFocused = it.isFocused
