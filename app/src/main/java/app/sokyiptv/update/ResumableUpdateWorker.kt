@@ -357,28 +357,28 @@ class ResumableUpdateWorker(context: Context, params: WorkerParameters) :
                     }
                     throw IOException("HTTP " + response.code)
                 }
-                val contentRange = response.header("Content-Range").orEmpty()
-                val match = Regex("bytes (\\d+)-(\\d+)/(\\d+|\\*)").matchEntire(contentRange)
-                val partialValid = offset > 0L && response.code == 206 &&
-                    match?.groupValues?.get(1)?.toLongOrNull() == offset &&
-                    (snapshot.expectedBytes <= 0L ||
-                        match.groupValues[3].toLongOrNull() == snapshot.expectedBytes)
-                // If the origin ignores Range, safely restart from zero, never append.
-                // If 206 is malformed, fail rather than silently produce a corrupt APK.
+                val savedValidator = UpdateTransfer.etag(context)
+                val responseValidator = response.header("ETag")
+                    ?: response.header("Last-Modified")
+                val partialValid = ResumeRangePolicy.canAppend(
+                    offset = offset,
+                    expectedBytes = snapshot.expectedBytes,
+                    httpStatus = response.code,
+                    contentRange = response.header("Content-Range"),
+                    savedValidator = savedValidator,
+                    responseValidator = responseValidator,
+                )
+                // For a changed/invalid 206 we never append. A full HTTP 200
+                // is safe to restart from zero without retaining partial data.
                 if (response.code == 206 && !partialValid)
-                    throw IOException("Invalid partial content range")
+                    throw IOException("Invalid or changed partial content range")
                 val append = partialValid
                 if (!append) {
                     offset = 0L
                     UpdateTransfer.etag(context, null)
                 }
-                val storedEtag = UpdateTransfer.etag(context)
-                val replyEtag = response.header("ETag") ?: response.header("Last-Modified")
-                if (append && storedEtag != null && replyEtag != null &&
-                    storedEtag != replyEtag)
-                    throw IOException("Remote release asset changed during resume")
-                val etag = replyEtag
-                if (etag != null) UpdateTransfer.etag(context, etag)
+                if (responseValidator != null)
+                    UpdateTransfer.etag(context, responseValidator)
                 val stream = response.body?.byteStream() ?: throw IOException("Empty APK response")
                 var written = offset
                 var lastPublish = 0L
