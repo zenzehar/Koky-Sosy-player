@@ -74,6 +74,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -150,6 +151,8 @@ fun PlayerScreen(
     val handheldPortrait = isHandheldPortrait()
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
+    val uiStyle by settings.playerUiStyle.collectAsState()
+    val netflix = uiStyle == app.sokyiptv.core.AppSettings.PlayerUiStyle.NETFLIX_LIKE
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     val subtitlesDefault by settings.subtitlesEnabled.collectAsState()
     val controller = remember {
@@ -183,6 +186,9 @@ fun PlayerScreen(
 
     var variants by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var currentId by remember { mutableStateOf<Long?>(null) }
+    var favouriteNow by remember { mutableStateOf(false) }
+    var livePositionMs by remember { mutableLongStateOf(0L) }
+    var liveDurationMs by remember { mutableLongStateOf(0L) }
     val browsePreferences = remember(context) { BrowseCustomizations(context) }
     var lastRecordedLogicalChannel by remember { mutableStateOf<String?>(null) }
     // The channel we were on before this one — powers the "Last channel" recall in the list.
@@ -270,6 +276,7 @@ fun PlayerScreen(
     }
 
     fun tuneTo(channel: Channel) {
+        favouriteNow = channel.favourite
         currentId = channel.id
         paused = false
         settings.lastChannelId = channel.id
@@ -340,6 +347,25 @@ fun PlayerScreen(
         if (logicalKey != lastRecordedLogicalChannel) {
             browsePreferences.recordLive(settings.activeProfileId.value, channel)
             lastRecordedLogicalChannel = logicalKey
+        }
+    }
+
+    // Snapshot the real Media3 live DVR window. Never invent an elapsed duration
+    // for a true live stream. Poll only while the Netflix controls are showing.
+    LaunchedEffect(netflix, controlsVisible, currentId) {
+        if (!netflix || !controlsVisible) return@LaunchedEffect
+        while (true) {
+            liveDurationMs = controller.player.duration.takeIf { it > 0L } ?: 0L
+            livePositionMs = controller.player.currentPosition.coerceAtLeast(0L)
+            delay(400L)
+        }
+    }
+    fun toggleFavourite() {
+        val target = !favouriteNow
+        favouriteNow = target
+        val group = variants.toList()
+        scope.launch {
+            group.forEach { graph.catalogRepository.setChannelFavourite(it.id, target) }
         }
     }
 
@@ -564,7 +590,70 @@ fun PlayerScreen(
             else -> ""
         }
 
-        AnimatedVisibility(
+        // Netflix-style chrome is a UI-only replacement. Existing Media3 engine,
+        // recording guard, channel list, track/quality/resize pickers stay untouched.
+        if (netflix && controlsVisible && !inPip) {
+            LiveNetflixChrome(
+                title = channelTitle,
+                paused = paused,
+                buffering = state is PlayerController.State.Buffering,
+                seekable = controller.isSeekable,
+                positionMs = livePositionMs,
+                durationMs = liveDurationMs,
+                favourite = favouriteNow,
+                recording = activeRecordings.any { it.channelId == currentId },
+                hasQualityVariants = variants.size > 1,
+                allowPip = pipSupported,
+                playFocus = barFocus,
+                onActivity = { interaction++ },
+                onBack = {
+                    controlsVisible = false
+                    app.sokyiptv.ui.channels.LiveReturnState.handOff(currentId)
+                    controller.stop()
+                    onBack()
+                },
+                onToggle = {
+                    paused = !paused
+                    controller.player.playWhenReady = !paused
+                    interaction++
+                },
+                onPrevious = { zapBy(-1); interaction++ },
+                onNext = { zapBy(1); interaction++ },
+                onRewind = { if (controller.isSeekable) controller.seekBackward() },
+                onForward = { if (controller.isSeekable) controller.seekForward() },
+                onSeek = { target ->
+                    if (controller.isSeekable && liveDurationMs > 0L)
+                        controller.player.seekTo(target.coerceIn(0L, liveDurationMs))
+                },
+                onGoLive = {
+                    if (controller.isSeekable) controller.player.seekToDefaultPosition()
+                },
+                onChannels = { channelListVisible = true; interaction++ },
+                onFavourite = ::toggleFavourite,
+                onAudio = { panel = Panel.AUDIO; interaction++ },
+                onSubtitles = { panel = Panel.SUBTITLES; interaction++ },
+                onQuality = { panel = Panel.QUALITY; interaction++ },
+                onAspect = { panel = Panel.ASPECT; interaction++ },
+                onRecord = ::toggleRecord,
+                onPip = {
+                    (context.findActivity() as? app.sokyiptv.MainActivity)?.enterPipNow()
+                    interaction++
+                },
+            )
+            if (panel != Panel.NONE) {
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)) {
+                    OptionPanel(
+                        panel = panel, controller = controller, settings = settings,
+                        tracks = tracks, variants = variants, currentId = currentId,
+                        resizeMode = resizeMode,
+                        onResize = { resizeMode = it; settings.setPlayerResizeMode(it) },
+                        onTune = { tuneTo(it) }, firstFocus = panelFocus,
+                        onDone = { panel = Panel.NONE; interaction++ },
+                    )
+                }
+            }
+        }
+        if (!netflix) AnimatedVisibility(
             visible = controlsVisible && !inPip,
             enter = fadeIn(),
             exit = fadeOut(),
