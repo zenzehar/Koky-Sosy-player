@@ -500,6 +500,66 @@ private fun DashboardTile(
         animationSpec = tween(durationMillis = 900),
         label = "fill$label",
     )
+    // Handheld LANDSCAPE has far less vertical space than a TV. Historically
+    // only handheld portrait reserved room for the footer, so the bottom
+    // refresh bar painted across the centred MOVIES/SERIES labels.
+    //
+    // Make header/content and refresh two measured siblings, never overlays.
+    // This is explicitly gated away from Android TV (including portrait TV),
+    // and the existing handheld portrait composition is untouched.
+    val landscapeHandheld = isHandheldTouch() && !isHandheldPortrait()
+    if (landscapeHandheld && vodUpdate != null && !compact) {
+        BoxWithConstraints(
+            modifier = modifier.clip(shape)
+                .border(if (focused) 3.dp else 0.dp, Color.White, shape),
+        ) {
+            // The footer measures its own height. Use the remaining card space
+            // for the icon and title; shrink them on short phone screens.
+            val contentHeight = (maxHeight - 60.dp).coerceAtLeast(44.dp)
+            val iconSize = (contentHeight * .43f).coerceIn(24.dp, 58.dp)
+            val labelSize = when {
+                contentHeight < 77.dp -> 14.sp
+                contentHeight < 105.dp -> 17.sp
+                else -> 23.sp
+            }
+            Column(Modifier.fillMaxSize().background(Brush.verticalGradient(shades))) {
+                Column(
+                    Modifier.fillMaxWidth().weight(1f)
+                        .focusRequester(tileFocus)
+                        .onFocusChanged { focused = it.isFocused }
+                        .focusProperties { down = barFocus }
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionDown) {
+                                barFocus.requestFocus()
+                                true
+                            } else false
+                        }
+                        .clickable(enabled = !locked, onClick = onClick),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(icon, contentDescription = null, tint = Color.White,
+                        modifier = Modifier.size(iconSize))
+                    Spacer(Modifier.height(if (contentHeight < 85.dp) 2.dp else 5.dp))
+                    Text(label, color = Color.White, fontWeight = FontWeight.SemiBold,
+                        fontSize = labelSize, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                }
+                DashboardVodUpdateBar(
+                    state = vodUpdate,
+                    onRefresh = onVodRefresh,
+                    barFocus = barFocus,
+                    tileFocus = tileFocus,
+                    peerFocus = vodPeerFocus,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 9.dp, end = 9.dp, bottom = 9.dp),
+                )
+            }
+        }
+        return
+    }
+
     Box(
         modifier.clip(shape)
             .border(if (focused) 3.dp else 0.dp, Color.White, shape),

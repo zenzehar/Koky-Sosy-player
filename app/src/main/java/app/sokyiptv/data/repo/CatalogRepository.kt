@@ -27,6 +27,7 @@ import app.sokyiptv.data.model.SourceKind
 import app.sokyiptv.data.model.StreamKind
 import app.sokyiptv.data.parser.ChannelNameNormalizer
 import app.sokyiptv.data.parser.ArabicSearch
+import app.sokyiptv.core.BrowseSort
 import app.sokyiptv.data.parser.M3uParser
 import app.sokyiptv.data.parser.VodTitleCleaner
 import app.sokyiptv.data.remote.StalkerApi
@@ -241,35 +242,73 @@ class CatalogRepository(
 
     fun observeMovies(categoryId: String? = null): Flow<List<Movie>> = movieDao.observe(categoryId)
 
-    /** Disk-backed bounded pages. Never bring all posters/metadata into the TV screen. */
+    /**
+     * SQL sort BEFORE LIMIT/OFFSET: sorting only the currently loaded page gives
+     * globally wrong results. Arabic orthographic searches use the cached light
+     * projection, sorted before page selection, then hydrate only selected rows.
+     */
+    private fun sortIndex(rows: List<IndexedVod>, sort: BrowseSort): List<IndexedVod> {
+        val tie = compareBy<IndexedVod> { it.row.name.lowercase(java.util.Locale.ROOT) }
+            .thenBy { it.row.id }
+        val primary = when (sort) {
+            BrowseSort.NAME_ASC -> compareBy<IndexedVod> {
+                it.row.name.lowercase(java.util.Locale.ROOT)
+            }.thenBy { it.row.id }
+            BrowseSort.NAME_DESC -> compareByDescending<IndexedVod> {
+                it.row.name.lowercase(java.util.Locale.ROOT)
+            }.thenBy { it.row.id }
+            BrowseSort.OLDEST -> compareBy<IndexedVod> { it.row.addedMillis }.then(tie)
+            BrowseSort.RATING -> compareByDescending<IndexedVod> {
+                it.row.rating ?: -1.0
+            }.then(tie)
+            else -> compareByDescending<IndexedVod> { it.row.addedMillis }.then(tie)
+        }
+        return rows.sortedWith(primary)
+    }
+
     suspend fun moviePage(sourceId: Long?, categoryId: String?, favs: Boolean,
-                          query: String, size: Int, offset: Int): List<Movie> =
+                          query: String, size: Int, offset: Int,
+                          sort: BrowseSort = BrowseSort.DEFAULT): List<Movie> =
         withContext(Dispatchers.IO) {
             if (!ArabicSearch.hasArabic(query))
-                movieDao.page(sourceId, categoryId, favs, query, size, offset)
+                movieDao.page(sourceId, categoryId, favs, query, size, offset,
+                    sort.name.lowercase(java.util.Locale.ROOT))
             else {
                 val foldedQuery = ArabicSearch.fold(query)
-                val ids = arabicMovieIndex.first().asSequence()
+                val rows = arabicMovieIndex.first()
                     .filter { it.matches(foldedQuery, sourceId, categoryId, favs) }
+                val ids = sortIndex(rows, sort).asSequence()
                     .drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
                     .map { it.row.id }.toList()
                 hydrateOrdered(ids, movieDao::byIds, Movie::id)
             }
         }
+
     suspend fun seriesPage(sourceId: Long?, categoryId: String?, favs: Boolean,
-                           query: String, size: Int, offset: Int): List<Series> =
+                           query: String, size: Int, offset: Int,
+                           sort: BrowseSort = BrowseSort.DEFAULT): List<Series> =
         withContext(Dispatchers.IO) {
             if (!ArabicSearch.hasArabic(query))
-                seriesDao.page(sourceId, categoryId, favs, query, size, offset)
+                seriesDao.page(sourceId, categoryId, favs, query, size, offset,
+                    sort.name.lowercase(java.util.Locale.ROOT))
             else {
                 val foldedQuery = ArabicSearch.fold(query)
-                val ids = arabicSeriesIndex.first().asSequence()
+                val rows = arabicSeriesIndex.first()
                     .filter { it.matches(foldedQuery, sourceId, categoryId, favs) }
+                val ids = sortIndex(rows, sort).asSequence()
                     .drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
                     .map { it.row.id }.toList()
                 hydrateOrdered(ids, seriesDao::searchByIds, Series::id)
             }
         }
+
+    /** Only used when the user selects the custom Favourites view. */
+    suspend fun movieFavourites(sourceId: Long?): List<Movie> =
+        withContext(Dispatchers.IO) { movieDao.allFavourites(sourceId) }
+
+    suspend fun seriesFavourites(sourceId: Long?): List<Series> =
+        withContext(Dispatchers.IO) { seriesDao.allFavourites(sourceId) }
+
     suspend fun vodCounts(sourceId: Long?, series: Boolean): List<app.sokyiptv.data.db.VodCategoryCount> =
         withContext(Dispatchers.IO) { if (series) seriesDao.counts(sourceId) else movieDao.counts(sourceId) }
     suspend fun vodFavouriteCount(sourceId: Long?, series: Boolean): Int =
@@ -866,6 +905,8 @@ class CatalogRepository(
 
     suspend fun setMovieFavourite(id: Long, favourite: Boolean) =
         movieDao.setFavourite(id, favourite)
+    suspend fun setSeriesFavourite(id: Long, favourite: Boolean) =
+        seriesDao.setFavourite(id, favourite)
 
     // --- Sync helpers: read/apply curation by stable stream URL ---
     suspend fun favouriteChannelUrls(): List<String> = channelDao.favouriteUrls()

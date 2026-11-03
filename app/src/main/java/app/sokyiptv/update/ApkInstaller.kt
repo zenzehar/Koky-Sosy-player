@@ -84,6 +84,53 @@ class ApkInstaller(private val http: OkHttpClient) {
         out
     }
 
+    /**
+     * Install only a complete, self-signed APK matching the expected app ID and
+     * release version. Never hand an unchecked .part file to PackageInstaller.
+     * The actual installation still needs Android's user confirmation.
+     */
+    fun installDownloaded(context: Context, apk: File, expectedBytes: Long, targetVersion: String) {
+        require(apk.isFile && expectedBytes > 0L && apk.length() == expectedBytes) {
+            "Update file is missing or incomplete"
+        }
+        val pm = context.packageManager
+        @Suppress("DEPRECATION")
+        val flags = if (android.os.Build.VERSION.SDK_INT >= 28)
+            android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+        else android.content.pm.PackageManager.GET_SIGNATURES
+        @Suppress("DEPRECATION")
+        val archive = pm.getPackageArchiveInfo(apk.absolutePath, flags)
+            ?: throw IllegalArgumentException("Update is not a valid APK")
+        require(archive.packageName == context.packageName) { "Update package identity differs" }
+        require(archive.versionName == targetVersion) { "Update version does not match release" }
+        @Suppress("DEPRECATION")
+        val current = pm.getPackageInfo(context.packageName, flags)
+        fun signatures(info: android.content.pm.PackageInfo): List<String> {
+            @Suppress("DEPRECATION")
+            val certs = if (android.os.Build.VERSION.SDK_INT >= 28)
+                info.signingInfo?.apkContentsSigners?.toList().orEmpty()
+            else info.signatures?.toList().orEmpty()
+            return certs.map {
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(it.toByteArray())
+                digest.joinToString("") { b -> "%02x".format(b) }
+            }.sorted()
+        }
+        val existing = signatures(current)
+        val candidate = signatures(archive)
+        require(existing.isNotEmpty() && candidate == existing) {
+            "Update certificate does not match installed app"
+        }
+        RollbackStore.markUpdateAttempt(context, targetVersion)
+        UpdateRelaunch.arm(context, targetVersion)
+        try {
+            launchInstaller(context, apk)
+        } catch (e: Exception) {
+            UpdateRelaunch.disarm(context)
+            throw e
+        }
+    }
+
     private fun launchInstaller(context: Context, apk: File) {
         val uri: Uri = FileProvider.getUriForFile(
             context,

@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,6 +121,17 @@ fun AboutScreen(onBack: () -> Unit) {
                     Text(if (checking) stringResource(R.string.about_checking)
                          else stringResource(R.string.about_check_updates),
                         maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                }
+                val transfer by app.sokyiptv.update.UpdateTransfer.state.collectAsState()
+                if (transfer.stage in listOf("downloading", "paused", "failed", "ready")) {
+                    OutlinedButton(
+                        modifier = if (handheld) Modifier.fillMaxWidth() else Modifier,
+                        onClick = { app.sokyiptv.update.UpdateHub.showTransferControls() },
+                    ) {
+                        Text("Update: " + transfer.stage + " · Manage",
+                            maxLines = 1, softWrap = false,
+                            overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 OutlinedButton(modifier = if (handheld) Modifier.fillMaxWidth() else Modifier,
                     onClick = {

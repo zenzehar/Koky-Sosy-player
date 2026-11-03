@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Scheduled recordings: an exact alarm starts a booked capture at broadcast time, and the
@@ -114,6 +115,13 @@
             android:name=".recording.RecordingService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- WorkManager long-running update download, user-started and resumable.
+             Android 14+ requires an explicit dataSync foreground service type. -->
+        <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync" tools:node="merge" />
+        <receiver android:name=".update.UpdateTransferActionReceiver"
+            android:exported="false" />
 
         <!-- Starts a booked recording when its alarm fires; re-arms bookings after a reboot. -->
         <receiver

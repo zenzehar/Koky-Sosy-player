@@ -99,10 +99,16 @@ internal object RollbackStore {
         // retained. Also discard the ordinary updater's now-installed old APK
         // from the previous release (up to ~200 MB) on new-version startup.
         val updates = context.cacheDir.resolve("updates")
+        // A background download may have finished while Soky was closed.
+        // Do NOT delete its verified ready-to-install APK on next cold startup.
+        val transfer = context.getSharedPreferences(
+            "soky_update_transfer_v1", Context.MODE_PRIVATE)
+        val pendingReady = transfer.getString("stage", "") == "ready" &&
+            transfer.getString("version", "") != BuildConfig.VERSION_NAME
         if (updates.isDirectory) {
             updates.listFiles()?.filter {
                 it.name.startsWith("soky-rollback-") ||
-                    it.name == "sokyiptv-update.apk"
+                    (it.name == "sokyiptv-update.apk" && !pendingReady)
             }?.forEach { it.delete() }
         }
     }

@@ -516,6 +516,7 @@ data class VodSearchRow(
     val favourite: Boolean,
     val addedMillis: Long,
     val name: String,
+    val rating: Double?,
 )
 
 /** Lightweight channel search index. Preserves channel manager ordering. */
@@ -542,10 +543,17 @@ interface MovieDao {
         AND (:categoryId IS NULL OR categoryId = :categoryId)
         AND (:onlyFavourites = 0 OR favourite = 1)
         AND (:query = '' OR name LIKE '%' || :query || '%')
-        ORDER BY addedMillis DESC, name LIMIT :pageSize OFFSET :offset""")
+        ORDER BY
+            CASE WHEN :sortMode = 'name_asc' THEN name END COLLATE NOCASE ASC,
+            CASE WHEN :sortMode = 'name_desc' THEN name END COLLATE NOCASE DESC,
+            CASE WHEN :sortMode = 'oldest' THEN addedMillis END ASC,
+            CASE WHEN :sortMode = 'rating' THEN COALESCE(rating, -1) END DESC,
+            CASE WHEN :sortMode IN ('newest', 'default') THEN addedMillis END DESC,
+            addedMillis DESC, name COLLATE NOCASE ASC, id ASC
+        LIMIT :pageSize OFFSET :offset""")
     suspend fun page(
         sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
-        query: String, pageSize: Int, offset: Int
+        query: String, pageSize: Int, offset: Int, sortMode: String
     ): List<Movie>
 
     @Query("""SELECT categoryId, COUNT(*) AS count FROM movies
@@ -563,13 +571,16 @@ interface MovieDao {
     )
     fun observe(categoryId: String?): Flow<List<Movie>>
 
+    @Query("SELECT * FROM movies WHERE (:sourceId IS NULL OR sourceId = :sourceId) AND favourite = 1 ORDER BY addedMillis DESC, name")
+    suspend fun allFavourites(sourceId: Long?): List<Movie>
+
     @Query("SELECT * FROM movies WHERE favourite = 1 ORDER BY name")
     fun observeFavourites(): Flow<List<Movie>>
 
     @Query("SELECT * FROM movies WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Movie>>
 
-    @Query("""SELECT id, sourceId, categoryId, favourite, addedMillis, name
+    @Query("""SELECT id, sourceId, categoryId, favourite, addedMillis, name, rating
         FROM movies ORDER BY addedMillis DESC, name""")
     fun arabicSearchIndex(): Flow<List<VodSearchRow>>
 
@@ -689,10 +700,17 @@ interface SeriesDao {
         AND (:categoryId IS NULL OR categoryId = :categoryId)
         AND (:onlyFavourites = 0 OR favourite = 1)
         AND (:query = '' OR name LIKE '%' || :query || '%')
-        ORDER BY addedMillis DESC, name LIMIT :pageSize OFFSET :offset""")
+        ORDER BY
+            CASE WHEN :sortMode = 'name_asc' THEN name END COLLATE NOCASE ASC,
+            CASE WHEN :sortMode = 'name_desc' THEN name END COLLATE NOCASE DESC,
+            CASE WHEN :sortMode = 'oldest' THEN addedMillis END ASC,
+            CASE WHEN :sortMode = 'rating' THEN COALESCE(rating, -1) END DESC,
+            CASE WHEN :sortMode IN ('newest', 'default') THEN addedMillis END DESC,
+            addedMillis DESC, name COLLATE NOCASE ASC, id ASC
+        LIMIT :pageSize OFFSET :offset""")
     suspend fun page(
         sourceId: Long?, categoryId: String?, onlyFavourites: Boolean,
-        query: String, pageSize: Int, offset: Int
+        query: String, pageSize: Int, offset: Int, sortMode: String
     ): List<Series>
 
     @Query("""SELECT categoryId, COUNT(*) AS count FROM series
@@ -710,10 +728,13 @@ interface SeriesDao {
     )
     fun observe(categoryId: String?): Flow<List<Series>>
 
+    @Query("SELECT * FROM series WHERE (:sourceId IS NULL OR sourceId = :sourceId) AND favourite = 1 ORDER BY addedMillis DESC, name")
+    suspend fun allFavourites(sourceId: Long?): List<Series>
+
     @Query("SELECT * FROM series WHERE name LIKE '%' || :query || '%' ORDER BY name LIMIT :limit")
     fun search(query: String, limit: Int = 200): Flow<List<Series>>
 
-    @Query("""SELECT id, sourceId, categoryId, favourite, addedMillis, name
+    @Query("""SELECT id, sourceId, categoryId, favourite, addedMillis, name, rating
         FROM series ORDER BY addedMillis DESC, name""")
     fun arabicSearchIndex(): Flow<List<VodSearchRow>>
 
