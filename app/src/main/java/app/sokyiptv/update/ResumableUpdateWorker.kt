@@ -326,7 +326,12 @@ class ResumableUpdateWorker(context: Context, params: WorkerParameters) :
                     offset = 0L
                     UpdateTransfer.etag(context, null)
                 }
-                val etag = response.header("ETag") ?: response.header("Last-Modified")
+                val storedEtag = UpdateTransfer.etag(context)
+                val replyEtag = response.header("ETag") ?: response.header("Last-Modified")
+                if (append && storedEtag != null && replyEtag != null &&
+                    storedEtag != replyEtag)
+                    throw IOException("Remote release asset changed during resume")
+                val etag = replyEtag
                 if (etag != null) UpdateTransfer.etag(context, etag)
                 val stream = response.body?.byteStream() ?: throw IOException("Empty APK response")
                 var written = offset
