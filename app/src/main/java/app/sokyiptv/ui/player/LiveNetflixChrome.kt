@@ -118,7 +118,6 @@ internal fun LiveNetflixChrome(
     var dragging by remember { mutableStateOf(false) }
     val bottomFocus = remember { FocusRequester() }
     val bottomListState = rememberLazyListState()
-    val focusScope = rememberCoroutineScope()
     val bottomActions = buildList {
         add(LiveAction("channels", "Channels", Icons.Default.Tv, onChannels))
         add(LiveAction("favourite", if (favourite) "Unfavourite" else "Favourite",
@@ -242,9 +241,6 @@ internal fun LiveNetflixChrome(
                         focus = if (index == 0) bottomFocus else null,
                         upFocus = playFocus,
                         tint = action.tint,
-                        onFocused = {
-                            focusScope.launch { bottomListState.animateScrollToItem(index) }
-                        },
                     )
                 }
             }
@@ -265,7 +261,6 @@ private fun LiveNetflixButton(
     tint: Color = Color.White,
     downFocus: FocusRequester? = null,
     upFocus: FocusRequester? = null,
-    onFocused: () -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(
@@ -273,7 +268,7 @@ private fun LiveNetflixButton(
             .then(if (focus != null) Modifier.focusRequester(focus) else Modifier)
             .onFocusChanged {
                 focused = it.isFocused
-                if (it.isFocused) { onActivity(); onFocused() }
+                if (it.isFocused) onActivity()
             }
             .then(Modifier.focusProperties {
                 if (downFocus != null) down = downFocus
