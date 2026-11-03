@@ -112,6 +112,7 @@ import app.sokyiptv.core.requestIgnoreBatteryOptimizations
 import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.shownName
 import app.sokyiptv.player.PlaybackQueue
+import app.sokyiptv.core.BrowseCustomizations
 import app.sokyiptv.player.PlayerController
 import app.sokyiptv.player.TvHardwarePlaybackKeys
 import app.sokyiptv.ui.RecordingBackgroundDialog
@@ -182,6 +183,8 @@ fun PlayerScreen(
 
     var variants by remember { mutableStateOf<List<Channel>>(emptyList()) }
     var currentId by remember { mutableStateOf<Long?>(null) }
+    val browsePreferences = remember(context) { BrowseCustomizations(context) }
+    var lastRecordedLogicalChannel by remember { mutableStateOf<String?>(null) }
     // The channel we were on before this one — powers the "Last channel" recall in the list.
     var previousId by remember { mutableStateOf<Long?>(null) }
     // Digits typed on the remote accumulate here, then jump to that channel number after a beat.
@@ -324,6 +327,20 @@ fun PlayerScreen(
         val channel = graph.catalogRepository.channel(id) ?: return@LaunchedEffect
         variants = graph.catalogRepository.variants(channel)
         tuneTo(variants.firstOrNull { it.id == channel.id } ?: channel)
+    }
+
+    // History only counts a channel after playback actually reports Playing.
+    // Preview selection, failed tune attempts and mere D-pad highlighting do not count.
+    // Keep the history per profile and deduplicate quality variants into one channel.
+    LaunchedEffect(currentId, state) {
+        if (state !is PlayerController.State.Playing) return@LaunchedEffect
+        val channel = currentId?.let { graph.catalogRepository.channel(it) }
+            ?: return@LaunchedEffect
+        val logicalKey = browsePreferences.orderKey(channel)
+        if (logicalKey != lastRecordedLogicalChannel) {
+            browsePreferences.recordLive(settings.activeProfileId.value, channel)
+            lastRecordedLogicalChannel = logicalKey
+        }
     }
 
     // Sleep timer: when the armed deadline passes, stop and leave the player. Re-arming from
