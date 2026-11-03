@@ -24,7 +24,7 @@ class BrowseCustomizationsTest {
     )
 
     @Before fun setUp() {
-        val ctx = RuntimeEnvironment.getApplication<Application>()
+        val ctx = RuntimeEnvironment.getApplication()
         ctx.getSharedPreferences("soky_browse_customizations_v1", 0).edit().clear().commit()
         store = BrowseCustomizations(ctx)
     }
