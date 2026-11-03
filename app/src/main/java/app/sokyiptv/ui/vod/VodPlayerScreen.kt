@@ -376,6 +376,7 @@ fun VodPlayerScreen(
     var recoverySkipCountdown by remember(mediaKey) { mutableIntStateOf(0) }
     var recoveryInFlight by remember(mediaKey) { mutableStateOf(false) }
     var recoveryStopped by remember(mediaKey) { mutableStateOf(false) }
+    var showVlcAdvancedMenu by remember(mediaKey) { mutableStateOf(false) }
 
     fun noteConnectionIssue(message: String) {
         if (recoveryStopped || growingRec) return
@@ -407,6 +408,7 @@ fun VodPlayerScreen(
         recoveryCountdown = 0
         recoverySkipCountdown = 0
         recoveryAttempts++
+        showVlcAdvancedMenu = false
         recoveryInFlight = true
         recoveryRetryEpoch++
         if (!usingVlc) {
@@ -1115,7 +1117,7 @@ fun VodPlayerScreen(
             },
             onEnded = { naturalEnd() },
             suspendPlayback = screenSaverSuspended,
-            recoveryManaged = true,
+            recoveryManaged = !showVlcAdvancedMenu,
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
             onPlaybackStable = ::noteStablePlayback,
@@ -1662,12 +1664,20 @@ fun VodPlayerScreen(
             },
             onTryMedia3 = {
                 recoveryStopped = false
+                showVlcAdvancedMenu = false
                 recoveryIssue = null
                 recoveryAttempts = 0
                 recoveryInFlight = false
                 media3PrematureEnd = false
                 media3HadError = false
                 usingVlc = false
+            },
+            onAdvancedVlc = {
+                // Preserve v104 diagnostic QR, external VLC application and
+                // native Media3 fallback without another on-screen overlay.
+                recoveryStopped = true
+                recoveryIssue = null
+                showVlcAdvancedMenu = true
             },
             onBack = {
                 recoveryStopped = true
