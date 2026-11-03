@@ -118,6 +118,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     isTelevision: Boolean,
+    initiallyGuide: Boolean = false,
     hasSources: Boolean,
     isSyncing: Boolean,
     onPlayChannel: (Channel) -> Unit,
@@ -133,8 +134,10 @@ fun HomeScreen(
     // An actual portrait television keeps the established ten-foot EPG.
     val tvPortrait = isTelevision &&
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
-    var catalogueMode by rememberSaveable { mutableStateOf(!tvPortrait) }
-    LaunchedEffect(tvPortrait) { if (tvPortrait) catalogueMode = false }
+    var catalogueMode by rememberSaveable { mutableStateOf(!tvPortrait && !initiallyGuide) }
+    LaunchedEffect(tvPortrait, initiallyGuide) {
+        if (tvPortrait || initiallyGuide) catalogueMode = false
+    }
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     val previewEnabled by settings.guidePreviewVideo.collectAsState()
