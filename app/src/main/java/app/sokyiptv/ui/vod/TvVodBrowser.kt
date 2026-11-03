@@ -91,7 +91,6 @@ import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.isHandheldTouch
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import coil.compose.AsyncImage
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.snapshotFlow
 
