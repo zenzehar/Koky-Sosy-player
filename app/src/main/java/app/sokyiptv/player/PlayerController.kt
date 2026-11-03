@@ -60,6 +60,8 @@ class PlayerController(
      * the deep buffer that rides out a twitchy IPTV source.
      */
     private val preview: Boolean = false,
+    /** Only full-screen Live TV drives its own visible five-attempt retry UI. */
+    private val visibleLiveRecovery: Boolean = false,
     /**
      * Turns the live player into a shallow DVR: a retained back-buffer so the viewer can pause and
      * rewind live TV within the last few minutes. Off by default because holding minutes of video
@@ -268,7 +270,8 @@ class PlayerController(
                     )
                     // One silent restart covers the common case of a provider dropping the
                     // connection when another device on the account starts streaming.
-                    if (!unsupportedContainer && consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
+                    if (!visibleLiveRecovery && !unsupportedContainer &&
+                        consecutiveFailures < MAX_AUTO_RESTARTS && request != null) {
                         scope.launch {
                             delay(AUTO_RESTART_DELAY_MILLIS)
                             if (current == request) play(request, debounce = false)
