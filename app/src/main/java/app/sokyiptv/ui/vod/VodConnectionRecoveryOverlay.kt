@@ -5,19 +5,20 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,7 +52,6 @@ internal fun VodConnectionRecoveryOverlay(
             contentAlignment = Alignment.Center) {
             Column(
                 modifier = Modifier.widthIn(max = 440.dp)
-                    .background(Color.Black.copy(alpha = .63f), RoundedCornerShape(12.dp))
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -65,8 +65,10 @@ internal fun VodConnectionRecoveryOverlay(
                     else -> "Reconnecting · ${(attempts + 1).coerceAtMost(count)}/$count"
                 }
                 Text(primary, color = Color.White, fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium, maxLines = 2,
-                    textAlign = TextAlign.Center)
+                    fontWeight = FontWeight.SemiBold, maxLines = 2,
+                    textAlign = TextAlign.Center,
+                    style = TextStyle(shadow = Shadow(Color.Black,
+                        Offset(1.5f, 2.5f), blurRadius = 6f)))
                 val secondary = when {
                     stopped -> "OK to retry  ·  Back to exit"
                     skipCountdown > 0 -> "Next episode in ${skipCountdown}s · Back to cancel"
@@ -74,8 +76,10 @@ internal fun VodConnectionRecoveryOverlay(
                     retrying -> "Checking stream…"
                     else -> "Restoring playback…"
                 }
-                Text(secondary, color = Color(0xFFCED9E3), fontSize = 12.sp,
-                    maxLines = 2, textAlign = TextAlign.Center)
+                Text(secondary, color = Color(0xFFDCE7F2), fontSize = 12.sp,
+                    maxLines = 2, textAlign = TextAlign.Center,
+                    style = TextStyle(shadow = Shadow(Color.Black,
+                        Offset(1.5f, 2.5f), blurRadius = 6f)))
             }
         }
     }
