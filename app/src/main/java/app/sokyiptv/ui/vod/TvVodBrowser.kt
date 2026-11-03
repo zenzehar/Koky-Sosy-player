@@ -129,6 +129,8 @@ internal fun TvVodBrowser(
     var favouriteMutationRevision by remember { mutableStateOf(0) }
     val kind = if (isSeries) "series" else "movie"
     var selection by rememberSaveable(isSeries) { mutableStateOf("all") }
+    var categoryQuery by rememberSaveable(isSeries) { mutableStateOf("") }
+    var titleQuery by rememberSaveable(isSeries) { mutableStateOf("") }
     val isFavourites = selection == "favourites"
     val sortMode = browse.sort(kind, isFavourites)
     // Full list only used inside CUSTOM favourites; ordinary browsing stays SQL-paged.
@@ -152,8 +154,6 @@ internal fun TvVodBrowser(
             favouriteMutationRevision++
         }
     }
-    var categoryQuery by rememberSaveable(isSeries) { mutableStateOf("") }
-    var titleQuery by rememberSaveable(isSeries) { mutableStateOf("") }
     fun chooseCategory(id: String) {
         if (selection != id) {
             categoryQuery = ""
