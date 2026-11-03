@@ -57,6 +57,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
+import app.sokyiptv.ui.isHandheldTouch
 import app.sokyiptv.R
 
 /**
@@ -79,6 +82,7 @@ fun SettingsHubScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val handheld = isHandheldTouch()
     var confirmFactoryReset by remember { mutableStateOf(false) }
     val entries = listOf(
         HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title), stringResource(R.string.settings_providers_subtitle), onOpenProviders),
@@ -127,13 +131,17 @@ fun SettingsHubScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 24.dp),
+            .padding(horizontal = if (handheld) 16.dp else 32.dp,
+                vertical = if (handheld) 14.dp else 24.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Tv, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(12.dp))
-            Text(stringResource(R.string.nav_settings), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(if (handheld) 8.dp else 12.dp))
+            Text(stringResource(R.string.nav_settings),
+                style = MaterialTheme.typography.headlineMedium,
+                fontSize = if (handheld) 23.sp else 26.sp,
+                modifier = Modifier.weight(1f), maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
             HubTextButton(stringResource(R.string.common_done), onBack)
         }
 
@@ -205,6 +213,8 @@ internal fun HubTextButton(label: String, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Text(
         label,
+        maxLines = 1, softWrap = false,
+        overflow = TextOverflow.Ellipsis,
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Medium,
         color = if (focused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
@@ -213,6 +223,6 @@ internal fun HubTextButton(label: String, onClick: () -> Unit) {
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 8.dp),
+            .padding(horizontal = if (isHandheldTouch()) 11.dp else 18.dp, vertical = 8.dp),
     )
 }
