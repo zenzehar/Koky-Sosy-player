@@ -1142,6 +1142,7 @@ fun VodPlayerScreen(
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
             onPlaybackStable = ::noteStablePlayback,
+            manualRecoveryAvailable = recoveryStopped && recoveryIssue != null,
             onManualRecovery = {
                 if (recoveryStopped && recoveryIssue != null)
                     performRecoveryRetry(manual = true)
