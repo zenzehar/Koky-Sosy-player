@@ -778,6 +778,15 @@ fun VlcFallbackScreen(
     }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
+    // The modal and its focusable buttons are gone. Once automatic retries
+    // finish, focus the existing video root so OK can retry and Back can exit.
+    // Ordinary playback focus routes remain entirely unchanged.
+    LaunchedEffect(failed, recoveryManaged, manualRecoveryAvailable) {
+        if (failed && recoveryManaged && manualRecoveryAvailable) {
+            delay(50L)
+            runCatching { rootFocus.requestFocus() }
+        }
+    }
     LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed,
         diagnosticsState, recoveryManaged) {
         // Diagnostics is itself a modal. When it closes, restore focus to the
