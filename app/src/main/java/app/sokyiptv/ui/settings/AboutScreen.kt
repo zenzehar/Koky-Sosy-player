@@ -45,7 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
-import app.sokyiptv.ui.isHandheldTouch
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.BuildConfig
 import app.sokyiptv.R
 import app.sokyiptv.core.ServiceLocator
@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val handheld = isHandheldTouch()
+    val handheld = isHandheldPortrait()
     val scope = rememberCoroutineScope()
     var updateLine by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
