@@ -124,6 +124,7 @@ fun HomeScreen(
     onPlayChannel: (Channel) -> Unit,
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
+    onExit: () -> Unit = {},
     onPlayCatchup: (mediaKey: String, url: String, title: String, ua: String) -> Unit = { _, _, _, _ -> },
     viewModel: ChannelsViewModel = viewModel(),
 ) {
@@ -144,7 +145,12 @@ fun HomeScreen(
     val channelLayout by settings.channelLayout.collectAsState()
 
     val categories by viewModel.visibleCategoryGroups.collectAsState()
-    val rows by viewModel.rows.collectAsState()
+    // When tiles are open, DO NOT subscribe to rows: it eagerly constructs an
+    // entire EPG window. Movies uses a lightweight browse feed instead.
+    val rows = if (catalogueMode) emptyList<ChannelsViewModel.Row>()
+        else viewModel.rows.collectAsState().value
+    val catalogueRows = if (catalogueMode) viewModel.catalogueRows.collectAsState().value
+        else emptyList<ChannelsViewModel.Row>()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
     val favouritesOnly by viewModel.favouritesOnly.collectAsState()
     val sources by viewModel.sources.collectAsState()
@@ -251,7 +257,7 @@ fun HomeScreen(
     // live is funnelled through [requestLive]: with a recording active it asks first.
     var pendingLiveChannel by remember { mutableStateOf<Channel?>(null) }
     fun startLive(channel: Channel) {
-        PlaybackQueue.items = rows.map {
+        PlaybackQueue.items = (if (catalogueMode) catalogueRows else rows).map {
             PlaybackQueue.Item(it.primary.id, it.primary.shownName, it.primary.logoUrl, it.primary.number)
         }
         previewController.stop()
@@ -348,7 +354,7 @@ fun HomeScreen(
         // New Live TV catalogue: same data, quality variants and guarded player handoff.
         // The original EPG remains one tap away; it is not deleted.
         LiveCatalogueScreen(
-            rows = rows,
+            rows = catalogueRows,
             categories = categories,
             selectedCategory = selectedCategory,
             favouritesOnly = favouritesOnly,
@@ -358,7 +364,9 @@ fun HomeScreen(
             onFavourites = viewModel::selectFavourites,
             onSource = viewModel::selectSource,
             onPlay = ::requestLive,
+            onOptions = { channelMenu = it },
             onGuide = { catalogueMode = false; railExpanded = true },
+            onExit = onExit,
         )
     } else {
     Row(Modifier.fillMaxSize()) {
