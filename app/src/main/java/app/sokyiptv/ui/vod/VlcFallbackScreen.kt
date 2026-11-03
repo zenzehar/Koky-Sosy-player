@@ -115,6 +115,7 @@ fun VlcFallbackScreen(
     onConnectionIssue: (String) -> Unit = {},
     onPlaybackStable: () -> Unit = {},
     onManualRecovery: () -> Unit = {},
+    manualRecoveryAvailable: Boolean = false,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -837,7 +838,8 @@ fun VlcFallbackScreen(
                 // owns focus. D-pad directions retain native player handling;
                 // while failed, OK is an explicit manual retry and Back leaves.
                 if (failed && recoveryManaged) {
-                    if (event.key in setOf(Key.DirectionCenter, Key.Enter)) {
+                    if (manualRecoveryAvailable &&
+                        event.key in setOf(Key.DirectionCenter, Key.Enter)) {
                         if (event.type == KeyEventType.KeyDown &&
                             event.nativeKeyEvent.repeatCount == 0)
                             onManualRecovery()
@@ -1029,7 +1031,7 @@ fun VlcFallbackScreen(
                 Modifier.fillMaxSize().clickable(
                     interactionSource = tapInteraction, indication = null,
                 ) {
-                    if (failed && recoveryManaged) {
+                    if (failed && recoveryManaged && manualRecoveryAvailable) {
                         onManualRecovery() // Touch video to retry after exhaustion.
                     } else if (!failed) {
                         if (skipPromptVisible) showControls()
