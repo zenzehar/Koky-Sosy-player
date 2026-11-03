@@ -5,6 +5,8 @@
  */
 package app.sokyiptv.ui.settings
 
+import app.sokyiptv.ui.isHandheldTouch
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -85,9 +87,12 @@ fun SyncScreen(
             .padding(horizontal = 32.dp, vertical = 24.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.settings_sync_title), style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = { viewModel.stopSharing(); onBack() }) { Text(stringResource(R.string.common_done)) }
+            Text(stringResource(R.string.settings_sync_title), style = MaterialTheme.typography.headlineMedium,
+                modifier = if (isHandheldTouch()) Modifier.weight(1f) else Modifier,
+                maxLines = if (isHandheldTouch()) 2 else Int.MAX_VALUE,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Spacer(if (isHandheldTouch()) Modifier.width(8.dp) else Modifier.weight(1f))
+            OutlinedButton(onClick = { viewModel.stopSharing(); onBack() }) { Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false) }
         }
         Spacer(Modifier.height(8.dp))
         Text(
