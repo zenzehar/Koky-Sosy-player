@@ -29,6 +29,7 @@ internal const val MAX_LIVE_RETRIES = 5
 /** Five visible attempts and D-pad-accessible intervention. No recording mutation. */
 @Composable
 internal fun LiveRecoveryOverlay(
+    maxRetries: Int = MAX_LIVE_RETRIES,
     title: String,
     message: String,
     attempted: Int,
@@ -53,7 +54,7 @@ internal fun LiveRecoveryOverlay(
                 Text(message, style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center, maxLines = 3)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    repeat(MAX_LIVE_RETRIES) { i ->
+                    repeat(maxRetries) { i ->
                         Box(Modifier.size(width = 32.dp, height = 7.dp).background(
                             if (i < attempted) Color(0xFF57D8CC)
                             else MaterialTheme.colorScheme.outline.copy(alpha = .4f),
@@ -63,11 +64,11 @@ internal fun LiveRecoveryOverlay(
                 }
                 Text(
                     when {
-                        waiting -> "Retries complete ($attempted/$MAX_LIVE_RETRIES) · Waiting for you"
-                        skipCountdown > 0 -> "No response after $MAX_LIVE_RETRIES retries · next channel in " + skipCountdown + "s"
-                        retryCountdown > 0 -> "Retry " + (attempted + 1) + " of " + MAX_LIVE_RETRIES + " in " + retryCountdown + "s"
-                        attempted >= MAX_LIVE_RETRIES -> "All $MAX_LIVE_RETRIES retries failed"
-                        else -> "Reconnecting · $attempted of $MAX_LIVE_RETRIES retries completed"
+                        waiting -> "Retries complete ($attempted/$maxRetries) · Waiting for you"
+                        skipCountdown > 0 -> "No response after $maxRetries retries · next channel in " + skipCountdown + "s"
+                        retryCountdown > 0 -> "Retry " + (attempted + 1) + " of " + maxRetries + " in " + retryCountdown + "s"
+                        attempted >= maxRetries -> "All $maxRetries retries failed"
+                        else -> "Reconnecting · $attempted of $maxRetries retries completed"
                     },
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleMedium,
