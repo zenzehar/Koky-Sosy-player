@@ -24,6 +24,13 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Card
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -362,6 +369,43 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             )
         }
         }
+        item(key = "live-recovery") {
+            val end by settings.liveRecoveryEnd.collectAsState()
+            val timeout by settings.liveNoResponseSeconds.collectAsState()
+            val countdown by settings.liveSkipCountdownSeconds.collectAsState()
+            SettingsSection("Live TV · Connection recovery") {
+                Text("Automatically retry a failed or unresponsive Live TV channel up to five times. " +
+                    "Attempts and remaining time are shown on screen.",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("When all five attempts fail", style = MaterialTheme.typography.titleMedium)
+                ThemeOption("Stop and let me intervene (default)",
+                    end == AppSettings.LiveRecoveryEnd.WAIT_FOR_USER) {
+                    settings.setLiveRecoveryEnd(AppSettings.LiveRecoveryEnd.WAIT_FOR_USER)
+                }
+                ThemeOption("Skip to next channel after a countdown",
+                    end == AppSettings.LiveRecoveryEnd.AUTO_SKIP) {
+                    settings.setLiveRecoveryEnd(AppSettings.LiveRecoveryEnd.AUTO_SKIP)
+                }
+                if (end == AppSettings.LiveRecoveryEnd.AUTO_SKIP) {
+                    Text("Auto-skip countdown", style = MaterialTheme.typography.titleMedium)
+                    listOf(5, 10, 15, 30, 60).forEach { seconds ->
+                        ThemeOption("${seconds}s", countdown == seconds) {
+                            settings.setLiveSkipCountdownSeconds(seconds)
+                        }
+                    }
+                }
+                Text("No response / buffering timeout", style = MaterialTheme.typography.titleMedium)
+                listOf(10, 20, 30, 60).forEach { seconds ->
+                    ThemeOption("${seconds}s", timeout == seconds) {
+                        settings.setLiveNoResponseSeconds(seconds)
+                    }
+                }
+                Text("The connection timeout applies only to Live TV playback. " +
+                    "Recordings, Movies, and Series are never automatically skipped.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         item(key = "tmdb") {
         TmdbKeySection(settings, onOpenWebManager)
         }
@@ -597,19 +641,36 @@ private fun SleepOption(label: String, selected: Boolean, onSelect: () -> Unit) 
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-    )
-    Spacer(Modifier.height(8.dp))
+    // The section header is a single focusable/clickable D-pad stop; collapsed
+    // controls are not composed, so the remote never focuses invisible widgets.
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
     Card {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) { content() }
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .onFocusChanged { focused = it.isFocused }
+                    .background(if (focused)
+                        MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium,
+                    color = if (focused) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f), maxLines = 2)
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand")
+            }
+            if (expanded) {
+                Column(
+                    Modifier.fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) { content() }
+            }
+        }
     }
 }
 
