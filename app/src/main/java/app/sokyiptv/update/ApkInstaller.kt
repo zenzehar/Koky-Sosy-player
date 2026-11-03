@@ -39,10 +39,18 @@ class ApkInstaller(private val http: OkHttpClient) {
         context: Context,
         url: String,
         expectedBytes: Long,
+        targetVersion: String,
         progress: Progress,
     ): Boolean {
         val apk = download(context, url, expectedBytes, progress)
-        launchInstaller(context, apk)
+        // Persist across Android killing this process during APK replacement.
+        UpdateRelaunch.arm(context, targetVersion)
+        try {
+            launchInstaller(context, apk)
+        } catch (e: Exception) {
+            UpdateRelaunch.disarm(context)
+            throw e
+        }
         return true
     }
 
