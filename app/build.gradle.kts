@@ -18,8 +18,8 @@ android {
         // v94 rollback companions use code 117. Normal updates must exceed it.
         // v95 rollback companions use versionCode 119.
         // v96 rollback companions use 121, so this permanent signed update is 122.
-        versionCode = 122
-        versionName = "0.1.11.97-handheld-touch-portrait"
+        versionCode = 124
+        versionName = "0.1.11.98-responsive-handheld-ui"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Inject optional TMDB credentials from GitHub Actions secrets, never from source.
         val tmdbKey = providers.environmentVariable("TMDB_API_KEY").orNull.orEmpty()
