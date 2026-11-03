@@ -555,7 +555,7 @@ private fun SokyIptvApp(isTelevision: Boolean) {
     val currentEntry by navController.currentBackStackEntryAsState()
     val isImmersivePlayback = currentEntry?.destination?.route in
         setOf(Routes.PLAYER, Routes.VOD_PLAYER)
-    val navigationInsets = if (!isTelevision && !isImmersivePlayback) {
+    val navigationInsets = if (app.sokyiptv.ui.isHandheldPortrait() && !isImmersivePlayback) {
         Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     } else Modifier
     Box(Modifier.fillMaxSize()) {
