@@ -228,6 +228,7 @@ fun MainScreen(
                     onPlayChannel = onPlayChannel,
                     onAddSource = onAddSource,
                     onRefresh = onRefresh,
+                    onExit = { showDashboard = true },
                     onPlayCatchup = onPlayCatchup,
                 )
                 Tab.MOVIES -> MoviesScreen(
