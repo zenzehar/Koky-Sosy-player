@@ -148,25 +148,6 @@ internal fun TvVodBrowser(
     }
     BackHandler(grabbedKey != null) { finishReorder() }
 
-    /** SnapshotStateList swaps are instantaneous; no DB fetches or disk writes on D-pad. */
-    fun moveFavourite(key: String, delta: Int) {
-        if (!isFavourites || sortMode != BrowseSort.CUSTOM || grabbedKey != key) return
-        val from = customFavouriteKeys.indexOf(key)
-        val to = from + delta
-        if (from < 0 || to !in customFavouriteKeys.indices) return
-        customFavouriteKeys = customFavouriteKeys.toMutableList().apply {
-            java.util.Collections.swap(this, from, to)
-        }
-        if (isSeries) {
-            val a = seriesPage.indexOfFirst { seriesKey(it) == key }
-            val b = seriesPage.indexOfFirst { seriesKey(it) == customFavouriteKeys[from] }
-            if (a >= 0 && b >= 0) java.util.Collections.swap(seriesPage, a, b)
-        } else {
-            val a = moviePage.indexOfFirst { movieKey(it) == key }
-            val b = moviePage.indexOfFirst { movieKey(it) == customFavouriteKeys[from] }
-            if (a >= 0 && b >= 0) java.util.Collections.swap(moviePage, a, b)
-        }
-    }
 
     fun toggleMovie(item: Movie) {
         scope.launch {
@@ -193,6 +174,26 @@ internal fun TvVodBrowser(
     // catalogue on EVERY page, causing O(n²) allocation on large IPTV libraries.
     val moviePage = remember(isSeries) { mutableStateListOf<Movie>() }
     val seriesPage = remember(isSeries) { mutableStateListOf<Series>() }
+    /** SnapshotStateList swaps are instantaneous; no DB fetches or disk writes on D-pad. */
+    fun moveFavourite(key: String, delta: Int) {
+        if (!isFavourites || sortMode != BrowseSort.CUSTOM || grabbedKey != key) return
+        val from = customFavouriteKeys.indexOf(key)
+        val to = from + delta
+        if (from < 0 || to !in customFavouriteKeys.indices) return
+        customFavouriteKeys = customFavouriteKeys.toMutableList().apply {
+            java.util.Collections.swap(this, from, to)
+        }
+        if (isSeries) {
+            val a = seriesPage.indexOfFirst { seriesKey(it) == key }
+            val b = seriesPage.indexOfFirst { seriesKey(it) == customFavouriteKeys[from] }
+            if (a >= 0 && b >= 0) java.util.Collections.swap(seriesPage, a, b)
+        } else {
+            val a = moviePage.indexOfFirst { movieKey(it) == key }
+            val b = moviePage.indexOfFirst { movieKey(it) == customFavouriteKeys[from] }
+            if (a >= 0 && b >= 0) java.util.Collections.swap(moviePage, a, b)
+        }
+    }
+
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
     var favouriteCount by remember(isSeries, sourceId) { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
