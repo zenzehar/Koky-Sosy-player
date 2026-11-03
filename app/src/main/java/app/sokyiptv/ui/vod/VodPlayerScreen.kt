@@ -684,6 +684,13 @@ fun VodPlayerScreen(
     LaunchedEffect(mediaKey, usingVlc, endWatchGeneration) {
         if (usingVlc) return@LaunchedEffect
         while (isActive && !advanced.get() && !media3PrematureEnd) {
+            // During a reconnect, the old controller can briefly still report
+            // ENDED before the new media is prepared. Never complete/advance
+            // based on the previous, failed stream's terminal state.
+            if (recoveryIssue != null || recoveryInFlight) {
+                delay(450L)
+                continue
+            }
             if (controller.player.playbackState == Player.STATE_ENDED) {
                 naturalEnd()
                 break
