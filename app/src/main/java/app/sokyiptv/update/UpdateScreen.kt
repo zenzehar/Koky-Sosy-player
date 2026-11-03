@@ -160,6 +160,7 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
                     context = getApplication(),
                     url = update.apkUrl,
                     expectedBytes = update.apkSizeBytes,
+                    targetVersion = update.versionName,
                 ) { fraction -> _state.value = UpdateUiState.Downloading(update, fraction) }
             }.onSuccess {
                 // The system installer is now front-and-centre; step our dialog aside.
