@@ -597,7 +597,7 @@ fun PlayerScreen(
                 title = channelTitle,
                 paused = paused,
                 buffering = state is PlayerController.State.Buffering,
-                seekable = controller.isSeekable,
+                seekable = settings.livePauseEnabled.value && controller.isSeekable,
                 positionMs = livePositionMs,
                 durationMs = liveDurationMs,
                 favourite = favouriteNow,
