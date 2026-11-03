@@ -371,7 +371,11 @@ fun HomeScreen(
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
             Spacer(Modifier.height(12.dp))
-            // The top "Search channels" bar was removed — Search now lives in the global nav rail.
+            // Back to the poster catalogue without leaving Live TV.
+            TextButton(onClick = { catalogueMode = true },
+                modifier = Modifier.fillMaxWidth()) {
+                Text("Channel tiles", maxLines = 1, softWrap = false)
+            }
 
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -449,6 +453,9 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { catalogueMode = true }) {
+                    Text("Tiles", maxLines = 1, softWrap = false)
+                }
             }
             if (rows.isEmpty()) {
                 when {
