@@ -2,7 +2,9 @@ package app.sokyiptv.update
 
 import android.content.Context
 import android.content.Intent
-import androidx.test.core.app.ApplicationProvider
+import android.app.Application
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,11 +14,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [28], application = Application::class)
 class UpdateRelaunchTest {
     private lateinit var context: Context
 
     @Before fun setUp() {
-        context = ApplicationProvider.getApplicationContext()
+        context = RuntimeEnvironment.getApplication()
         UpdateRelaunch.disarm(context)
     }
 
