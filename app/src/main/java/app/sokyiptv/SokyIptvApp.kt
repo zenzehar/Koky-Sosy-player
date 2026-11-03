@@ -9,6 +9,7 @@ import android.app.Application
 import android.content.Context
 import app.sokyiptv.core.LocaleUtils
 import app.sokyiptv.core.ServiceLocator
+import app.sokyiptv.diagnostics.PlaybackDiagnostics
 import app.sokyiptv.update.RollbackStore
 import app.sokyiptv.data.repo.CatalogRepository
 import app.sokyiptv.data.work.SyncWorker
@@ -60,6 +61,9 @@ class SokyIptvApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // Capture crashes during package-replaced receiver / Application startup,
+        // before MainActivity can install the normal diagnostic handler.
+        PlaybackDiagnostics.install(this)
         // Anchor the 24h rollback offer to Android's real package update timestamp.
         // Never touch providers, settings, database or media while preparing rollback.
         RollbackStore.reconcile(this)
