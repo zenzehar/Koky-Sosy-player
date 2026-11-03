@@ -195,8 +195,14 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
                     targetVersion = snapshot.version,
                 )
             }.onFailure {
+                // Never keep offering the same invalid/signer-mismatched APK.
+                // Resume will fetch the release again from a clean file.
+                UpdateTransfer.ready(getApplication()).delete()
+                UpdateTransfer.partial(getApplication()).delete()
+                UpdateTransfer.etag(getApplication(), null)
                 UpdateTransfer.change(getApplication(),
-                    snapshot.copy(stage = "failed", error = it.javaClass.simpleName))
+                    snapshot.copy(stage = "failed", error = it.javaClass.simpleName,
+                        downloadedBytes = 0L))
             }
         }
     }
