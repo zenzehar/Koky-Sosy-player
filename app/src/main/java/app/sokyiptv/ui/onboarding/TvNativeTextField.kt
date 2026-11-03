@@ -42,6 +42,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.sokyiptv.ui.isHandheldTouch
 import androidx.compose.ui.text.style.TextAlign
 
 @Composable
@@ -79,6 +80,39 @@ fun TvNativeTextField(
         if (loginActive) Color(0xFF1A1520) else Color.White
     } else Color.White
     val height = if (smartersStyle) 64.dp else 61.dp
+
+    // Touch devices have a normal native text box: one tap places the caret
+    // and opens the keyboard. TV's two-stage focus/OK interaction below stays
+    // byte-for-byte unchanged, including focus decoration and D-pad handling.
+    if (isHandheldTouch()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            label = if (smartersStyle) null else ({
+                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }),
+            placeholder = if (smartersStyle) ({
+                Text(label, color = Color(0xFF665260), fontSize = 17.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }) else null,
+            keyboardOptions = keyboardOptions,
+            visualTransformation = visualTransformation,
+            trailingIcon = trailingIcon,
+            textStyle = TextStyle(fontSize = 17.sp, lineHeight = 24.sp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = if (smartersStyle) Color(0xFFE6BDCB) else bg,
+                unfocusedContainerColor = if (smartersStyle) Color(0xFFE6BDCB) else bg,
+                focusedTextColor = if (smartersStyle) Color(0xFF1A1520) else Color.White,
+                unfocusedTextColor = if (smartersStyle) Color(0xFF1A1520) else Color.White,
+                focusedBorderColor = frameColor,
+                unfocusedBorderColor = Color.White.copy(alpha = .30f),
+            ),
+            shape = shape,
+            modifier = modifier.fillMaxWidth().height(height),
+        )
+        return
+    }
 
     LaunchedEffect(initialFocus) {
         if (initialFocus && !editing) {
