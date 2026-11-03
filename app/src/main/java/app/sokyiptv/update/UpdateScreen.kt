@@ -37,6 +37,8 @@ fun UpdateGate(viewModel: UpdateViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     val transfer by viewModel.transfer.collectAsState()
     var dialogVisible by rememberSaveable { mutableStateOf(true) }
+    val reopen by UpdateHub.reopenTransfer.collectAsState()
+    LaunchedEffect(reopen) { if (reopen > 0) dialogVisible = true }
 
     LaunchedEffect(transfer.version) {
         if (transfer.version.isNotBlank()) dialogVisible = true
@@ -129,6 +131,8 @@ sealed interface UpdateUiState {
 /** Manual update discovery in About and automatic startup share one prompt. */
 object UpdateHub {
     val state = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val reopenTransfer = MutableStateFlow(0)
+    fun showTransferControls() { reopenTransfer.value++ }
 }
 
 class UpdateViewModel(app: Application) : AndroidViewModel(app) {
