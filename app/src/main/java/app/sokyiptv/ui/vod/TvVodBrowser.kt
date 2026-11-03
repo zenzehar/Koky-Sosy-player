@@ -46,6 +46,9 @@ import androidx.compose.material3.TextButton
 import androidx.work.WorkManager
 import androidx.work.WorkInfo
 import app.sokyiptv.core.AppSettings
+import app.sokyiptv.core.BrowseCustomizations
+import app.sokyiptv.core.BrowseSort
+import app.sokyiptv.ui.BrowseSortMenu
 import app.sokyiptv.data.work.VodSectionSyncWorker
 import app.sokyiptv.data.model.SourceKind
 import java.text.DateFormat
@@ -121,7 +124,34 @@ internal fun TvVodBrowser(
     val sources by viewModel.sources.collectAsState()
     val sourceId by viewModel.selectedVodSource.collectAsState()
 
+    val browse = remember(context) { BrowseCustomizations(context) }
+    val browseRevision by browse.revision.collectAsState()
+    var favouriteMutationRevision by remember { mutableStateOf(0) }
+    val kind = if (isSeries) "series" else "movie"
     var selection by rememberSaveable(isSeries) { mutableStateOf("all") }
+    val isFavourites = selection == "favourites"
+    val sortMode = browse.sort(kind, isFavourites)
+    // Full list only used inside CUSTOM favourites; ordinary browsing stays SQL-paged.
+    var customFavouriteKeys by remember(isSeries, sourceId) { mutableStateOf<List<String>>(emptyList()) }
+    fun movieKey(item: Movie): String = item.sourceId.toString() + ":" + item.streamId
+    fun seriesKey(item: Series): String = item.sourceId.toString() + ":" + item.seriesId
+    fun moveFavourite(key: String, delta: Int) {
+        if (isFavourites && sortMode == BrowseSort.CUSTOM && titleQuery.isBlank()) {
+            browse.moveFavourite(kind, key, delta, customFavouriteKeys)
+        }
+    }
+    fun toggleMovie(item: Movie) {
+        scope.launch {
+            catalog.setMovieFavourite(item.id, !item.favourite)
+            favouriteMutationRevision++
+        }
+    }
+    fun toggleSeries(item: Series) {
+        scope.launch {
+            catalog.setSeriesFavourite(item.id, !item.favourite)
+            favouriteMutationRevision++
+        }
+    }
     var categoryQuery by rememberSaveable(isSeries) { mutableStateOf("") }
     var titleQuery by rememberSaveable(isSeries) { mutableStateOf("") }
     fun chooseCategory(id: String) {
@@ -172,25 +202,55 @@ internal fun TvVodBrowser(
         if (selection == "favourites") favouriteCount else
         if (selection == "all") totalCount else categoryCounts[selection] ?: 0
 
-    LaunchedEffect(sourceId, isSeries, lastUpdateRevision) {
+    LaunchedEffect(sourceId, isSeries, lastUpdateRevision, favouriteMutationRevision) {
         categoryCounts = catalog.vodCounts(sourceId, isSeries).associate { it.categoryId to it.count }
         favouriteCount = catalog.vodFavouriteCount(sourceId, isSeries)
     }
 
-    // The query runs on the Room dispatcher. A keystroke cancels the old query,
-    // waits briefly, then starts at page one. No full-table list is copied in Compose.
-    LaunchedEffect(isSeries, sourceId, selection, titleQuery, lastUpdateRevision) {
+    // Room applies ORDER BY BEFORE paging, so sorted results are globally correct
+    // across large libraries. Custom favourites alone use a background snapshot
+    // of favourites (not the entire catalogue), then feed 72-card lazy pages.
+    var viewportKey by remember { mutableStateOf("") }
+    LaunchedEffect(isSeries, sourceId, selection, titleQuery, lastUpdateRevision,
+        sortMode, browseRevision, favouriteMutationRevision) {
         seriesPrefetch.reset()
         moviePage.clear()
         seriesPage.clear()
+        customFavouriteKeys = emptyList()
         reachedEnd = false
         loading = false
-        grid.scrollToItem(0)
+        val newViewport = listOf(isSeries.toString(), sourceId.toString(),
+            selection, titleQuery, sortMode.name).joinToString(":")
+        if (newViewport != viewportKey) {
+            grid.scrollToItem(0)
+            viewportKey = newViewport
+        }
         if (selection == "continue") return@LaunchedEffect
         if (titleQuery.isNotBlank()) delay(90L)
         val query = titleQuery.trim()
         val category = selection.takeUnless { it in setOf("all", "favourites", "recent") }
         val onlyFavourites = selection == "favourites"
+        val custom = onlyFavourites && sortMode == BrowseSort.CUSTOM
+
+        val customMovies = if (custom && !isSeries) {
+            val all = browse.customSort(kind, catalog.movieFavourites(sourceId), ::movieKey)
+            customFavouriteKeys = all.map(::movieKey)
+            all.filter { item ->
+                query.isEmpty() || if (ArabicSearch.hasArabic(query))
+                    ArabicSearch.matches(item.name, query)
+                else item.name.contains(query, ignoreCase = true)
+            }
+        } else null
+        val customSeries = if (custom && isSeries) {
+            val all = browse.customSort(kind, catalog.seriesFavourites(sourceId), ::seriesKey)
+            customFavouriteKeys = all.map(::seriesKey)
+            all.filter { item ->
+                query.isEmpty() || if (ArabicSearch.hasArabic(query))
+                    ArabicSearch.matches(item.name, query)
+                else item.name.contains(query, ignoreCase = true)
+            }
+        } else null
+
         var offset = 0
         suspend fun fetchPage() {
             if (reachedEnd || loading) return
@@ -198,12 +258,18 @@ internal fun TvVodBrowser(
             try {
                 val size = if (selection == "recent") 30 else PAGE
                 if (isSeries) {
-                    val batch = catalog.seriesPage(sourceId, category, onlyFavourites, query, size, offset)
+                    val batch = if (customSeries != null)
+                        customSeries.drop(offset).take(size)
+                    else catalog.seriesPage(sourceId, category, onlyFavourites, query,
+                        size, offset, sortMode)
                     seriesPage.addAll(batch)
                     offset += batch.size
                     reachedEnd = batch.size < size || selection == "recent"
                 } else {
-                    val batch = catalog.moviePage(sourceId, category, onlyFavourites, query, size, offset)
+                    val batch = if (customMovies != null)
+                        customMovies.drop(offset).take(size)
+                    else catalog.moviePage(sourceId, category, onlyFavourites, query,
+                        size, offset, sortMode)
                     moviePage.addAll(batch)
                     offset += batch.size
                     reachedEnd = batch.size < size || selection == "recent"
@@ -222,7 +288,6 @@ internal fun TvVodBrowser(
                 }
             }
     }
-
 
     if (isHandheldPortrait()) {
         // Entire TV/landscape branch below is untouched. The portrait layout
