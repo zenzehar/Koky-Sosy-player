@@ -59,6 +59,12 @@ import androidx.compose.ui.unit.sp
 import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.Source
 import app.sokyiptv.data.model.shownName
+import app.sokyiptv.core.BrowseCustomizations
+import app.sokyiptv.core.BrowseSort
+import app.sokyiptv.ui.BrowseSortMenu
+import app.sokyiptv.core.AppSettings
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
 import app.sokyiptv.ui.ChannelsViewModel
 import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.onboarding.TvNativeTextField
@@ -93,12 +99,20 @@ internal fun LiveCatalogueScreen(
     onSource: (Long?) -> Unit,
     onPlay: (Channel) -> Unit,
     onOptions: (ChannelsViewModel.Row) -> Unit,
+    onToggleFavourite: (ChannelsViewModel.Row) -> Unit,
     onGuide: () -> Unit,
     onExit: () -> Unit,
 ) {
     var categoryQuery by rememberSaveable { mutableStateOf("") }
     var titleQuery by rememberSaveable { mutableStateOf("") }
     var sourceMenu by remember { mutableStateOf(false) }
+    var recentOnly by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val browse = remember(context) { BrowseCustomizations(context) }
+    val browseRevision by browse.revision.collectAsState()
+    val profileId by remember(context) { AppSettings.get(context) }.activeProfileId.collectAsState()
+    val history = remember(profileId, browseRevision) { browse.recentLive(profileId) }
+    val sortMode = browse.sort("live", favouritesOnly)
     val grid = rememberLazyGridState()
     val portrait = isHandheldPortrait()
     val categoriesFiltered = remember(categories, categoryQuery) {
@@ -108,38 +122,77 @@ internal fun LiveCatalogueScreen(
         }
     }
 
-    // Movies/Series avoid transforming large databases on the Compose UI thread.
-    // Filtering this light, logo/name-only catalogue also happens off-main.
-    val visibleRows by produceState(initialValue = rows, rows, titleQuery) {
+    // No EPG data, no per-focus scroll jobs; sort and filter off-main for large
+    // playlists. Newly watched channels update only the per-profile Recently list.
+    val visibleRows by produceState(initialValue = rows, rows, titleQuery, recentOnly,
+                                    favouritesOnly, sortMode, profileId, browseRevision) {
         val q = titleQuery.trim()
-        if (q.isBlank()) {
-            value = rows
-        } else {
-            delay(90L) // Cancel the previous request when the user types again.
-            value = withContext(Dispatchers.Default) {
-                rows.filter { LiveCatalogueSearch.matches(it.primary.shownName, q) }
+        if (q.isNotBlank()) delay(90L)
+        value = withContext(Dispatchers.Default) {
+            val historyRanks = history.withIndex().associate { it.value to it.index }
+            val scoped = rows.filter { row ->
+                (!recentOnly || browse.orderKey(row.primary) in historyRanks) &&
+                    LiveCatalogueSearch.matches(row.primary.shownName, q)
+            }
+            val tie = compareBy<ChannelsViewModel.Row> {
+                it.primary.shownName.lowercase(java.util.Locale.ROOT)
+            }.thenBy { it.primary.id }
+            when {
+                favouritesOnly && sortMode == BrowseSort.CUSTOM ->
+                    browse.customSort("live", scoped) { browse.orderKey(it.primary) }
+                recentOnly && sortMode == BrowseSort.DEFAULT ->
+                    scoped.sortedBy { historyRanks[browse.orderKey(it.primary)] ?: Int.MAX_VALUE }
+                sortMode == BrowseSort.NAME_ASC -> scoped.sortedWith(tie)
+                sortMode == BrowseSort.NAME_DESC ->
+                    scoped.sortedWith(compareByDescending<ChannelsViewModel.Row> {
+                        it.primary.shownName.lowercase(java.util.Locale.ROOT)
+                    }.thenBy { it.primary.id })
+                sortMode == BrowseSort.NUMBER_ASC ->
+                    scoped.sortedWith(compareBy<ChannelsViewModel.Row> {
+                        it.primary.number ?: Int.MAX_VALUE
+                    }.then(tie))
+                sortMode == BrowseSort.NUMBER_DESC ->
+                    scoped.sortedWith(compareByDescending<ChannelsViewModel.Row> {
+                        it.primary.number ?: -1
+                    }.then(tie))
+                else -> scoped // Keep provider order (and legacy channel order) as default.
             }
         }
     }
 
-    LaunchedEffect(selectedCategory, favouritesOnly, selectedSource) {
-        grid.scrollToItem(0) // Category transition only; NEVER scroll on each focus change.
+    LaunchedEffect(selectedCategory, favouritesOnly, selectedSource, recentOnly) {
+        grid.scrollToItem(0) // Only category transition; remote focus owns ordinary scrolling.
     }
 
     val heading = when {
+        recentOnly -> "RECENTLY WATCHED"
         favouritesOnly -> "FAVOURITES"
         selectedCategory == null -> "ALL"
         else -> categories.firstOrNull { it.key == selectedCategory }?.label ?: "ALL"
     }
     val chooseCategory: (String?) -> Unit = {
+        recentOnly = false
         categoryQuery = ""
         titleQuery = ""
         onCategory(it)
     }
     val chooseFavourites: () -> Unit = {
+        recentOnly = false
         categoryQuery = ""
         titleQuery = ""
         onFavourites()
+    }
+    val chooseRecent: () -> Unit = {
+        recentOnly = true
+        categoryQuery = ""
+        titleQuery = ""
+        onCategory(null) // Recent history is not limited to a previously selected category.
+    }
+    val moveFavourite: (ChannelsViewModel.Row, Int) -> Unit = { row, delta ->
+        if (favouritesOnly && sortMode == BrowseSort.CUSTOM && titleQuery.isBlank()) {
+            browse.moveFavourite("live", browse.orderKey(row.primary), delta,
+                visibleRows.map { browse.orderKey(it.primary) })
+        }
     }
 
     @Composable
@@ -181,6 +234,9 @@ internal fun LiveCatalogueScreen(
                     channel = row.primary,
                     onClick = { onPlay(row.primary) },
                     onOptions = { onOptions(row) },
+                    onToggleFavourite = { onToggleFavourite(row) },
+                    onMove = if (favouritesOnly && sortMode == BrowseSort.CUSTOM &&
+                                 titleQuery.isBlank()) ({ delta -> moveFavourite(row, delta) }) else null,
                 )
             }
         }
@@ -234,22 +290,30 @@ internal fun LiveCatalogueScreen(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 item(key = "all") {
-                    LivePortraitCategoryChip("ALL", !favouritesOnly && selectedCategory == null) {
+                    LivePortraitCategoryChip("ALL", !recentOnly && !favouritesOnly && selectedCategory == null) {
                         chooseCategory(null)
                     }
                 }
                 item(key = "favourites") {
                     LivePortraitCategoryChip("FAVOURITES", favouritesOnly) { chooseFavourites() }
                 }
+                item(key = "recently-watched") {
+                    LivePortraitCategoryChip("RECENTLY WATCHED", recentOnly) { chooseRecent() }
+                }
                 items(categoriesFiltered, key = { it.key }) { group ->
                     LivePortraitCategoryChip(
                         group.label,
-                        !favouritesOnly && selectedCategory == group.key,
+                        !recentOnly && !favouritesOnly && selectedCategory == group.key,
                     ) { chooseCategory(group.key) }
                 }
             }
-            Text(heading, color = Color.White.copy(alpha = .91f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(heading, color = Color.White.copy(alpha = .91f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                BrowseSortMenu("live", favouritesOnly, sortMode) {
+                    browse.setSort("live", favouritesOnly, it)
+                }
+            }
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 ChannelsGrid(Modifier.fillMaxSize(), columns)
                 if (visibleRows.isEmpty()) {
@@ -282,16 +346,19 @@ internal fun LiveCatalogueScreen(
                 ProviderMenu()
                 LazyColumn(Modifier.weight(1f)) {
                     item(key = "all") {
-                        LiveCategoryOption("ALL", !favouritesOnly && selectedCategory == null) {
+                        LiveCategoryOption("ALL", !recentOnly && !favouritesOnly && selectedCategory == null) {
                             chooseCategory(null)
                         }
                     }
                     item(key = "favourites") {
                         LiveCategoryOption("FAVOURITES", favouritesOnly) { chooseFavourites() }
                     }
+                    item(key = "recently-watched") {
+                        LiveCategoryOption("RECENTLY WATCHED", recentOnly) { chooseRecent() }
+                    }
                     items(categoriesFiltered, key = { it.key }) { group ->
                         LiveCategoryOption(
-                            group.label, !favouritesOnly && selectedCategory == group.key,
+                            group.label, !recentOnly && !favouritesOnly && selectedCategory == group.key,
                         ) { chooseCategory(group.key) }
                     }
                 }
@@ -309,7 +376,14 @@ internal fun LiveCatalogueScreen(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text(heading, color = Color.White.copy(alpha = .91f), fontSize = 18.sp)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(heading, color = Color.White.copy(alpha = .91f), fontSize = 18.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f))
+                    BrowseSortMenu("live", favouritesOnly, sortMode) {
+                        browse.setSort("live", favouritesOnly, it)
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
                 Box(Modifier.weight(1f)) {
                     ChannelsGrid(Modifier.fillMaxSize(), TV_COLUMNS)
@@ -356,12 +430,19 @@ private fun LivePortraitCategoryChip(label: String, selected: Boolean, onClick: 
 
 /** Same Movies poster focus action and natural viewport scroll; channel artwork keeps its aspect. */
 @Composable
-private fun LivePoster(channel: Channel, onClick: () -> Unit, onOptions: () -> Unit) {
+private fun LivePoster(
+    channel: Channel,
+    onClick: () -> Unit,
+    onOptions: () -> Unit,
+    onToggleFavourite: () -> Unit,
+    onMove: ((Int) -> Unit)?,
+) {
     var focused by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .tvRemoteActions(onClick = onClick, onLongPress = onOptions),
+            .tvRemoteActions(onClick = onClick, onLongPress = { menuOpen = true }),
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(.69f)
@@ -381,12 +462,27 @@ private fun LivePoster(channel: Channel, onClick: () -> Unit, onOptions: () -> U
                 )
             }
             if (isHandheldPortrait()) IconButton(
-                onClick = onOptions, modifier = Modifier.align(Alignment.TopEnd),
+                onClick = { menuOpen = true }, modifier = Modifier.align(Alignment.TopEnd),
             ) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Channel options", tint = Color.White)
             } else if (focused) Icon(Icons.Default.MoreVert,
                 contentDescription = null, tint = Color.White,
                 modifier = Modifier.align(Alignment.TopEnd))
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(text = { Text("Watch channel") },
+                onClick = { menuOpen = false; onClick() })
+            DropdownMenuItem(
+                text = { Text(if (channel.favourite) "Remove from favourites" else "Add to favourites") },
+                onClick = { menuOpen = false; onToggleFavourite() })
+            if (onMove != null) {
+                DropdownMenuItem(text = { Text("Move earlier in favourites") },
+                    onClick = { menuOpen = false; onMove(-1) })
+                DropdownMenuItem(text = { Text("Move later in favourites") },
+                    onClick = { menuOpen = false; onMove(1) })
+            }
+            DropdownMenuItem(text = { Text("More channel options") },
+                onClick = { menuOpen = false; onOptions() })
         }
         Text(
             channel.shownName, color = Color.White,
