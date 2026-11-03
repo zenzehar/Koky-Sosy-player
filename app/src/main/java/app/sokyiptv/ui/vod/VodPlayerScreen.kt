@@ -412,6 +412,7 @@ fun VodPlayerScreen(
         recoveryInFlight = true
         recoveryRetryEpoch++
         if (!usingVlc) {
+            paused = false
             // Retune at the latest watched position, not the stale original
             // start offset. Keep the approved native seeking path untouched.
             media3PrematureEnd = false
@@ -1120,7 +1121,8 @@ fun VodPlayerScreen(
                 }
             },
             onEnded = { naturalEnd() },
-            suspendPlayback = screenSaverSuspended,
+            suspendPlayback = screenSaverSuspended ||
+                (recoveryStopped && recoveryIssue != null),
             recoveryManaged = !showVlcAdvancedMenu,
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
@@ -1658,6 +1660,11 @@ fun VodPlayerScreen(
                 recoveryInFlight = false
                 recoveryCountdown = 0
                 recoverySkipCountdown = 0
+                if (!usingVlc) {
+                    runCatching { controller.player.pause() }
+                    paused = true
+                }
+                // VLC is paused by its existing suspendPlayback lifecycle hook.
             },
             onNextEpisode = {
                 val next = followingEpisode
