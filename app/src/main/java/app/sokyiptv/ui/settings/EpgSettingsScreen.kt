@@ -5,7 +5,7 @@
  */
 package app.sokyiptv.ui.settings
 
-import app.sokyiptv.ui.isHandheldTouch
+import app.sokyiptv.ui.isHandheldPortrait
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -68,10 +68,10 @@ fun EpgSettingsScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.settings_guide_title), style = MaterialTheme.typography.headlineMedium,
-                modifier = if (isHandheldTouch()) Modifier.weight(1f) else Modifier,
-                maxLines = if (isHandheldTouch()) 2 else Int.MAX_VALUE,
+                modifier = if (isHandheldPortrait()) Modifier.weight(1f) else Modifier,
+                maxLines = if (isHandheldPortrait()) 2 else Int.MAX_VALUE,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Spacer(if (isHandheldTouch()) Modifier.width(8.dp) else Modifier.weight(1f))
+            Spacer(if (isHandheldPortrait()) Modifier.width(8.dp) else Modifier.weight(1f))
             OutlinedButton(onClick = { viewModel.refresh() }, enabled = !ui.syncing) {
                 Text(if (ui.syncing) stringResource(R.string.epg_updating) else stringResource(R.string.epg_update_now), maxLines = 1, softWrap = false)
             }
