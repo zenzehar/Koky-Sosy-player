@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -70,6 +72,7 @@ import app.sokyiptv.data.model.Series
 import app.sokyiptv.data.model.StremioStream
 import app.sokyiptv.data.parser.displayTitle
 import app.sokyiptv.ui.VodViewModel
+import app.sokyiptv.ui.isHandheldPortrait
 import coil.compose.AsyncImage
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
@@ -339,18 +342,20 @@ fun SeriesDetailScreen(
  * a title with no backdrop at all and a broken poster still shows its name over the app gradient
  * beside an intentional-looking placeholder card, never an empty rectangle.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DetailBackdrop(
     title: String,
     backdropUrl: String?,
     posterUrl: String?,
     meta: String,
-    actions: @Composable RowScope.() -> Unit,
+    actions: @Composable () -> Unit,
 ) {
+    val portrait = isHandheldPortrait()
     Box(
         Modifier
             .fillMaxWidth()
-            .height(360.dp)
+            .height(if (portrait) 440.dp else 360.dp)
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         // Background: try the backdrop, fall back to the poster on load error, then to the gradient
@@ -378,6 +383,33 @@ private fun DetailBackdrop(
                 ),
             ),
         )
+        if (portrait) {
+            Column(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    HeroPosterCard(posterUrl = posterUrl, title = title)
+                    Column(Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.titleLarge,
+                            color = Color.White, maxLines = 3,
+                            overflow = TextOverflow.Ellipsis)
+                        if (meta.isNotBlank()) Text(meta,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = .85f),
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                FlowRow(Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    actions()
+                }
+            }
+        } else {
         Row(
             Modifier
                 .align(Alignment.BottomStart)
@@ -403,10 +435,10 @@ private fun DetailBackdrop(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    content = actions,
-                )
+                ) { actions() }
             }
         }
+        } // TV and landscape movie hero remain unchanged.
     }
 }
 
@@ -420,10 +452,11 @@ private fun DetailBackdrop(
 @Composable
 private fun HeroPosterCard(posterUrl: String?, title: String) {
     var posterFailed by remember(posterUrl) { mutableStateOf(false) }
+    val portrait = isHandheldPortrait()
     Box(
         Modifier
-            .width(128.dp)
-            .height(192.dp)
+            .width(if (portrait) 92.dp else 128.dp)
+            .height(if (portrait) 138.dp else 192.dp)
             .shadow(12.dp, RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
@@ -622,7 +655,11 @@ private fun DetailButton(
     ) {
         Icon(icon, contentDescription = null, tint = content)
         Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.titleMedium, color = content)
+        Text(label, style = if (isHandheldPortrait())
+            MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
+            color = content, maxLines = 1, softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = if (isHandheldPortrait()) Modifier.widthIn(max = 186.dp) else Modifier)
     }
 }
 
