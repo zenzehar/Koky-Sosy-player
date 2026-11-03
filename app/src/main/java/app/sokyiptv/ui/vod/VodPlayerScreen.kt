@@ -766,7 +766,11 @@ fun VodPlayerScreen(
             controller.play(
                 PlayerController.Request(
                     url = streamUrl, title = title, userAgent = userAgent,
-                    startPositionMillis = if (positionMs > 0L) positionMs else resumeFromMs,
+                    startPositionMillis = when {
+                        lastHealthyPositionMs > 0L -> lastHealthyPositionMs
+                        positionMs > 0L -> positionMs
+                        else -> resumeFromMs
+                    },
                     isLive = false,
                 ),
                 debounce = false,
