@@ -153,6 +153,9 @@ fun PlayerScreen(
     val settings = remember { graph.settings }
     val uiStyle by settings.playerUiStyle.collectAsState()
     val netflix = uiStyle == app.sokyiptv.core.AppSettings.PlayerUiStyle.NETFLIX_LIKE
+    val recoveryEnd by settings.liveRecoveryEnd.collectAsState()
+    val noResponseSeconds by settings.liveNoResponseSeconds.collectAsState()
+    val skipDelaySeconds by settings.liveSkipCountdownSeconds.collectAsState()
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
     val subtitlesDefault by settings.subtitlesEnabled.collectAsState()
     val controller = remember {
@@ -161,6 +164,7 @@ fun PlayerScreen(
             subtitlesEnabled = settings.subtitlesEnabled.value,
             // Opt-in shallow DVR so the transport's pause/rewind actually holds on a live stream.
             dvr = settings.livePauseEnabled.value,
+            visibleLiveRecovery = true,
         )
     }
     val state by controller.state.collectAsState()
@@ -197,6 +201,12 @@ fun PlayerScreen(
     // Digits typed on the remote accumulate here, then jump to that channel number after a beat.
     var numberEntry by remember { mutableStateOf("") }
     var paused by remember { mutableStateOf(false) }
+    var retriesUsed by remember { mutableIntStateOf(0) }
+    var recoveryToken by remember { mutableIntStateOf(0) }
+    var recoveryMessage by remember { mutableStateOf<String?>(null) }
+    var recoveryPaused by remember { mutableStateOf(false) }
+    var retrySeconds by remember { mutableIntStateOf(0) }
+    var skipSeconds by remember { mutableIntStateOf(0) }
 
     // Fire TV's screensaver can appear without the usual Activity focus transition.
     // The system broadcasts screen-off and dreaming-start; do not let the
@@ -266,6 +276,7 @@ fun PlayerScreen(
     val panelFocus = remember { FocusRequester() }
     val rootFocus = remember { FocusRequester() }
     val listFocus = remember { FocusRequester() }
+    val recoveryFocus = remember { FocusRequester() }
 
     // The channel list you were browsing, for channel up/down and the in-player list. Snapshotted
     // on entry so it doesn't shift under you mid-session.
@@ -277,6 +288,12 @@ fun PlayerScreen(
     }
 
     fun tuneTo(channel: Channel) {
+        retriesUsed = 0
+        recoveryMessage = null
+        recoveryPaused = false
+        retrySeconds = 0
+        skipSeconds = 0
+        recoveryToken++
         // Invalidate previous stream identity before changing the channel id.
         // Otherwise the old stream's Playing state could pollute Recent history.
         activeResolvedUrl = null
@@ -380,6 +397,83 @@ fun PlayerScreen(
         }
     }
 
+    // Exactly five counted retries for full-screen Live. Media3 handles transport;
+    // VOD playback, guide previews and recording have their own independent policy.
+    LaunchedEffect(currentId, state, recoveryToken, recoveryPaused,
+        recoveryEnd, noResponseSeconds, skipDelaySeconds) {
+        if (currentId == null || recoveryPaused) return@LaunchedEffect
+        when (val playback = state) {
+            is PlayerController.State.Playing -> {
+                retriesUsed = 0
+                recoveryMessage = null
+                retrySeconds = 0
+                skipSeconds = 0
+                return@LaunchedEffect
+            }
+            is PlayerController.State.Buffering -> {
+                delay(noResponseSeconds * 1_000L)
+                if (controller.state.value !is PlayerController.State.Buffering)
+                    return@LaunchedEffect
+                recoveryMessage = "No stream response after " + noResponseSeconds + " seconds"
+            }
+            is PlayerController.State.Error -> {
+                // Non-network decoder or unsupported-format errors require
+                // human intervention; repeating connection requests cannot fix them.
+                if (playback.errorCode != null &&
+                    playback.errorCode !in 2000..2999) {
+                    recoveryMessage = playback.message
+                    recoveryPaused = true
+                    controlsVisible = false
+                    return@LaunchedEffect
+                }
+                recoveryMessage = playback.message
+            }
+            else -> return@LaunchedEffect
+        }
+        controlsVisible = false
+        if (retriesUsed < MAX_LIVE_RETRIES) {
+            for (seconds in 3 downTo 1) {
+                retrySeconds = seconds
+                delay(1_000L)
+            }
+            retrySeconds = 0
+            controller.retry()
+            retriesUsed++
+            recoveryToken++ // Re-arm timeout even when Buffering is unchanged.
+        } else {
+            val index = queue.indexOfFirst { it.id == currentId }
+            val recordingThis = activeRecordings.any { it.channelId == currentId }
+            val allowSkip = index >= 0 && index < queue.lastIndex && !recordingThis
+            if (recoveryEnd == app.sokyiptv.core.AppSettings.LiveRecoveryEnd.AUTO_SKIP &&
+                allowSkip) {
+                for (seconds in skipDelaySeconds downTo 1) {
+                    skipSeconds = seconds
+                    delay(1_000L)
+                }
+                skipSeconds = 0
+                zapBy(1)
+            } else {
+                recoveryPaused = true
+                controller.player.pause()
+                paused = true
+            }
+        }
+    }
+    fun retryChannelManually() {
+        retriesUsed = 0
+        retrySeconds = 0
+        skipSeconds = 0
+        recoveryPaused = false
+        recoveryMessage = null
+        controller.retry()
+        recoveryToken++
+    }
+    fun skipFailedChannel() {
+        val index = queue.indexOfFirst { it.id == currentId }
+        if (index >= 0 && index < queue.lastIndex) zapBy(1)
+        else recoveryPaused = true
+    }
+
     // Sleep timer: when the armed deadline passes, stop and leave the player. Re-arming from
     // settings restarts this effect with the new deadline.
     val sleepDeadline by SleepTimer.deadline.collectAsState()
@@ -414,8 +508,11 @@ fun PlayerScreen(
 
     // Focus: a picker's first row when one is open, otherwise the bar, otherwise the full-screen
     // catcher (so the next remote press brings the bar back).
-    LaunchedEffect(controlsVisible, panel) {
-        if (controlsVisible) {
+    LaunchedEffect(controlsVisible, panel, recoveryMessage) {
+        if (recoveryMessage != null) {
+            delay(60L)
+            runCatching { recoveryFocus.requestFocus() }
+        } else if (controlsVisible) {
             delay(40)
             runCatching { if (panel != Panel.NONE) panelFocus.requestFocus() else barFocus.requestFocus() }
         } else {
@@ -429,6 +526,18 @@ fun PlayerScreen(
     // you wanted to dismiss the bar.
     BackHandler {
         when {
+            recoveryMessage != null -> {
+                if (recoveryPaused) {
+                    controller.stop()
+                    app.sokyiptv.ui.channels.LiveReturnState.handOff(currentId)
+                    onBack()
+                } else {
+                    recoveryPaused = true
+                    retrySeconds = 0
+                    skipSeconds = 0
+                    controller.player.pause()
+                }
+            }
             channelListVisible -> channelListVisible = false
             panel != Panel.NONE -> panel = Panel.NONE
             controlsVisible -> controlsVisible = false
@@ -500,6 +609,12 @@ fun PlayerScreen(
                         interaction++
                         false
                     }
+                    recoveryMessage != null -> { interaction++; false }
+                    // Up/Down must traverse the Netflix player controls when
+                    // shown. Only hidden controls permit D-pad channel zapping.
+                    netflix && controlsVisible &&
+                        (event.key == Key.DirectionUp ||
+                         event.key == Key.DirectionDown) -> { interaction++; false }
                     // Channel up/down works whether or not the bar is showing — this remote has no
                     // CH+/CH- keys, so up/down IS the channel changer. Each zap flashes the bar as a
                     // channel banner, then it auto-hides.
@@ -567,29 +682,7 @@ fun PlayerScreen(
                 }
             }
 
-            is PlayerController.State.Error -> {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.85f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(48.dp),
-                    ) {
-                        Text(current.title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            current.message,
-                            color = Color.White.copy(alpha = 0.85f),
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(24.dp))
-                        Button(onClick = { controller.retry() }) { Text(stringResource(R.string.common_try_again)) }
-                    }
-                }
-            }
+            is PlayerController.State.Error -> Unit
 
             else -> Unit
         }
@@ -829,6 +922,36 @@ fun PlayerScreen(
                     }
                 }
             }
+        }
+        val problem = recoveryMessage
+        if (problem != null && !inPip) {
+            val index = queue.indexOfFirst { it.id == currentId }
+            LiveRecoveryOverlay(
+                title = queue.firstOrNull { it.id == currentId }?.name.orEmpty(),
+                message = problem,
+                attempted = retriesUsed,
+                retryCountdown = retrySeconds,
+                skipCountdown = skipSeconds,
+                waiting = recoveryPaused,
+                canSkip = index >= 0 && index < queue.lastIndex,
+                actionFocus = recoveryFocus,
+                onRetryNow = ::retryChannelManually,
+                onWait = {
+                    recoveryPaused = true
+                    retrySeconds = 0
+                    skipSeconds = 0
+                    controller.player.pause()
+                    paused = true
+                },
+                onSkip = ::skipFailedChannel,
+                onBack = {
+                    recoveryPaused = true
+                    controller.stop()
+                    recoveryMessage = null
+                    app.sokyiptv.ui.channels.LiveReturnState.handOff(currentId)
+                    onBack()
+                },
+            )
         }
     }
 

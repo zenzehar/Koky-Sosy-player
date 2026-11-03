@@ -243,6 +243,45 @@ class AppSettings private constructor(context: Context) {
         _livePauseEnabled.value = enabled
     }
 
+    // ---- Live playback connection recovery ------------------------------------------------
+    // The five attempts are fixed for predictable TV behaviour. Only the response
+    // after all attempts is configurable. Default WAIT avoids unwanted channel
+    // changes while a provider is down, especially around active recordings.
+    enum class LiveRecoveryEnd { AUTO_SKIP, WAIT_FOR_USER }
+
+    private val _liveRecoveryEnd = MutableStateFlow(
+        runCatching {
+            LiveRecoveryEnd.valueOf(prefs.getString("live_recovery_end", "WAIT_FOR_USER")
+                ?: "WAIT_FOR_USER")
+        }.getOrDefault(LiveRecoveryEnd.WAIT_FOR_USER)
+    )
+    val liveRecoveryEnd: StateFlow<LiveRecoveryEnd> = _liveRecoveryEnd.asStateFlow()
+
+    fun setLiveRecoveryEnd(action: LiveRecoveryEnd) {
+        prefs.edit().putString("live_recovery_end", action.name).apply()
+        _liveRecoveryEnd.value = action
+    }
+
+    private val _liveSkipCountdownSeconds = MutableStateFlow(
+        prefs.getInt("live_skip_countdown", 10).coerceIn(5, 60))
+    val liveSkipCountdownSeconds: StateFlow<Int> = _liveSkipCountdownSeconds.asStateFlow()
+
+    fun setLiveSkipCountdownSeconds(seconds: Int) {
+        val safe = seconds.coerceIn(5, 60)
+        prefs.edit().putInt("live_skip_countdown", safe).apply()
+        _liveSkipCountdownSeconds.value = safe
+    }
+
+    private val _liveNoResponseSeconds = MutableStateFlow(
+        prefs.getInt("live_no_response_seconds", 20).coerceIn(10, 60))
+    val liveNoResponseSeconds: StateFlow<Int> = _liveNoResponseSeconds.asStateFlow()
+
+    fun setLiveNoResponseSeconds(seconds: Int) {
+        val safe = seconds.coerceIn(10, 60)
+        prefs.edit().putInt("live_no_response_seconds", safe).apply()
+        _liveNoResponseSeconds.value = safe
+    }
+
     // ---- Content types -----------------------------------------------------------------------
 
     /**

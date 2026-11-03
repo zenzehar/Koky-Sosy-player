@@ -60,6 +60,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.activity.compose.BackHandler
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material3.Button
@@ -87,7 +91,6 @@ import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.isHandheldTouch
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import coil.compose.AsyncImage
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.snapshotFlow
 
@@ -137,11 +140,14 @@ internal fun TvVodBrowser(
     var customFavouriteKeys by remember(isSeries, sourceId) { mutableStateOf<List<String>>(emptyList()) }
     fun movieKey(item: Movie): String = item.sourceId.toString() + ":" + item.streamId
     fun seriesKey(item: Series): String = item.sourceId.toString() + ":" + item.seriesId
-    fun moveFavourite(key: String, delta: Int) {
-        if (isFavourites && sortMode == BrowseSort.CUSTOM && titleQuery.isBlank()) {
-            browse.moveFavourite(kind, key, delta, customFavouriteKeys)
-        }
+    var grabbedKey by remember { mutableStateOf<String?>(null) }
+    fun finishReorder() {
+        if (grabbedKey != null) browse.saveFavouriteOrder(kind, customFavouriteKeys)
+        grabbedKey = null
     }
+    BackHandler(grabbedKey != null) { finishReorder() }
+
+
     fun toggleMovie(item: Movie) {
         scope.launch {
             catalog.setMovieFavourite(item.id, !item.favourite)
@@ -167,6 +173,26 @@ internal fun TvVodBrowser(
     // catalogue on EVERY page, causing O(n²) allocation on large IPTV libraries.
     val moviePage = remember(isSeries) { mutableStateListOf<Movie>() }
     val seriesPage = remember(isSeries) { mutableStateListOf<Series>() }
+    /** SnapshotStateList swaps are instantaneous; no DB fetches or disk writes on D-pad. */
+    fun moveFavourite(key: String, delta: Int) {
+        if (!isFavourites || sortMode != BrowseSort.CUSTOM || grabbedKey != key) return
+        val from = customFavouriteKeys.indexOf(key)
+        val to = from + delta
+        if (from < 0 || to !in customFavouriteKeys.indices) return
+        customFavouriteKeys = customFavouriteKeys.toMutableList().apply {
+            java.util.Collections.swap(this, from, to)
+        }
+        if (isSeries) {
+            val a = seriesPage.indexOfFirst { seriesKey(it) == key }
+            val b = seriesPage.indexOfFirst { seriesKey(it) == customFavouriteKeys[from] }
+            if (a >= 0 && b >= 0) java.util.Collections.swap(seriesPage, a, b)
+        } else {
+            val a = moviePage.indexOfFirst { movieKey(it) == key }
+            val b = moviePage.indexOfFirst { movieKey(it) == customFavouriteKeys[from] }
+            if (a >= 0 && b >= 0) java.util.Collections.swap(moviePage, a, b)
+        }
+    }
+
     var categoryCounts by remember(isSeries, sourceId) { mutableStateOf<Map<String?, Int>>(emptyMap()) }
     var favouriteCount by remember(isSeries, sourceId) { mutableStateOf(0) }
     var loading by remember { mutableStateOf(false) }
@@ -210,6 +236,7 @@ internal fun TvVodBrowser(
     // Room applies ORDER BY BEFORE paging, so sorted results are globally correct
     // across large libraries. Custom favourites alone use a background snapshot
     // of favourites (not the entire catalogue), then feed 72-card lazy pages.
+    LaunchedEffect(selection, sourceId, sortMode) { if (grabbedKey != null) finishReorder() }
     var viewportKey by remember { mutableStateOf("") }
     LaunchedEffect(isSeries, sourceId, selection, titleQuery, lastUpdateRevision,
         sortMode, browseRevision, favouriteMutationRevision) {
@@ -256,7 +283,12 @@ internal fun TvVodBrowser(
             if (reachedEnd || loading) return
             loading = true
             try {
-                val size = if (selection == "recent") 30 else PAGE
+                val size = when {
+                    customSeries != null -> customSeries.size
+                    customMovies != null -> customMovies.size
+                    selection == "recent" -> 30
+                    else -> PAGE
+                }.coerceAtLeast(1)
                 if (isSeries) {
                     val batch = if (customSeries != null)
                         customSeries.drop(offset).take(size)
@@ -423,6 +455,10 @@ internal fun TvVodBrowser(
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
                                 ({ delta -> moveFavourite(seriesKey(item), delta) }) else null,
+                            grabbed = grabbedKey == seriesKey(item),
+                            onGrab = { grabbedKey = seriesKey(item) },
+                            onDrop = ::finishReorder,
+                            columns = if (isHandheldPortrait()) 2 else 5,
                             onReset = { viewModel.resetSeriesProgress(item) })
                     } else gridItems(moviePage, key = { "m:" + it.id }) { item ->
                         TvPoster(title = item.displayTitle, poster = item.posterUrl,
@@ -433,6 +469,10 @@ internal fun TvVodBrowser(
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
                                 ({ delta -> moveFavourite(movieKey(item), delta) }) else null,
+                            grabbed = grabbedKey == movieKey(item),
+                            onGrab = { grabbedKey = movieKey(item) },
+                            onDrop = ::finishReorder,
+                            columns = if (isHandheldPortrait()) 2 else 5,
                             onReset = { viewModel.resetMovieProgress(item.id) })
                     }
                     if (loading) item(key = "loading") {
@@ -581,6 +621,10 @@ internal fun TvVodBrowser(
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
                                 ({ delta -> moveFavourite(seriesKey(item), delta) }) else null,
+                            grabbed = grabbedKey == seriesKey(item),
+                            onGrab = { grabbedKey = seriesKey(item) },
+                            onDrop = ::finishReorder,
+                            columns = if (isHandheldPortrait()) 2 else 5,
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
                     }
@@ -594,6 +638,10 @@ internal fun TvVodBrowser(
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
                                 ({ delta -> moveFavourite(movieKey(item), delta) }) else null,
+                            grabbed = grabbedKey == movieKey(item),
+                            onGrab = { grabbedKey = movieKey(item) },
+                            onDrop = ::finishReorder,
+                            columns = if (isHandheldPortrait()) 2 else 5,
                             onReset = { viewModel.resetMovieProgress(item.id) },
                         )
                     }
@@ -673,15 +721,28 @@ private fun TvPoster(
     favourite: Boolean = false,
     onToggleFavourite: (() -> Unit)? = null,
     onMove: ((Int) -> Unit)? = null,
+    grabbed: Boolean = false,
+    onGrab: () -> Unit = {},
+    onDrop: () -> Unit = {},
+    columns: Int = 5,
     onReset: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    val restoreFocus = remember { FocusRequester() }
+    LaunchedEffect(grabbed) {
+        if (grabbed) {
+            delay(75)
+            runCatching { restoreFocus.requestFocus() }
+        }
+    }
     // One focus target includes both artwork AND its two-line title. The lazy
     // grid naturally scrolls the entire focused tile into view while allowing
     // a neighbouring row to remain partially visible. No second scroll job.
     Column(
         Modifier.fillMaxWidth()
+            .focusRequester(restoreFocus)
+            .grabFavouriteKeys(grabbed, columns, { delta -> onMove?.invoke(delta) }, onDrop)
             .onFocusChanged {
                 if (focused != it.isFocused) {
                     focused = it.isFocused
@@ -695,7 +756,8 @@ private fun TvPoster(
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(.69f)
-                .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
+                .border(if (grabbed) 3.dp else if (focused) 2.dp else 0.dp,
+                    if (grabbed) Color(0xFFFFD466) else Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
                 .background(Color(0xFF151B2B)),
         ) {
             AsyncImage(model = poster, contentDescription = title,
@@ -724,12 +786,8 @@ private fun TvPoster(
                 }
                 if (onMove != null) {
                     DropdownMenuItem(
-                        text = { Text("Move earlier in favourites") },
-                        onClick = { menuOpen = false; onMove(-1) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Move later in favourites") },
-                        onClick = { menuOpen = false; onMove(1) },
+                        text = { Text("Move — grab title") },
+                        onClick = { menuOpen = false; onGrab() },
                     )
                 }
                 DropdownMenuItem(
@@ -738,6 +796,8 @@ private fun TvPoster(
                 )
             }
         }
+        if (grabbed) Text("MOVING · Arrows to move · OK to drop",
+            color = Color(0xFFFFD466), fontSize = 10.sp, maxLines = 1)
         Text(title, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
             minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 6.dp))

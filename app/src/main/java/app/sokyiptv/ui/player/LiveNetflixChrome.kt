@@ -5,7 +5,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -110,6 +116,25 @@ internal fun LiveNetflixChrome(
     val realDvr = seekable && durationMs > 0L
     var scrub by remember(durationMs) { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    val bottomFocus = remember { FocusRequester() }
+    val bottomListState = rememberLazyListState()
+    val bottomActions = buildList {
+        add(LiveAction("channels", "Channels", Icons.Default.Tv, onChannels))
+        add(LiveAction("favourite", if (favourite) "Unfavourite" else "Favourite",
+            if (favourite) Icons.Default.Star else Icons.Outlined.StarBorder,
+            onFavourite, if (favourite) Color(0xFFFFD566) else Color.White))
+        add(LiveAction("audio", "Audio", Icons.Default.Audiotrack, onAudio))
+        add(LiveAction("subtitles", "Subtitles", Icons.Default.Subtitles, onSubtitles))
+        if (hasQualityVariants)
+            add(LiveAction("quality", "Quality", Icons.Default.HighQuality, onQuality))
+        add(LiveAction("aspect", "Aspect", Icons.Default.AspectRatio, onAspect))
+        add(LiveAction("record", if (recording) "Stop recording" else "Record",
+            Icons.Default.FiberManualRecord, onRecord,
+            if (recording) Color(0xFFE85050) else Color.White))
+        if (allowPip)
+            add(LiveAction("pip", "Picture in picture",
+                Icons.Default.PictureInPictureAlt, onPip))
+    }
     BoxWithConstraints(
         Modifier.fillMaxSize().windowInsetsPadding(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
@@ -148,6 +173,7 @@ internal fun LiveNetflixChrome(
                 onActivity,
                 if (realDvr) onRewind else onPrevious,
                 iconDp = if (large) 47 else 36,
+                downFocus = bottomFocus,
             )
             LiveNetflixButton(
                 if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -156,6 +182,7 @@ internal fun LiveNetflixChrome(
                 iconDp = if (large) 68 else 49,
                 focus = playFocus,
                 opacity = if (buffering) .45f else .83f,
+                downFocus = bottomFocus,
             )
             LiveNetflixButton(
                 if (realDvr) Icons.Default.FastForward else Icons.Default.SkipNext,
@@ -163,6 +190,7 @@ internal fun LiveNetflixChrome(
                 onActivity,
                 if (realDvr) onForward else onNext,
                 iconDp = if (large) 47 else 36,
+                downFocus = bottomFocus,
             )
         }
         Column(
@@ -197,29 +225,24 @@ internal fun LiveNetflixChrome(
                         Offset(size.width, size.height / 2f))
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            // Compose only visible action buttons. Focus naturally walks through
+            // off-screen items and the focused item scrolls into view.
+            LazyRow(
+                state = bottomListState,
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(if (portrait) 10.dp else 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LiveNetflixButton(Icons.Default.Tv, "Channels", onActivity, onChannels, 26)
-                LiveNetflixButton(
-                    if (favourite) Icons.Default.Star else Icons.Outlined.StarBorder,
-                    if (favourite) "Unfavourite" else "Favourite", onActivity, onFavourite, 26,
-                    tint = if (favourite) Color(0xFFFFD566) else Color.White,
-                )
-                LiveNetflixButton(Icons.Default.Audiotrack, "Audio", onActivity, onAudio, 26)
-                LiveNetflixButton(Icons.Default.Subtitles, "Subtitles", onActivity, onSubtitles, 26)
-                if (hasQualityVariants)
-                    LiveNetflixButton(Icons.Default.HighQuality, "Quality", onActivity, onQuality, 26)
-                LiveNetflixButton(Icons.Default.AspectRatio, "Aspect", onActivity, onAspect, 26)
-                LiveNetflixButton(Icons.Default.FiberManualRecord,
-                    if (recording) "Stop recording" else "Record",
-                    onActivity, onRecord, 26,
-                    tint = if (recording) Color(0xFFE85050) else Color.White)
-                if (allowPip)
-                    LiveNetflixButton(Icons.Default.PictureInPictureAlt, "Picture in picture",
-                        onActivity, onPip, 26)
+                itemsIndexed(bottomActions, key = { _, action -> action.id }) { index, action ->
+                    LiveNetflixButton(
+                        icon = action.icon, label = action.title,
+                        onActivity = onActivity, onClick = action.click,
+                        iconDp = 26,
+                        focus = if (index == 0) bottomFocus else null,
+                        upFocus = playFocus,
+                        tint = action.tint,
+                    )
+                }
             }
         }
     }
@@ -236,12 +259,21 @@ private fun LiveNetflixButton(
     focus: FocusRequester? = null,
     opacity: Float = 1f,
     tint: Color = Color.White,
+    downFocus: FocusRequester? = null,
+    upFocus: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .then(if (focus != null) Modifier.focusRequester(focus) else Modifier)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onActivity()
+            }
+            .then(Modifier.focusProperties {
+                if (downFocus != null) down = downFocus
+                if (upFocus != null) up = upFocus
+            })
             .background(
                 if (focused) Color.White.copy(alpha = .12f) else Color.Transparent,
                 RoundedCornerShape(7.dp)
@@ -257,3 +289,11 @@ private fun LiveNetflixButton(
                 maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
+
+private data class LiveAction(
+    val id: String,
+    val title: String,
+    val icon: ImageVector,
+    val click: () -> Unit,
+    val tint: Color = Color.White,
+)
