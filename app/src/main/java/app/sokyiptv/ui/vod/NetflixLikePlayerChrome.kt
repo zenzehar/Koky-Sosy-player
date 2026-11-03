@@ -318,7 +318,26 @@ internal fun NetflixLikePlayerChrome(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier.weight(1f).height(42.dp)
+                modifier = Modifier.weight(1f).height(48.dp)
+                    .handheldTimelineGestures(
+                        durationMs = durationMs,
+                        onSeek = { target ->
+                            selectedSeekTargetMs = target
+                            seekSubmittedAtMs = SystemClock.uptimeMillis()
+                            buttonSeekPreviewMs = target
+                            onActivity()
+                            onSeek(target)
+                        },
+                        onPreview = { target ->
+                            seekPreviewMs = target
+                            scrubbing = true
+                            onActivity()
+                        },
+                        onSeekingChanged = { selecting ->
+                            scrubbing = selecting
+                            onSeekingChanged(selecting)
+                        },
+                    )
                     .focusRequester(timelineFocus)
                     .focusProperties {
                         up = playFocus
