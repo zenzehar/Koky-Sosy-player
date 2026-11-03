@@ -2,6 +2,7 @@ package app.sokyiptv.update
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -41,11 +42,17 @@ class UpdateRelaunchReceiver : BroadcastReceiver() {
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
             Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
+        val options = if (Build.VERSION.SDK_INT >= 34) {
+            ActivityOptions.makeBasic().apply {
+                setPendingIntentCreatorBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            }.toBundle()
+        } else null
         val pending = PendingIntent.getActivity(
             context, 7921, launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            options,
         )
-        UpdateRelaunch.showOpenNotification(context, pending)
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
         val launchedByAlarm = runCatching {
             // Restart only AFTER the PackageManager has completed the APK replacement.
@@ -57,6 +64,9 @@ class UpdateRelaunchReceiver : BroadcastReceiver() {
                 pending,
             )
         }.isSuccess
+        // Notification failures (e.g. disabled notifications on TV) must never
+        // prevent the automatic restart attempt.
+        runCatching { UpdateRelaunch.showOpenNotification(context, pending) }
         if (!launchedByAlarm) {
             // Some devices block non-exact alarms or background activity starts.
             runCatching { context.startActivity(launch) }
