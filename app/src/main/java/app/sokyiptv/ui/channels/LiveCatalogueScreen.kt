@@ -1,6 +1,8 @@
 /*
- * Soky IPTV Pro — original category-and-channel catalogue UI.
- * TV focus + touch-friendly lazy grid; the full EPG remains accessible separately.
+ * Soky IPTV Pro Live TV catalogue.
+ * Intentionally follows the Movies/Series browser layout, input and focus patterns.
+ * EPG enrichment belongs to the separate TV Guide, not to this lightweight browser.
+ * GPL-3.0-or-later.
  */
 package app.sokyiptv.ui.channels
 
@@ -9,63 +11,76 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.Source
 import app.sokyiptv.data.model.shownName
+import app.sokyiptv.data.parser.ArabicSearch
 import app.sokyiptv.ui.ChannelsViewModel
 import app.sokyiptv.ui.isHandheldPortrait
+import app.sokyiptv.ui.onboarding.TvNativeTextField
+import app.sokyiptv.ui.vod.tvRemoteActions
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
-private val catalogueBackground = Color(0xFF070C19)
-private val catalogueSelected = Color(0xFF087D92)
+private val background = Color(0xFF080D20)
+private val sideBackground = Color(0xFF030408)
+private val teal = Color(0xFF006779)
+private const val TV_COLUMNS = 5
 
+/**
+ * Identical navigation contract to Movies:
+ * - TV: dark category rail, TV-native search opened by OK, five lazy columns;
+ * - phone portrait: native touch IME, horizontal category chips, two/three columns;
+ * - natural built-in LazyVerticalGrid focus scroll, without custom focus/scroll jobs;
+ * - long-OK/Menu opens the channel's existing options, short OK plays the channel.
+ */
 @Composable
 internal fun LiveCatalogueScreen(
     rows: List<ChannelsViewModel.Row>,
@@ -78,234 +93,311 @@ internal fun LiveCatalogueScreen(
     onFavourites: () -> Unit,
     onSource: (Long?) -> Unit,
     onPlay: (Channel) -> Unit,
+    onOptions: (ChannelsViewModel.Row) -> Unit,
     onGuide: () -> Unit,
+    onExit: () -> Unit,
 ) {
-    var searchChannels by remember { mutableStateOf("") }
-    var searchCategories by remember { mutableStateOf("") }
-    var categoriesOpen by remember { mutableStateOf(false) }
-    val phonePortrait = isHandheldPortrait()
-    // Avoid materialising a second catalogue or fetching logos until cards enter the lazy grid.
-    val filteredRows = remember(rows, searchChannels) {
-        val query = searchChannels.trim()
-        if (query.isBlank()) rows
-        else rows.filter { it.primary.shownName.contains(query, ignoreCase = true) }
+    var categoryQuery by rememberSaveable { mutableStateOf("") }
+    var titleQuery by rememberSaveable { mutableStateOf("") }
+    var sourceMenu by remember { mutableStateOf(false) }
+    val grid = rememberLazyGridState()
+    val portrait = isHandheldPortrait()
+    val categoriesFiltered = remember(categories, categoryQuery) {
+        val q = categoryQuery.trim()
+        if (q.isEmpty()) categories else categories.filter {
+            if (ArabicSearch.hasArabic(q)) ArabicSearch.matches(it.label, q)
+            else it.label.contains(q, ignoreCase = true)
+        }
     }
-    val displayedCategories = remember(categories, searchCategories) {
-        categories.filter { it.label.contains(searchCategories.trim(), ignoreCase = true) }
-    }
-    val heading = when {
-        favouritesOnly -> "Favourites"
-        selectedCategory == null -> "All channels"
-        else -> categories.firstOrNull { it.key == selectedCategory }?.label ?: "Live TV"
-    }
-    val chooseCategory: (String?) -> Unit = { onCategory(it); categoriesOpen = false }
-    val chooseFavourites: () -> Unit = { onFavourites(); categoriesOpen = false }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(catalogueBackground)) {
-        val sideWidth = (maxWidth * .30f).coerceIn(204.dp, 290.dp)
-        val narrow = phonePortrait || maxWidth < 620.dp
-        val gridWidth = if (narrow) maxWidth else maxWidth - sideWidth
-        val columns = (gridWidth.value / if (narrow) 150f else 138f)
-            .toInt().coerceIn(if (narrow) 2 else 3, 5)
-        Row(Modifier.fillMaxSize()) {
-            if (!narrow) {
-                CatalogueRail(
-                    categories = displayedCategories, selectedCategory = selectedCategory,
-                    favouritesOnly = favouritesOnly,
-                    sources = sources, selectedSource = selectedSource,
-                    categoryQuery = searchCategories, onCategoryQuery = { searchCategories = it },
-                    onCategory = chooseCategory, onFavourites = chooseFavourites,
-                    onSource = onSource, modifier = Modifier.width(sideWidth).fillMaxHeight(),
+    // Movies/Series avoid transforming large databases on the Compose UI thread.
+    // Filtering this light, logo/name-only catalogue also happens off-main.
+    val visibleRows by produceState(initialValue = rows, rows, titleQuery) {
+        val q = titleQuery.trim()
+        if (q.isBlank()) {
+            value = rows
+        } else {
+            delay(90L) // Cancel the previous request when the user types again.
+            value = withContext(Dispatchers.Default) {
+                if (ArabicSearch.hasArabic(q))
+                    rows.filter { ArabicSearch.matches(it.primary.shownName, q) }
+                else rows.filter { it.primary.shownName.contains(q, ignoreCase = true) }
+            }
+        }
+    }
+
+    LaunchedEffect(selectedCategory, favouritesOnly, selectedSource) {
+        grid.scrollToItem(0) // Category transition only; NEVER scroll on each focus change.
+    }
+
+    val heading = when {
+        favouritesOnly -> "FAVOURITES"
+        selectedCategory == null -> "ALL"
+        else -> categories.firstOrNull { it.key == selectedCategory }?.label ?: "ALL"
+    }
+    val chooseCategory: (String?) -> Unit = {
+        categoryQuery = ""
+        titleQuery = ""
+        onCategory(it)
+    }
+    val chooseFavourites: () -> Unit = {
+        categoryQuery = ""
+        titleQuery = ""
+        onFavourites()
+    }
+
+    @Composable
+    fun ProviderMenu() {
+        if (sources.size > 1) {
+            Box {
+                LiveCategoryOption(
+                    "Provider: " + (sources.firstOrNull { it.id == selectedSource }?.name ?: "All"),
+                    selected = false,
+                    onClick = { sourceMenu = true },
+                )
+                DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
+                    DropdownMenuItem(text = { Text("All providers") }, onClick = {
+                        onSource(null)
+                        sourceMenu = false
+                    })
+                    sources.forEach { source ->
+                        DropdownMenuItem(
+                            text = { Text(source.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            onClick = { onSource(source.id); sourceMenu = false },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun ChannelsGrid(modifier: Modifier, columns: Int) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns),
+            state = grid,
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            gridItems(visibleRows, key = { it.primary.id }) { row ->
+                LivePoster(
+                    channel = row.primary,
+                    onClick = { onPlay(row.primary) },
+                    onOptions = { onOptions(row) },
                 )
             }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (narrow) {
-                        TextButton(onClick = { categoriesOpen = true }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Choose category")
-                            Text("Categories", maxLines = 1, softWrap = false)
+        }
+    }
+
+    if (portrait) {
+        val columns =
+            if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600) 3 else 2
+        Column(
+            Modifier.fillMaxSize().background(background)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onExit) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Text("LIVE TV", color = Color.White, fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                TextButton(onClick = onGuide) {
+                    Icon(Icons.Default.LiveTv, contentDescription = "TV guide", tint = Color.White)
+                    Text("Guide", maxLines = 1, softWrap = false, color = Color.White)
+                }
+            }
+            TvNativeTextField(titleQuery, { titleQuery = it }, "Search Live TV",
+                modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    TvNativeTextField(categoryQuery, { categoryQuery = it },
+                        "Filter categories", modifier = Modifier.fillMaxWidth())
+                }
+                if (sources.size > 1) {
+                    Box {
+                        TextButton(onClick = { sourceMenu = true }) {
+                            Text("Provider", color = Color.White, maxLines = 1)
+                        }
+                        DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
+                            DropdownMenuItem(text = { Text("All providers") },
+                                onClick = { onSource(null); sourceMenu = false })
+                            sources.forEach { source ->
+                                DropdownMenuItem(text = { Text(source.name) },
+                                    onClick = { onSource(source.id); sourceMenu = false })
+                            }
                         }
                     }
-                    Text(heading.uppercase(), color = Color.White,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                }
+            }
+            LazyRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                item(key = "all") {
+                    LivePortraitCategoryChip("ALL", !favouritesOnly && selectedCategory == null) {
+                        chooseCategory(null)
+                    }
+                }
+                item(key = "favourites") {
+                    LivePortraitCategoryChip("FAVOURITES", favouritesOnly) { chooseFavourites() }
+                }
+                items(categoriesFiltered, key = { it.key }) { group ->
+                    LivePortraitCategoryChip(
+                        group.label,
+                        !favouritesOnly && selectedCategory == group.key,
+                    ) { chooseCategory(group.key) }
+                }
+            }
+            Text(heading, color = Color.White.copy(alpha = .91f),
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                ChannelsGrid(Modifier.fillMaxSize(), columns)
+                if (visibleRows.isEmpty()) {
+                    Text("No channels in this category or search",
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.LightGray)
+                }
+            }
+        }
+    } else {
+        // TV / landscape: reproduce Movies' 0.94 : 2.8 sidebar-to-grid proportions,
+        // typography, rail focus and five-column lazy grid scrolling.
+        Row(Modifier.fillMaxSize().background(background)) {
+            Column(
+                Modifier.weight(0.94f).fillMaxSize().background(sideBackground)
+                    .padding(start = 18.dp, end = 9.dp, top = 16.dp, bottom = 8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onExit) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                    Text("SOKY IPTV PRO", color = Color.White,
+                        fontWeight = FontWeight.Bold, fontSize = 21.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(19.dp))
+                TvNativeTextField(categoryQuery, { categoryQuery = it },
+                    "Search in categories", modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(12.dp))
+                ProviderMenu()
+                LazyColumn(Modifier.weight(1f)) {
+                    item(key = "all") {
+                        LiveCategoryOption("ALL", !favouritesOnly && selectedCategory == null) {
+                            chooseCategory(null)
+                        }
+                    }
+                    item(key = "favourites") {
+                        LiveCategoryOption("FAVOURITES", favouritesOnly) { chooseFavourites() }
+                    }
+                    items(categoriesFiltered, key = { it.key }) { group ->
+                        LiveCategoryOption(
+                            group.label, !favouritesOnly && selectedCategory == group.key,
+                        ) { chooseCategory(group.key) }
+                    }
+                }
+            }
+            Column(
+                Modifier.weight(2.8f).fillMaxSize()
+                    .padding(start = 13.dp, end = 13.dp, top = 8.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TvNativeTextField(titleQuery, { titleQuery = it }, "Search Live TV",
                         modifier = Modifier.weight(1f))
                     TextButton(onClick = onGuide) {
-                        Icon(Icons.Filled.LiveTv, contentDescription = null)
-                        Text("TV guide", maxLines = 1, softWrap = false)
+                        Icon(Icons.Default.LiveTv, contentDescription = "TV guide", tint = Color.White)
+                        Text("TV guide", color = Color.White, maxLines = 1, softWrap = false)
                     }
                 }
-                OutlinedTextField(
-                    value = searchChannels, onValueChange = { searchChannels = it },
-                    label = { Text("Search channels", maxLines = 1) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                )
-                if (filteredRows.isEmpty()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(if (rows.isEmpty()) "Loading channels or no channels in this category"
-                            else "No matching channels",
-                            color = Color.White.copy(alpha = .7f),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(22.dp))
+                Spacer(Modifier.height(8.dp))
+                Text(heading, color = Color.White.copy(alpha = .91f), fontSize = 18.sp)
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.weight(1f)) {
+                    ChannelsGrid(Modifier.fillMaxSize(), TV_COLUMNS)
+                    if (visibleRows.isEmpty()) {
+                        Text("No channels in this category or search",
+                            color = Color.LightGray,
+                            modifier = Modifier.align(Alignment.Center))
                     }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(columns),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        items(filteredRows, key = { it.primary.id }) { row ->
-                            CatalogueChannelCard(row.primary, onClick = { onPlay(row.primary) })
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (phonePortrait && categoriesOpen) {
-        Dialog(onDismissRequest = { categoriesOpen = false }) {
-            CatalogueRail(
-                categories = displayedCategories, selectedCategory = selectedCategory,
-                favouritesOnly = favouritesOnly,
-                sources = sources, selectedSource = selectedSource,
-                categoryQuery = searchCategories, onCategoryQuery = { searchCategories = it },
-                onCategory = chooseCategory, onFavourites = chooseFavourites,
-                onSource = { onSource(it); categoriesOpen = false },
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(.78f)
-                    .clip(RoundedCornerShape(16.dp)),
-            )
-        }
-    }
-}
-
-@Composable
-private fun CatalogueRail(
-    categories: List<ChannelsViewModel.CategoryGroup>,
-    selectedCategory: String?,
-    favouritesOnly: Boolean,
-    sources: List<Source>,
-    selectedSource: Long?,
-    categoryQuery: String,
-    onCategoryQuery: (String) -> Unit,
-    onCategory: (String?) -> Unit,
-    onFavourites: () -> Unit,
-    onSource: (Long?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier.background(Color(0xFF090C15)).padding(horizontal = 8.dp, vertical = 10.dp)) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Tv, contentDescription = null, tint = Color.White)
-            Spacer(Modifier.width(8.dp))
-            Text("SOKY LIVE", color = Color.White,
-                fontWeight = FontWeight.Bold, fontSize = 18.sp,
-                maxLines = 1, softWrap = false)
-        }
-        OutlinedTextField(
-            value = categoryQuery, onValueChange = onCategoryQuery,
-            label = { Text("Search categories", maxLines = 1) },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 10.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            if (sources.size > 1) {
-                item(key = "all-providers") {
-                    CatalogueCategoryRow("All providers", selectedSource == null) {
-                        onSource(null)
-                    }
-                }
-                items(sources, key = { "src-" + it.id }) { source ->
-                    CatalogueCategoryRow(source.name, selectedSource == source.id) {
-                        onSource(source.id)
-                    }
-                }
-            }
-            item(key = "all") {
-                CatalogueCategoryRow("ALL", !favouritesOnly && selectedCategory == null) {
-                    onCategory(null)
-                }
-            }
-            item(key = "favourites") {
-                CatalogueCategoryRow("FAVOURITES", favouritesOnly, onFavourites)
-            }
-            items(categories, key = { it.key }) { group ->
-                CatalogueCategoryRow(group.label, !favouritesOnly && selectedCategory == group.key) {
-                    onCategory(group.key)
                 }
             }
         }
     }
 }
 
+/** Same category highlight and single natural D-pad focus stop as Movies. */
 @Composable
-private fun CatalogueCategoryRow(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun LiveCategoryOption(label: String, selected: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(7.dp))
-            .background(if (focused || selected) catalogueSelected else Color.Transparent)
-            .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, color = Color.White,
-            fontSize = 15.sp,
+    val selectedBackground =
+        if (selected) teal else if (focused) Color(0xFF18243C) else sideBackground
+    Row(Modifier.fillMaxWidth().background(selectedBackground)
+        .onFocusChanged { focused = it.isFocused }
+        .clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(3.dp).height(48.dp)
+            .background(if (focused) Color(0xFF69E0EF)
+                else if (selected) Color.White.copy(alpha = .55f) else Color.Transparent))
+        Row(Modifier.weight(1f).padding(start = 13.dp, end = 7.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = if (focused || selected) Color.White else Color(0xFFDEDFE7),
+                fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun LivePortraitCategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(Modifier.background(if (selected) teal else Color(0xFF1A2443), shape)
+        .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Text(label, color = Color.White, fontSize = 13.sp,
             maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
     }
 }
 
+/** Same Movies poster focus action and natural viewport scroll; channel artwork keeps its aspect. */
 @Composable
-private fun CatalogueChannelCard(channel: Channel, onClick: () -> Unit) {
+private fun LivePoster(channel: Channel, onClick: () -> Unit, onOptions: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(9.dp)
     Column(
-        Modifier.fillMaxWidth().aspectRatio(1.07f)
-            .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF232B3B), Color(0xFF10141E))))
-            .border(if (focused) 2.dp else 1.dp,
-                if (focused) Color(0xFF78DCE8) else Color.White.copy(alpha = .12f), shape)
+        Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .tvRemoteActions(onClick = onClick, onLongPress = onOptions),
     ) {
-        Box(Modifier.fillMaxWidth().weight(1f).padding(6.dp), contentAlignment = Alignment.Center) {
-            if (!channel.logoUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = channel.logoUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(Icons.Filled.Tv, contentDescription = null,
-                    tint = Color.White.copy(alpha = .58f),
-                    modifier = Modifier.fillMaxHeight(.55f))
-            }
-        }
         Box(
-            Modifier.fillMaxWidth().height(44.dp)
-                .background(Color.Black.copy(alpha = .52f))
-                .padding(horizontal = 5.dp),
+            Modifier.fillMaxWidth().aspectRatio(.69f)
+                .border(if (focused) 2.dp else 0.dp, Color(0xFF7DE4F0), RoundedCornerShape(3.dp))
+                .background(Color(0xFF151B2B)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(channel.shownName,
-                color = Color.White, fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (channel.logoUrl.isNullOrBlank()) {
+                Icon(Icons.Default.Tv, contentDescription = null,
+                    tint = Color.White.copy(alpha = .58f), modifier = Modifier.fillMaxSize(.4f))
+            } else {
+                AsyncImage(
+                    model = channel.logoUrl,
+                    contentDescription = channel.shownName,
+                    modifier = Modifier.fillMaxSize().padding(7.dp),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+            if (isHandheldPortrait()) IconButton(
+                onClick = onOptions, modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Channel options", tint = Color.White)
+            } else if (focused) Icon(Icons.Default.MoreVert,
+                contentDescription = null, tint = Color.White,
+                modifier = Modifier.align(Alignment.TopEnd))
         }
+        Text(
+            channel.shownName, color = Color.White,
+            fontSize = 12.sp, lineHeight = 16.sp,
+            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 6.dp),
+        )
     }
 }
