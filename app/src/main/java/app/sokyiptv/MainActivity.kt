@@ -162,10 +162,11 @@ class MainActivity : ComponentActivity() {
                 AppSettings.ThemeMode.SYSTEM -> isTelevision || isSystemInDarkTheme()
             }
             SideEffect {
-                // Edge-to-edge is enabled, so contrast for the OS status icons must
-                // follow the app palette rather than Android's light-mode default.
-                WindowCompat.getInsetsController(window, window.decorView)
-                    .isAppearanceLightStatusBars = !darkTheme
+                if (!isTelevision) {
+                    // Handheld OS icons must contrast with the dark dashboard.
+                    WindowCompat.getInsetsController(window, window.decorView)
+                        .isAppearanceLightStatusBars = !darkTheme
+                }
             }
             SokyIptvTheme(darkTheme = darkTheme) {
                 Surface(
