@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.sp
 import app.sokyiptv.data.model.Channel
 import app.sokyiptv.data.model.Source
 import app.sokyiptv.data.model.shownName
-import app.sokyiptv.data.parser.ArabicSearch
 import app.sokyiptv.ui.ChannelsViewModel
 import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.onboarding.TvNativeTextField
@@ -105,8 +104,7 @@ internal fun LiveCatalogueScreen(
     val categoriesFiltered = remember(categories, categoryQuery) {
         val q = categoryQuery.trim()
         if (q.isEmpty()) categories else categories.filter {
-            if (ArabicSearch.hasArabic(q)) ArabicSearch.matches(it.label, q)
-            else it.label.contains(q, ignoreCase = true)
+            LiveCatalogueSearch.matches(it.label, q)
         }
     }
 
@@ -119,9 +117,7 @@ internal fun LiveCatalogueScreen(
         } else {
             delay(90L) // Cancel the previous request when the user types again.
             value = withContext(Dispatchers.Default) {
-                if (ArabicSearch.hasArabic(q))
-                    rows.filter { ArabicSearch.matches(it.primary.shownName, q) }
-                else rows.filter { it.primary.shownName.contains(q, ignoreCase = true) }
+                rows.filter { LiveCatalogueSearch.matches(it.primary.shownName, q) }
             }
         }
     }
