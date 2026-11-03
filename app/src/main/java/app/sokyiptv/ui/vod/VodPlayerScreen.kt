@@ -429,41 +429,6 @@ fun VodPlayerScreen(
         // the URL in a fresh native MediaPlayer; it reuses the last watch clock.
     }
 
-    LaunchedEffect(
-        recoverySerial, recoveryIssue, recoveryStopped, recoveryInFlight,
-        recoveryEnd, recoverySkipWait, recoveryRetryGap, followingEpisode,
-    ) {
-        if (recoveryIssue == null || recoveryStopped || recoveryInFlight) return@LaunchedEffect
-        if (app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(recoveryAttempts, false)) {
-            for (seconds in app.sokyiptv.core.PlaybackRecoveryPolicy
-                .retryDelaySeconds(recoveryRetryGap) downTo 1) {
-                recoveryCountdown = seconds
-                delay(1_000L)
-            }
-            performRecoveryRetry()
-        } else if (app.sokyiptv.core.PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
-                recoveryAttempts,
-                recoveryEnd == AppSettings.LiveRecoveryEnd.AUTO_SKIP,
-                mediaKey.startsWith("ep:"), followingEpisode != null,
-            )) {
-            for (seconds in recoverySkipWait downTo 1) {
-                recoverySkipCountdown = seconds
-                delay(1_000L)
-            }
-            val next = followingEpisode
-            if (next != null && recoveryIssue != null && !recoveryStopped) {
-                // Skipping due to a provider outage does NOT mark this
-                // episode finished; save only its actual elapsed progress.
-                savePosition()
-                onNextEpisode(next)
-            } else recoveryStopped = true
-        } else {
-            recoveryStopped = true
-            recoveryCountdown = 0
-            recoverySkipCountdown = 0
-        }
-    }
-
     fun reveal() { controlsVisible = true; interaction++ }
 
     var media3ResumeGeneration by remember(controller) { mutableIntStateOf(0) }
@@ -566,6 +531,41 @@ fun VodPlayerScreen(
         )?.let { VodProgressStore.persist(graph, it) }
     }
 
+    LaunchedEffect(
+        recoverySerial, recoveryIssue, recoveryStopped, recoveryInFlight,
+        recoveryEnd, recoverySkipWait, recoveryRetryGap, followingEpisode,
+    ) {
+        if (recoveryIssue == null || recoveryStopped || recoveryInFlight) return@LaunchedEffect
+        if (app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(recoveryAttempts, false)) {
+            for (seconds in app.sokyiptv.core.PlaybackRecoveryPolicy
+                .retryDelaySeconds(recoveryRetryGap) downTo 1) {
+                recoveryCountdown = seconds
+                delay(1_000L)
+            }
+            performRecoveryRetry()
+        } else if (app.sokyiptv.core.PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
+                recoveryAttempts,
+                recoveryEnd == AppSettings.LiveRecoveryEnd.AUTO_SKIP,
+                mediaKey.startsWith("ep:"), followingEpisode != null,
+            )) {
+            for (seconds in recoverySkipWait downTo 1) {
+                recoverySkipCountdown = seconds
+                delay(1_000L)
+            }
+            val next = followingEpisode
+            if (next != null && recoveryIssue != null && !recoveryStopped) {
+                // Skipping due to a provider outage does NOT mark this
+                // episode finished; save only its actual elapsed progress.
+                savePosition()
+                onNextEpisode(next)
+            } else recoveryStopped = true
+        } else {
+            recoveryStopped = true
+            recoveryCountdown = 0
+            recoverySkipCountdown = 0
+        }
+    }
+
     fun naturalEnd() {
         if (!usingVlc && !VodEndGuard.confirmed(
                 hadPlayback = media3HadPlayback,
@@ -578,6 +578,7 @@ fun VodPlayerScreen(
             PlaybackDiagnostics.event(context, "MEDIA3_PREMATURE_END", persistNow = true)
             media3PrematureEnd = true
             controlsVisible = false
+            noteConnectionIssue("The stream stopped before this episode finished.")
             return
         }
         // VLC and Media3 may report end more than once. Also suppress stale
@@ -626,6 +627,8 @@ fun VodPlayerScreen(
             when (val current = state) {
                 is PlayerController.State.Error -> {
                     media3HadError = true
+                    if (current.errorCode != PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED)
+                        noteConnectionIssue("The stream connection was interrupted.")
                     PlaybackDiagnostics.event(
                         context, "MEDIA3_ERROR", current.errorCode ?: -1, persistNow = true,
                     )
@@ -641,6 +644,42 @@ fun VodPlayerScreen(
             }
         }
     }
+    // Media3 does not always surface a network exception when a CDN stalls.
+    // Use its actual advancing clock; user pause and screen saver stop the timer.
+    LaunchedEffect(usingVlc, recoveryRetryEpoch, recoveryTimeout,
+        paused, screenSaverSuspended, resumeLoaded) {
+        if (usingVlc || paused || screenSaverSuspended || !resumeLoaded) return@LaunchedEffect
+        var prior = controller.player.currentPosition.coerceAtLeast(0L)
+        var lastAdvance = android.os.SystemClock.elapsedRealtime()
+        while (isActive && !advanced.get() && !recoveryStopped &&
+            (recoveryIssue == null || recoveryInFlight) && !media3PrematureEnd) {
+            delay(1_000L)
+            if (controller.state.value is PlayerController.State.Error) break
+            val now = android.os.SystemClock.elapsedRealtime()
+            val current = controller.player.currentPosition.coerceAtLeast(0L)
+            if (current >= prior + 300L && controller.player.isPlaying) {
+                prior = current
+                lastAdvance = now
+            }
+            if (now - lastAdvance >= recoveryTimeout.coerceIn(10, 60) * 1_000L) {
+                media3HadError = true
+                media3PrematureEnd = true
+                noteConnectionIssue("No video response for " + recoveryTimeout + " seconds.")
+                break
+            }
+        }
+    }
+    LaunchedEffect(usingVlc, state, recoveryRetryEpoch) {
+        if (usingVlc || recoveryIssue == null ||
+            state !is PlayerController.State.Playing) return@LaunchedEffect
+        val initialClock = controller.player.currentPosition.coerceAtLeast(0L)
+        delay(2_600L)
+        if (!usingVlc && controller.player.isPlaying &&
+            controller.state.value is PlayerController.State.Playing &&
+            controller.player.currentPosition >= initialClock + 1_500L)
+            noteStablePlayback()
+    }
+
     LaunchedEffect(mediaKey, usingVlc, endWatchGeneration) {
         if (usingVlc) return@LaunchedEffect
         while (isActive && !advanced.get() && !media3PrematureEnd) {
@@ -1027,6 +1066,7 @@ fun VodPlayerScreen(
     }
 
     if (usingVlc && resumeLoaded) {
+        key(recoveryRetryEpoch) {
         VlcFallbackScreen(
             streamUrl = streamUrl,
             mediaKey = mediaKey,
@@ -1053,6 +1093,10 @@ fun VodPlayerScreen(
             },
             onEnded = { naturalEnd() },
             suspendPlayback = screenSaverSuspended,
+            recoveryManaged = true,
+            noResponseSeconds = recoveryTimeout,
+            onConnectionIssue = ::noteConnectionIssue,
+            onPlaybackStable = ::noteStablePlayback,
             onProgress = { pos, dur ->
                 positionMs = pos
                 durationMs = dur
@@ -1069,6 +1113,7 @@ fun VodPlayerScreen(
                 VodProgressStore.enqueue(graph, snapshot)
             },
         )
+        }
     } else Box(
         Modifier
             .fillMaxSize()
@@ -1534,7 +1579,7 @@ fun VodPlayerScreen(
                 )
             }
         }
-        if (media3PrematureEnd && !usingVlc) {
+        if (media3PrematureEnd && !usingVlc && recoveryIssue == null) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .88f)),
                 contentAlignment = Alignment.Center) {
                 Column(Modifier.padding(32.dp),
@@ -1561,6 +1606,51 @@ fun VodPlayerScreen(
             )
         }
     }
+    val activeRecovery = recoveryIssue
+    if (activeRecovery != null) {
+        VodConnectionRecoveryOverlay(
+            title = title,
+            reason = activeRecovery,
+            attempts = recoveryAttempts,
+            retryCountdown = recoveryCountdown,
+            skipCountdown = recoverySkipCountdown,
+            retrying = recoveryInFlight,
+            stopped = recoveryStopped,
+            canSkipEpisode = mediaKey.startsWith("ep:") && followingEpisode != null,
+            usingVlc = usingVlc,
+            onRetryNow = {
+                recoveryStopped = false
+                performRecoveryRetry(manual = true)
+            },
+            onStop = {
+                recoveryStopped = true
+                recoveryInFlight = false
+                recoveryCountdown = 0
+                recoverySkipCountdown = 0
+            },
+            onNextEpisode = {
+                val next = followingEpisode
+                if (next != null) {
+                    recoveryStopped = true
+                    scope.launch { savePosition(); onNextEpisode(next) }
+                }
+            },
+            onTryMedia3 = {
+                recoveryStopped = false
+                recoveryIssue = null
+                recoveryAttempts = 0
+                recoveryInFlight = false
+                media3PrematureEnd = false
+                media3HadError = false
+                usingVlc = false
+            },
+            onBack = {
+                recoveryStopped = true
+                onBack()
+            },
+        )
+    }
+
     if (!usingVlc && markerDialogVisible && !seriesGroup.isNullOrBlank() &&
         mediaKey.startsWith("ep:")) {
         ManualSeriesSkipDialog(
