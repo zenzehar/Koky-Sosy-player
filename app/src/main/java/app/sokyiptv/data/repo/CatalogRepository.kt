@@ -904,6 +904,7 @@ class CatalogRepository(
         channelDao.channelsInCategoryIncludingHidden(sourceId, categoryId)
 
     suspend fun setMovieFavourite(id: Long, favourite: Boolean) =
+    suspend fun setSeriesFavourite(id: Long, favourite: Boolean) = seriesDao.setFavourite(id, favourite)
         movieDao.setFavourite(id, favourite)
 
     // --- Sync helpers: read/apply curation by stable stream URL ---
