@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
@@ -70,6 +71,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.res.Configuration
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 import android.view.WindowManager
@@ -128,7 +130,11 @@ fun HomeScreen(
     val phonePortrait = isHandheldPortrait()
     val handheld = !isTelevision
     var phoneCategoriesOpen by remember { mutableStateOf(false) }
-    var catalogueMode by rememberSaveable { mutableStateOf(true) }
+    // An actual portrait television keeps the established ten-foot EPG.
+    val tvPortrait = isTelevision &&
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    var catalogueMode by rememberSaveable { mutableStateOf(!tvPortrait) }
+    LaunchedEffect(tvPortrait) { if (tvPortrait) catalogueMode = false }
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     val previewEnabled by settings.guidePreviewVideo.collectAsState()
@@ -372,7 +378,7 @@ fun HomeScreen(
             )
             Spacer(Modifier.height(12.dp))
             // Back to the poster catalogue without leaving Live TV.
-            TextButton(onClick = { catalogueMode = true },
+            if (!tvPortrait) TextButton(onClick = { catalogueMode = true },
                 modifier = Modifier.fillMaxWidth()) {
                 Text("Channel tiles", maxLines = 1, softWrap = false)
             }
