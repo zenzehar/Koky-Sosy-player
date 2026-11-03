@@ -9,4 +9,9 @@
     <cache-path
         name="updates"
         path="updates/" />
+    <!-- Resumable update transfers are stored in persistent app files. The OS
+         can purge cacheDir at any time, but must not remove an in-flight APK. -->
+    <files-path
+        name="persistent-updates"
+        path="updates/" />
 </paths>
