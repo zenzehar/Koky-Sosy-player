@@ -75,14 +75,12 @@ import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.onboarding.TvNativeTextField
 import app.sokyiptv.ui.vod.tvRemoteActions
 import app.sokyiptv.ui.vod.grabFavouriteKeys
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private val background = Color(0xFF080D20)
