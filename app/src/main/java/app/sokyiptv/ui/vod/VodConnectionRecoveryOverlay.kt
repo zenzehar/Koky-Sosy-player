@@ -44,6 +44,7 @@ internal fun VodConnectionRecoveryOverlay(
     onStop: () -> Unit,
     onNextEpisode: () -> Unit,
     onTryMedia3: () -> Unit,
+    onAdvancedVlc: () -> Unit,
     onBack: () -> Unit,
 ) {
     val firstFocus = remember { FocusRequester() }
@@ -86,8 +87,16 @@ internal fun VodConnectionRecoveryOverlay(
                 }
                 if (canSkipEpisode) OutlinedButton(onClick = onNextEpisode,
                     modifier = Modifier.fillMaxWidth()) { Text("Next episode", maxLines = 1) }
-                if (usingVlc) OutlinedButton(onClick = onTryMedia3,
-                    modifier = Modifier.fillMaxWidth()) { Text("Try Media3 instead", maxLines = 1) }
+                if (usingVlc) {
+                    OutlinedButton(onClick = onTryMedia3,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("Try Media3 instead", maxLines = 1)
+                    }
+                    OutlinedButton(onClick = onAdvancedVlc,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text("More VLC options · External player / diagnostics", maxLines = 2)
+                    }
+                }
                 OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
                     Text("Back to title", maxLines = 1)
                 }
