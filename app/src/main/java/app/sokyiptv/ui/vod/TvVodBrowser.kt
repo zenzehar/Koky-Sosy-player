@@ -368,8 +368,14 @@ internal fun TvVodBrowser(
                     }
                 }
             }
-            Text(heading, color = Color.White.copy(alpha = .9f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(heading, color = Color.White.copy(alpha = .9f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                BrowseSortMenu(kind, isFavourites, sortMode) {
+                    browse.setSort(kind, isFavourites, it)
+                }
+            }
             if (selection == "continue") {
                 val filtered = remember(scopedResume, titleQuery) {
                     scopedResume.filter {
@@ -411,11 +417,22 @@ internal fun TvVodBrowser(
                             onClick = { onOpenSeries(item) },
                             onFocusedState = { hasFocus ->
                                 seriesPrefetch.onFocusChanged(item, hasFocus)
-                            }, onReset = { viewModel.resetSeriesProgress(item) })
+                            },
+                            favourite = item.favourite,
+                            onToggleFavourite = { toggleSeries(item) },
+                            onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
+                                         titleQuery.isBlank())
+                                ({ delta -> moveFavourite(seriesKey(item), delta) }) else null,
+                            onReset = { viewModel.resetSeriesProgress(item) })
                     } else gridItems(moviePage, key = { "m:" + it.id }) { item ->
                         TvPoster(title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenMovie(item) },
                             onPlay = { onResume("movie:" + item.id, item.streamUrl, item.displayTitle) },
+                            favourite = item.favourite,
+                            onToggleFavourite = { toggleMovie(item) },
+                            onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
+                                         titleQuery.isBlank())
+                                ({ delta -> moveFavourite(movieKey(item), delta) }) else null,
                             onReset = { viewModel.resetMovieProgress(item.id) })
                     }
                     if (loading) item(key = "loading") {
@@ -500,7 +517,14 @@ internal fun TvVodBrowser(
                 "recent" -> "RECENTLY ADDED"
                 else -> categoriesState.firstOrNull { it.id == selection }?.name ?: "ALL"
             }
-            Text(heading, color = Color.White.copy(alpha = .91f), fontSize = 18.sp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(heading, color = Color.White.copy(alpha = .91f), fontSize = 18.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                BrowseSortMenu(kind, isFavourites, sortMode) {
+                    browse.setSort(kind, isFavourites, it)
+                }
+            }
             Spacer(Modifier.height(10.dp))
             if (selection == "continue") {
                 if (scopedResume.isEmpty()) {
@@ -552,6 +576,11 @@ internal fun TvVodBrowser(
                             onFocusedState = { hasFocus ->
                                 seriesPrefetch.onFocusChanged(item, hasFocus)
                             },
+                            favourite = item.favourite,
+                            onToggleFavourite = { toggleSeries(item) },
+                            onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
+                                         titleQuery.isBlank())
+                                ({ delta -> moveFavourite(seriesKey(item), delta) }) else null,
                             onReset = { viewModel.resetSeriesProgress(item) },
                         )
                     }
@@ -560,6 +589,11 @@ internal fun TvVodBrowser(
                             title = item.displayTitle, poster = item.posterUrl,
                             onClick = { onOpenMovie(item) },
                             onPlay = { onResume("movie:${item.id}", item.streamUrl, item.displayTitle) },
+                            favourite = item.favourite,
+                            onToggleFavourite = { toggleMovie(item) },
+                            onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
+                                         titleQuery.isBlank())
+                                ({ delta -> moveFavourite(movieKey(item), delta) }) else null,
                             onReset = { viewModel.resetMovieProgress(item.id) },
                         )
                     }
@@ -636,6 +670,9 @@ private fun TvPoster(
     onClick: () -> Unit,
     onPlay: (() -> Unit)? = null,
     onFocusedState: (Boolean) -> Unit = {},
+    favourite: Boolean = false,
+    onToggleFavourite: (() -> Unit)? = null,
+    onMove: ((Int) -> Unit)? = null,
     onReset: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -679,6 +716,22 @@ private fun TvPoster(
                     text = { Text(if (onPlay == null) "Open episodes" else "Open title") },
                     onClick = { menuOpen = false; onClick() },
                 )
+                if (onToggleFavourite != null) {
+                    DropdownMenuItem(
+                        text = { Text(if (favourite) "Remove from favourites" else "Add to favourites") },
+                        onClick = { menuOpen = false; onToggleFavourite() },
+                    )
+                }
+                if (onMove != null) {
+                    DropdownMenuItem(
+                        text = { Text("Move earlier in favourites") },
+                        onClick = { menuOpen = false; onMove(-1) },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move later in favourites") },
+                        onClick = { menuOpen = false; onMove(1) },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Reset progress") },
                     onClick = { menuOpen = false; onReset() },
