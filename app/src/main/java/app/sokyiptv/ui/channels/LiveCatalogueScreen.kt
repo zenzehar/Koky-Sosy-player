@@ -33,6 +33,12 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -314,6 +320,8 @@ internal fun LiveCatalogueScreen(
                     browse.setSort("live", favouritesOnly, it)
                 }
             }
+            Text("Tap ☆ to add a channel to Favourites",
+                color = Color(0xFFB8D5DA), fontSize = 11.sp, maxLines = 1)
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 ChannelsGrid(Modifier.fillMaxSize(), columns)
                 if (visibleRows.isEmpty()) {
@@ -384,7 +392,10 @@ internal fun LiveCatalogueScreen(
                         browse.setSort("live", favouritesOnly, it)
                     }
                 }
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(6.dp))
+                Text("★ Hold OK / Menu: favourites  ·  Yellow key: toggle",
+                    color = Color(0xFFB8D5DA), fontSize = 10.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Box(Modifier.weight(1f)) {
                     ChannelsGrid(Modifier.fillMaxSize(), TV_COLUMNS)
                     if (visibleRows.isEmpty()) {
@@ -442,6 +453,15 @@ private fun LivePoster(
     Column(
         Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.isFocused }
+            // One D-pad focus target per channel, as in Movies.
+            // A hardware yellow key makes favouriting a single keypress on TV
+            // remotes that offer it. Ordinary Menu/long-OK opens the full menu.
+            .onPreviewKeyEvent { event ->
+                if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_PROG_YELLOW) {
+                    if (event.type == KeyEventType.KeyUp) onToggleFavourite()
+                    true
+                } else false
+            }
             .tvRemoteActions(onClick = onClick, onLongPress = { menuOpen = true }),
     ) {
         Box(
@@ -459,6 +479,29 @@ private fun LivePoster(
                     contentDescription = channel.shownName,
                     modifier = Modifier.fillMaxSize().padding(7.dp),
                     contentScale = ContentScale.Fit,
+                )
+            }
+            // Direct one-tap favourite action on touch screens, not hidden in
+            // a three-dot submenu. TV shows the same state as a non-focusable
+            // indicator to keep all five columns D-pad smooth.
+            if (isHandheldPortrait()) {
+                IconButton(
+                    onClick = onToggleFavourite,
+                    modifier = Modifier.align(Alignment.TopStart),
+                ) {
+                    Icon(
+                        if (channel.favourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                        contentDescription = if (channel.favourite)
+                            "Remove from favourites" else "Add to favourites",
+                        tint = if (channel.favourite) Color(0xFFFFD466) else Color.White,
+                    )
+                }
+            } else {
+                Icon(
+                    if (channel.favourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                    contentDescription = if (channel.favourite) "Favourite" else "Not favourite",
+                    tint = if (channel.favourite) Color(0xFFFFD466) else Color.White.copy(alpha = .75f),
+                    modifier = Modifier.align(Alignment.TopStart).padding(5.dp),
                 )
             }
             if (isHandheldPortrait()) IconButton(
