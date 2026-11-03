@@ -358,13 +358,20 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
             val end by settings.liveRecoveryEnd.collectAsState()
             val timeout by settings.liveNoResponseSeconds.collectAsState()
             val countdown by settings.liveSkipCountdownSeconds.collectAsState()
-            SettingsSection("Live TV · Connection recovery") {
-                Text("Automatically retry a failed or unresponsive Live TV channel up to five times. " +
-                    "Attempts and remaining time are shown on screen.",
+            val retryGap by settings.playbackRetryDelaySeconds.collectAsState()
+            SettingsSection("Playback · Connection recovery") {
+                Text("Live TV, Movies and Series retry a failed or unresponsive stream five times. " +
+                    "Each retry and its countdown are shown on screen. A connection failure " +
+                    "never marks an episode complete.",
                     style = MaterialTheme.typography.bodySmall)
+                val gapChoices = listOf(2, 3, 5, 10)
+                SettingsChoiceDropdown("Wait between retry attempts",
+                    gapChoices.map { it.toString() + " seconds" },
+                    gapChoices.indexOf(retryGap).coerceAtLeast(0),
+                ) { settings.setPlaybackRetryDelaySeconds(gapChoices[it]) }
                 SettingsChoiceDropdown("After five failed attempts",
                     listOf("Stop and let me intervene (default)",
-                           "Skip to next channel after a countdown"),
+                           "Auto-skip after countdown (Live: next channel; Series: next episode)"),
                     if (end == AppSettings.LiveRecoveryEnd.WAIT_FOR_USER) 0 else 1,
                 ) { settings.setLiveRecoveryEnd(
                     if (it == 0) AppSettings.LiveRecoveryEnd.WAIT_FOR_USER
@@ -381,8 +388,10 @@ fun AppSettingsScreen(onBack: () -> Unit, onOpenWebManager: () -> Unit = {}) {
                     timeoutChoices.map { it.toString() + " seconds" },
                     timeoutChoices.indexOf(timeout).coerceAtLeast(0),
                 ) { settings.setLiveNoResponseSeconds(timeoutChoices[it]) }
-                Text("The connection timeout applies only to Live TV playback. " +
-                    "Recordings, Movies, and Series are never automatically skipped.",
+                Text("When auto-skip is selected, Live TV moves to the next channel " +
+                    "(unless recording), Series moves to the next episode without marking " +
+                    "this one complete, and Movies stop for intervention. " +
+                    "Recordings are never automatically skipped.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
