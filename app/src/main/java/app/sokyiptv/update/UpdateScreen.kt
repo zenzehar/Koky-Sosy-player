@@ -1,8 +1,5 @@
-/*
- * This file is part of SokyIPTV.
- * Copyright (C) 2026 The OpenTV Contributors
- * Licensed under the GNU General Public License v3.0 or later.
- */
+/* Soky IPTV Pro updater: WorkManager-backed, resumable, foreground install only.
+ * GPL-3.0-or-later. */
 package app.sokyiptv.update
 
 import android.app.Application
@@ -17,8 +14,12 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,80 +32,101 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/**
- * The one-line entry point: drop [UpdateGate] into the top-level layout and a sideloaded
- * install will notice and offer its own updates. It renders nothing until there is something
- * to say, so it is safe to place unconditionally over the whole app.
- */
 @Composable
 fun UpdateGate(viewModel: UpdateViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
+    val transfer by viewModel.transfer.collectAsState()
+    var dialogVisible by rememberSaveable { mutableStateOf(true) }
+
+    LaunchedEffect(transfer.version) {
+        if (transfer.version.isNotBlank()) dialogVisible = true
+    }
+    if (transfer.stage in listOf("downloading", "paused", "failed", "ready") &&
+        dialogVisible) {
+        AlertDialog(
+            onDismissRequest = { dialogVisible = false }, // Transfer continues independently.
+            title = {
+                Text(when (transfer.stage) {
+                    "paused" -> "Update paused"
+                    "failed" -> "Download interrupted"
+                    "ready" -> "Update ready to install"
+                    else -> "Downloading update"
+                })
+            },
+            confirmButton = {
+                when (transfer.stage) {
+                    "downloading" -> TextButton(onClick = viewModel::pause) { Text("Pause") }
+                    "paused", "failed" -> TextButton(onClick = viewModel::resume) { Text("Resume") }
+                    "ready" -> TextButton(onClick = viewModel::installReady) { Text("Install") }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    if (transfer.stage == "ready") {
+                        dialogVisible = false
+                    } else viewModel.abort()
+                }) {
+                    Text(if (transfer.stage == "ready") "Later" else "Abort")
+                }
+                TextButton(onClick = { dialogVisible = false }) {
+                    Text("Background")
+                }
+            },
+            text = {
+                Column {
+                    Text("Version " + transfer.version)
+                    if (transfer.stage != "ready") {
+                        if (transfer.fraction >= 0f) {
+                            LinearProgressIndicator(
+                                progress = { transfer.fraction },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text((transfer.fraction * 100).toInt().toString() + "%",
+                                Modifier.padding(top = 8.dp))
+                        } else LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                    if (transfer.stage == "failed")
+                        Text("Download stopped: " + transfer.error +
+                            ". Resume will continue from the verified partial file.")
+                    if (transfer.stage == "ready")
+                        Text("Download complete. Android will ask you to approve installation.")
+                    if (transfer.stage == "downloading")
+                        Text("You can send the app to the background; downloading continues.")
+                }
+            },
+        )
+        return
+    }
 
     when (val s = state) {
         UpdateUiState.Idle -> Unit
-
         is UpdateUiState.Available -> AlertDialog(
             onDismissRequest = viewModel::dismiss,
-            confirmButton = { TextButton(onClick = viewModel::install) { Text("Update") } },
+            confirmButton = { TextButton(onClick = { viewModel.install(); dialogVisible = true }) {
+                Text("Update") } },
             dismissButton = { TextButton(onClick = viewModel::dismiss) { Text("Later") } },
             title = { Text("Update available") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("Soky IPTV Pro ${s.update.versionName} is available. You have ${BuildConfig.VERSION_NAME}.")
+                    Text("Soky IPTV Pro " + s.update.versionName + " is available. You have " +
+                        BuildConfig.VERSION_NAME + ".")
                     if (s.update.notes.isNotBlank()) {
-                        Text(
-                            text = s.update.notes,
-                            modifier = Modifier.padding(top = 12.dp),
-                            maxLines = 12,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Text(s.update.notes, modifier = Modifier.padding(top = 12.dp),
+                            maxLines = 12, overflow = TextOverflow.Ellipsis)
                     }
                 }
             },
         )
-
-        is UpdateUiState.Downloading -> AlertDialog(
-            onDismissRequest = {}, // a download in flight should not be dismissed by a stray click
-            confirmButton = {},
-            title = { Text("Downloading update…") },
-            text = {
-                Column {
-                    if (s.fraction >= 0f) {
-                        LinearProgressIndicator(
-                            progress = { s.fraction },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Text("${(s.fraction * 100).toInt()}%", Modifier.padding(top = 8.dp))
-                    } else {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
-                }
-            },
-        )
-
-        is UpdateUiState.Failed -> AlertDialog(
-            onDismissRequest = viewModel::dismiss,
-            confirmButton = { TextButton(onClick = viewModel::install) { Text("Retry") } },
-            dismissButton = { TextButton(onClick = viewModel::dismiss) { Text("Close") } },
-            title = { Text("Update failed") },
-            text = { Text("Could not download the update. Check the connection and try again.") },
-        )
+        else -> Unit
     }
 }
 
 sealed interface UpdateUiState {
     data object Idle : UpdateUiState
     data class Available(val update: UpdateChecker.Update) : UpdateUiState
-    data class Downloading(val update: UpdateChecker.Update, val fraction: Float) : UpdateUiState
-    data class Failed(val update: UpdateChecker.Update) : UpdateUiState
 }
 
-/**
- * One shared update state so the manual "check for updates" (About) and the automatic gate speak
- * with one voice. A manual check that finds a build flips this, and [UpdateGate] — mounted over the
- * whole app — shows the dialog wherever the user is standing. Previously the two had separate state
- * (and the gate was throttled to a 6-hour check), so a manual find never actually prompted.
- */
+/** Manual update discovery in About and automatic startup share one prompt. */
 object UpdateHub {
     val state = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
 }
@@ -113,60 +135,60 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = ServiceLocator.get(app)
     private val checker = UpdateChecker(graph.httpClient, BuildConfig.VERSION_NAME)
     private val installer = ApkInstaller(graph.httpClient)
-
-    // Backed by the shared hub so a manual check from About lights up this same gate.
     private val _state = UpdateHub.state
     val state = _state.asStateFlow()
+    val transfer = UpdateTransfer.state
 
-    init { checkThrottled() }
+    init {
+        UpdateTransfer.restore(app)
+        checkThrottled()
+    }
 
-    /**
-     * Hits the network at most once every [CHECK_INTERVAL_MS]. The guide already re-syncs on
-     * every launch; adding an unconditional GitHub round-trip on top of that would be rude to
-     * both GitHub's rate limit and the user's connection, for information that changes rarely.
-     */
     private fun checkThrottled() {
         viewModelScope.launch {
+            if (transfer.value.stage in listOf("downloading", "paused", "ready", "failed")) return@launch
             val prefs = getApplication<Application>()
                 .getSharedPreferences("sokyiptv", Context.MODE_PRIVATE)
             val now = System.currentTimeMillis()
-            // A newly installed build gets its own first check rather than
-            // inheriting a 6-hour throttle timestamp from the previous APK.
             val lastVersion = prefs.getString(KEY_LAST_CHECK_VERSION, null)
             if (lastVersion == BuildConfig.VERSION_NAME &&
                 now - prefs.getLong(KEY_LAST_CHECK, 0L) < CHECK_INTERVAL_MS) return@launch
-
             val update = checker.check()
             prefs.edit().putLong(KEY_LAST_CHECK, now)
                 .putString(KEY_LAST_CHECK_VERSION, BuildConfig.VERSION_NAME).apply()
-            if (update != null) _state.value = UpdateUiState.Available(update)
+            if (update != null && transfer.value.stage == "none")
+                _state.value = UpdateUiState.Available(update)
         }
     }
 
     fun install() {
-        val update = when (val s = _state.value) {
-            is UpdateUiState.Available -> s.update
-            is UpdateUiState.Failed -> s.update
-            is UpdateUiState.Downloading -> s.update
-            UpdateUiState.Idle -> return
-        }
+        val update = (state.value as? UpdateUiState.Available)?.update ?: return
+        _state.value = UpdateUiState.Idle
+        UpdateTransfer.start(getApplication(), update)
+    }
+
+    fun pause() = UpdateTransfer.pause(getApplication())
+    fun resume() = UpdateTransfer.resume(getApplication())
+    fun abort() {
+        UpdateTransfer.abort(getApplication())
+        _state.value = UpdateUiState.Idle
+    }
+
+    fun installReady() {
+        val snapshot = transfer.value
+        if (snapshot.stage != "ready") return
         viewModelScope.launch {
-            _state.value = UpdateUiState.Downloading(update, 0f)
             runCatching {
-                // The next build can identify the *actual* previous version instead
-                // of guessing it from release numbers (users can skip versions).
-                RollbackStore.markUpdateAttempt(getApplication(), update.versionName)
-                installer.downloadAndInstall(
+                RollbackStore.markUpdateAttempt(getApplication(), snapshot.version)
+                installer.installDownloaded(
                     context = getApplication(),
-                    url = update.apkUrl,
-                    expectedBytes = update.apkSizeBytes,
-                    targetVersion = update.versionName,
-                ) { fraction -> _state.value = UpdateUiState.Downloading(update, fraction) }
-            }.onSuccess {
-                // The system installer is now front-and-centre; step our dialog aside.
-                _state.value = UpdateUiState.Idle
+                    apk = UpdateTransfer.ready(getApplication()),
+                    expectedBytes = snapshot.expectedBytes,
+                    targetVersion = snapshot.version,
+                )
             }.onFailure {
-                _state.value = UpdateUiState.Failed(update)
+                UpdateTransfer.change(getApplication(),
+                    snapshot.copy(stage = "failed", error = it.javaClass.simpleName))
             }
         }
     }
@@ -176,6 +198,6 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val KEY_LAST_CHECK = "last_update_check"
         const val KEY_LAST_CHECK_VERSION = "last_update_check_version"
-        const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L // 6 hours
+        const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
     }
 }
