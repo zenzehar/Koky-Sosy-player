@@ -779,7 +779,7 @@ fun VlcFallbackScreen(
     LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed, diagnosticsState) {
         // Diagnostics is itself a modal. When it closes, restore focus to the
         // still-visible playback failure menu rather than native video.
-        if (diagnosticsState) return@LaunchedEffect
+        if (diagnosticsState || (failed && recoveryManaged)) return@LaunchedEffect
         withFrameNanos { }
         withFrameNanos { }
         runCatching {
@@ -831,6 +831,9 @@ fun VlcFallbackScreen(
             .onPreviewKeyEvent { event ->
                 if (!failed && onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 if (leaving.get()) return@onPreviewKeyEvent true
+                // The parent's five-retry Dialog is the sole recovery input
+                // target. The old VLC error menu must never consume remote OK.
+                if (failed && recoveryManaged) return@onPreviewKeyEvent false
                 if (failed && (event.key == Key.Back || event.key == Key.Escape)) {
                     // Keep the Activity/Compose BackHandler usable.
                     return@onPreviewKeyEvent false
