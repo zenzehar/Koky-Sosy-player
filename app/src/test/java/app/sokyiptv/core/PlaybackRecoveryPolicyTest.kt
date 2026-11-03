@@ -19,6 +19,19 @@ class PlaybackRecoveryPolicyTest {
         assertFalse(PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(5, true, true, false))
         assertTrue(PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(5, true, true, true))
     }
+    @Test fun configuredRetriesRespectAllBoundaries() {
+        for (count in listOf(1, 2, 3, 5, 7, 10)) {
+            for (attempt in 0 until count)
+                assertTrue(PlaybackRecoveryPolicy.shouldRetry(attempt, false, count))
+            assertFalse(PlaybackRecoveryPolicy.shouldRetry(count, false, count))
+            assertFalse(PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
+                count - 1, true, true, true, count))
+            assertTrue(PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
+                count, true, true, true, count))
+            assertFalse(PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
+                count, false, true, true, count))
+        }
+    }
     @Test fun boundedDelay() {
         assertEquals(3, PlaybackRecoveryPolicy.retryDelaySeconds(3))
         assertEquals(2, PlaybackRecoveryPolicy.retryDelaySeconds(0))
