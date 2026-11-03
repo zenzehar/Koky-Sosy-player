@@ -377,7 +377,6 @@ fun VodPlayerScreen(
     var recoverySkipCountdown by remember(mediaKey) { mutableIntStateOf(0) }
     var recoveryInFlight by remember(mediaKey) { mutableStateOf(false) }
     var recoveryStopped by remember(mediaKey) { mutableStateOf(false) }
-    var showVlcAdvancedMenu by remember(mediaKey) { mutableStateOf(false) }
     // Exhausted recovery text auto-fades. The failure remains retryable with OK
     // or tappable video, while Back retains the original player behaviour.
     var recoveryExhaustedHintVisible by remember(mediaKey) { mutableStateOf(true) }
@@ -422,7 +421,6 @@ fun VodPlayerScreen(
         recoveryCountdown = 0
         recoverySkipCountdown = 0
         recoveryAttempts++
-        showVlcAdvancedMenu = false
         recoveryInFlight = true
         recoveryRetryEpoch++
         if (!usingVlc) {
@@ -1140,7 +1138,7 @@ fun VodPlayerScreen(
             onEnded = { naturalEnd() },
             suspendPlayback = screenSaverSuspended ||
                 (recoveryStopped && recoveryIssue != null),
-            recoveryManaged = !showVlcAdvancedMenu,
+            recoveryManaged = true,
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
             onPlaybackStable = ::noteStablePlayback,
