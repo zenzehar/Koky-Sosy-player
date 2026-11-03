@@ -38,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -86,6 +87,7 @@ import app.sokyiptv.reminders.ReminderScheduler
 import app.sokyiptv.player.PlaybackQueue
 import app.sokyiptv.player.PlayerController
 import app.sokyiptv.ui.ChannelsViewModel
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.ui.RecordingBackgroundDialog
 import app.sokyiptv.ui.RecordingBackgroundPrompt
 import coil.compose.AsyncImage
@@ -122,6 +124,9 @@ fun HomeScreen(
     viewModel: ChannelsViewModel = viewModel(),
 ) {
     val context = LocalContext.current
+    val phonePortrait = isHandheldPortrait()
+    val handheld = !isTelevision
+    var phoneCategoriesOpen by remember { mutableStateOf(false) }
     val graph = remember { ServiceLocator.get(context) }
     val settings = remember { graph.settings }
     val previewEnabled by settings.guidePreviewVideo.collectAsState()
@@ -175,7 +180,7 @@ fun HomeScreen(
     // leftmost (channel) column slides it back and drops focus on the selected category.
     var railExpanded by remember { mutableStateOf(returnedChannelId == null) }
     val railWidth by animateDpAsState(
-        targetValue = if (railExpanded) 298.dp else 0.dp,
+        targetValue = if (phonePortrait) 0.dp else if (railExpanded) 298.dp else 0.dp,
         label = "railWidth",
     )
     val railFocusRequester = remember { FocusRequester() }
@@ -413,6 +418,19 @@ fun HomeScreen(
 
         // ---- Preview + guide ---------------------------------------------------------------
         Column(Modifier.weight(1f)) {
+            if (phonePortrait) Row(
+                Modifier.fillMaxWidth().height(48.dp)
+                    .background(MaterialTheme.colorScheme.surface),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { phoneCategoriesOpen = true }) {
+                    Text("Categories", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(stringResource(R.string.nav_live_tv),
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium)
+            }
             if (rows.isEmpty()) {
                 when {
                     favouritesOnly -> NoFavouritesState()
@@ -474,10 +492,10 @@ fun HomeScreen(
                 // from the leftmost element reopens the rail (consumed only when it was hidden).
                 val onFocusChannel: (ChannelsViewModel.Row) -> Unit = {
                     highlightedRow = it
-                    railExpanded = false
+                    if (!handheld) railExpanded = false
                 }
                 val onExitLeftChannel: () -> Boolean = {
-                    if (!railExpanded) {
+                    if (!handheld && !railExpanded) {
                         railExpanded = true
                         pendingRailFocus = true
                         true
@@ -522,6 +540,59 @@ fun HomeScreen(
                         onFocusRestored = { restoreFocusToChannel = false },
                         modifier = Modifier.weight(1f).padding(start = 12.dp, end = 12.dp),
                     )
+                }
+            }
+        }
+    }
+
+    // Portrait phones cannot recover a focus-collapsed rail using a D-pad.
+    // Present the very same source/category actions in a touch-accessible
+    // modal. This is not composed for TV or landscape screens.
+    if (phonePortrait && phoneCategoriesOpen) {
+        Dialog(onDismissRequest = { phoneCategoriesOpen = false }) {
+            Column(Modifier.widthIn(max = 360.dp).heightIn(max = 570.dp)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                .padding(12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Channels & categories", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = { phoneCategoriesOpen = false }) {
+                        Text("Close", maxLines = 1)
+                    }
+                }
+                LazyColumn(
+                    contentPadding = PaddingValues(vertical = 5.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (sources.size > 1) {
+                        item {
+                            RailEntry("All providers", selectedSource == null, onClick = {
+                                viewModel.selectSource(null); phoneCategoriesOpen = false
+                            })
+                        }
+                        items(sources, key = { "phone-src-" + it.id }) { source ->
+                            RailEntry(source.name, selectedSource == source.id, onClick = {
+                                viewModel.selectSource(source.id); phoneCategoriesOpen = false
+                            })
+                        }
+                    }
+                    item {
+                        RailEntry(stringResource(R.string.guide_favourites), favouritesOnly,
+                            onClick = { viewModel.selectFavourites(); phoneCategoriesOpen = false })
+                    }
+                    item {
+                        RailEntry(stringResource(R.string.guide_all_channels),
+                            !favouritesOnly && selectedCategory == null,
+                            onClick = { viewModel.selectCategory(null); phoneCategoriesOpen = false })
+                    }
+                    items(categories, key = { "phone-cat-" + it.key }) { group ->
+                        RailEntry(group.label,
+                            !favouritesOnly && selectedCategory == group.key,
+                            onClick = {
+                                viewModel.selectCategory(group.key); phoneCategoriesOpen = false
+                            })
+                    }
                 }
             }
         }
