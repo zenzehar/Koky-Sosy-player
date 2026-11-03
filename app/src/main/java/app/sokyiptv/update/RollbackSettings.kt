@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
-import app.sokyiptv.ui.isHandheldTouch
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.core.ServiceLocator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +38,7 @@ internal object RollbackUi {
 @Composable
 fun RollbackSettings() {
     val context = LocalContext.current
-    val handheld = isHandheldTouch()
+    val handheld = isHandheldPortrait()
     val http = remember(context) { ServiceLocator.get(context).httpClient }
     val repository = remember(http) { RollbackRepository(http) }
     val scope = rememberCoroutineScope()
