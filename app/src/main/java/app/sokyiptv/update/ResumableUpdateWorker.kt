@@ -331,9 +331,6 @@ class ResumableUpdateWorker(context: Context, params: WorkerParameters) :
                 val stream = response.body?.byteStream() ?: throw IOException("Empty APK response")
                 var written = offset
                 var lastPublish = 0L
-                part.outputStream().use { sink ->
-                    // For resumed transfer use append output; otherwise overwrite.
-                }
                 java.io.FileOutputStream(part, append).use { output ->
                     val buf = ByteArray(128 * 1024)
                     while (true) {
