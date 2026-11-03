@@ -1,111 +1,82 @@
 package app.sokyiptv.ui.vod
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import kotlinx.coroutines.delay
+import androidx.compose.ui.unit.sp
 
-/** Modal focus boundary: the VLC surface cannot steal D-pad input. */
+/**
+ * The IPTV-Smarters-style VOD connection indicator is passive: no Dialog,
+ * Card, buttons, focusRequester, clickable, or pointerInput. It cannot steal
+ * a D-pad direction, touch gesture, accessibility focus or player control.
+ * A null status animates out completely after playback is stable.
+ */
 @Composable
 internal fun VodConnectionRecoveryOverlay(
-    title: String,
-    reason: String,
+    reason: String?,
     attempts: Int,
+    maxRetries: Int,
     retryCountdown: Int,
     skipCountdown: Int,
     retrying: Boolean,
     stopped: Boolean,
-    canSkipEpisode: Boolean,
-    usingVlc: Boolean,
-    onRetryNow: () -> Unit,
-    onStop: () -> Unit,
-    onNextEpisode: () -> Unit,
-    onTryMedia3: () -> Unit,
-    onAdvancedVlc: () -> Unit,
-    onBack: () -> Unit,
+    showExhaustedHint: Boolean = true,
 ) {
-    val firstFocus = remember { FocusRequester() }
-    Dialog(onDismissRequest = onStop,
-        properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Card(modifier = Modifier.fillMaxWidth(.90f).widthIn(max = 520.dp).heightIn(max = 560.dp),
-            shape = RoundedCornerShape(16.dp)) {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp),
+    val visible = reason != null && (!stopped || showExhaustedHint)
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.fillMaxSize(),
+        enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { -it / 8 },
+        exit = fadeOut(tween(240)),
+    ) {
+        Box(Modifier.fillMaxSize().padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center) {
+            Column(
+                modifier = Modifier.widthIn(max = 440.dp)
+                    .background(Color.Black.copy(alpha = .63f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Playback connection interrupted", style = MaterialTheme.typography.titleLarge,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                val count = maxRetries.coerceIn(1, 10)
+                val primary = when {
+                    stopped -> "Unable to reconnect · $attempts/$count"
+                    skipCountdown > 0 -> "Reconnection failed · $attempts/$count"
+                    retryCountdown > 0 -> "Attempting to reconnect · ${(attempts + 1).coerceAtMost(count)}/$count"
+                    retrying -> "Attempting to reconnect · $attempts/$count"
+                    else -> "Reconnecting · ${(attempts + 1).coerceAtMost(count)}/$count"
+                }
+                Text(primary, color = Color.White, fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium, maxLines = 2,
                     textAlign = TextAlign.Center)
-                Text(title, style = MaterialTheme.typography.titleMedium,
-                    textAlign = TextAlign.Center, maxLines = 2)
-                Text(reason, style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center, maxLines = 3)
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    repeat(5) { i ->
-                        Text(if (i < attempts) "●" else "○",
-                            color = if (i < attempts) Color(0xFF58C7B9)
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.titleLarge)
-                    }
+                val secondary = when {
+                    stopped -> "OK to retry  ·  Back to exit"
+                    skipCountdown > 0 -> "Next episode in ${skipCountdown}s · Back to cancel"
+                    retryCountdown > 0 -> "Next attempt in ${retryCountdown}s"
+                    retrying -> "Checking stream…"
+                    else -> "Restoring playback…"
                 }
-                Text(when {
-                    stopped -> "Paused — " + attempts + " of 5 retries used. Waiting for you."
-                    skipCountdown > 0 -> "Five retries failed. Next episode in " + skipCountdown + "s."
-                    retryCountdown > 0 -> "Retry " + (attempts + 1) + " of 5 in " + retryCountdown + "s"
-                    retrying -> "Reconnecting — attempt " + attempts + " of 5"
-                    attempts >= 5 -> "Five retries failed. Your intervention is required."
-                    else -> "Reconnecting — " + attempts + " of 5 attempts"
-                }, style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
-                Text("Your playback position is preserved. A connection failure never completes an episode.",
-                    style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-                Button(onClick = onRetryNow, modifier = Modifier.fillMaxWidth()
-                    .focusRequester(firstFocus)) { Text("Retry now", maxLines = 1) }
-                OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
-                    Text("Stop / wait — let me intervene", maxLines = 2)
-                }
-                if (canSkipEpisode) OutlinedButton(onClick = onNextEpisode,
-                    modifier = Modifier.fillMaxWidth()) { Text("Next episode", maxLines = 1) }
-                if (usingVlc) {
-                    OutlinedButton(onClick = onTryMedia3,
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text("Try Media3 instead", maxLines = 1)
-                    }
-                    OutlinedButton(onClick = onAdvancedVlc,
-                        modifier = Modifier.fillMaxWidth()) {
-                        Text("More VLC options · External player / diagnostics", maxLines = 2)
-                    }
-                }
-                OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-                    Text("Back to title", maxLines = 1)
-                }
+                Text(secondary, color = Color(0xFFCED9E3), fontSize = 12.sp,
+                    maxLines = 2, textAlign = TextAlign.Center)
             }
         }
-    }
-    LaunchedEffect(Unit) {
-        delay(100)
-        runCatching { firstFocus.requestFocus() }
     }
 }
