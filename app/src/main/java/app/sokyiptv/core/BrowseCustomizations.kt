@@ -97,6 +97,17 @@ class BrowseCustomizations(context: Context) {
         return true
     }
 
+    /**
+     * Commit the complete visible favourites order once when a grabbed title is
+     * dropped. Missing favourites remain stored for provider-outage recovery.
+     * No writes happen for every arrow press, keeping D-pad movement fluid.
+     */
+    fun saveFavouriteOrder(kind: String, keys: List<String>) {
+        val ordered = keys.distinct()
+        val known = favouriteOrder(kind)
+        writeList("fav-order:" + kind, ordered + known.filterNot { it in ordered })
+    }
+
     /** Per-profile Live TV history; never saves credentials or resume positions. */
     fun recentLive(profileId: Long): List<String> = readList("live-recent:" + profileId)
 
