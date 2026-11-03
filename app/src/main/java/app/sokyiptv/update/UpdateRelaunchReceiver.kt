@@ -26,7 +26,16 @@ import app.sokyiptv.BuildConfig
 class UpdateRelaunchReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-        if (!UpdateRelaunch.consume(context, BuildConfig.VERSION_NAME)) return
+        val requested = UpdateRelaunch.consume(context, BuildConfig.VERSION_NAME)
+        // v98's updater predates the durable restart flag. Permit this initial
+        // v98→v99 upgrade to restart too, after a genuine package replacement.
+        val migratingFromLegacyUpdater = BuildConfig.VERSION_NAME ==
+            "0.1.11.99-live-catalog-system-ime-relaunch" && runCatching {
+                @Suppress("DEPRECATION")
+                val info = context.packageManager.getPackageInfo(context.packageName, 0)
+                info.firstInstallTime < info.lastUpdateTime
+            }.getOrDefault(false)
+        if (!requested && !migratingFromLegacyUpdater) return
 
         val launch = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
