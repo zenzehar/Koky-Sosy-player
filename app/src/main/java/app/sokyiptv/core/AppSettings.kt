@@ -28,7 +28,7 @@ class AppSettings private constructor(context: Context) {
 
     private val addonJson = Json { ignoreUnknownKeys = true }
 
-    /** How the app chooses light vs dark. TV defaults to dark under [ThemeMode.SYSTEM]. */
+    /** Default to the same dark theme as the dashboard; explicit SYSTEM/LIGHT choices are preserved. */
     enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
     private val _themeMode = MutableStateFlow(readThemeMode())
@@ -340,7 +340,7 @@ class AppSettings private constructor(context: Context) {
 
     private fun readThemeMode(): ThemeMode =
         runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, null) ?: "") }
-            .getOrDefault(ThemeMode.SYSTEM)
+            .getOrDefault(ThemeMode.DARK)
 
     private fun readChannelLayout(): ChannelLayout =
         runCatching { ChannelLayout.valueOf(prefs.getString(KEY_CHANNEL_LAYOUT, null) ?: "") }
