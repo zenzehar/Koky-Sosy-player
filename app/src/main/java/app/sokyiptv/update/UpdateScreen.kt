@@ -140,7 +140,12 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
     val transfer = UpdateTransfer.state
 
     init {
-        UpdateTransfer.restore(app)
+        val snapshot = UpdateTransfer.restore(app)
+        // A successful installation replaces this app's process. On the first
+        // start of the *new* version, clear the old transfer prompt and APK.
+        // Otherwise it would offer to install the already installed version.
+        if (snapshot.stage != "none" && snapshot.version == BuildConfig.VERSION_NAME)
+            UpdateTransfer.abort(app)
         checkThrottled()
     }
 
