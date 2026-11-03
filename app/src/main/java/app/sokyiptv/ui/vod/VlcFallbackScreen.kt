@@ -776,7 +776,8 @@ fun VlcFallbackScreen(
     }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
-    LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed, diagnosticsState) {
+    LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed,
+        diagnosticsState, recoveryManaged) {
         // Diagnostics is itself a modal. When it closes, restore focus to the
         // still-visible playback failure menu rather than native video.
         if (diagnosticsState || (failed && recoveryManaged)) return@LaunchedEffect
