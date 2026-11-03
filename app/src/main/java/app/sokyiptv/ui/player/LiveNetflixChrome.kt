@@ -152,8 +152,9 @@ internal fun LiveNetflixChrome(
             LiveNetflixButton(
                 if (paused) Icons.Default.PlayArrow else Icons.Default.Pause,
                 if (paused) "Play" else "Pause",
-                onActivity, onToggle, playFocus,
+                onActivity, onToggle,
                 iconDp = if (large) 68 else 49,
+                focus = playFocus,
                 opacity = if (buffering) .45f else .83f,
             )
             LiveNetflixButton(
