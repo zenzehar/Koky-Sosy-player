@@ -367,6 +367,7 @@ fun VodPlayerScreen(
     var awaitingSeekPlayback by remember(mediaKey, controller) { mutableStateOf(false) }
     // Recovery state lives ABOVE the native VLC/Media3 surface. A clean VLC
     // renderer is remounted only after a verified failure, never during seeking.
+    var lastHealthyPositionMs by remember(mediaKey) { mutableLongStateOf(0L) }
     var recoveryIssue by remember(mediaKey) { mutableStateOf<String?>(null) }
     var recoverySerial by remember(mediaKey) { mutableIntStateOf(0) }
     var recoveryAttempts by remember(mediaKey) { mutableIntStateOf(0) }
@@ -418,7 +419,11 @@ fun VodPlayerScreen(
                     url = streamUrl,
                     title = title,
                     userAgent = userAgent,
-                    startPositionMillis = if (positionMs > 0L) positionMs else resumeFromMs,
+                    startPositionMillis = when {
+                        lastHealthyPositionMs > 0L -> lastHealthyPositionMs
+                        positionMs > 0L -> positionMs
+                        else -> resumeFromMs
+                    },
                     isLive = false,
                 ),
                 debounce = false,
@@ -492,6 +497,7 @@ fun VodPlayerScreen(
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
         controller.player.seekTo(target)
+        lastHealthyPositionMs = target
         positionMs = media3SeekClock.requested(target, now)
         thumbnailPostSeekTargetMs = target
         scrubValue = target.toFloat()
@@ -508,6 +514,7 @@ fun VodPlayerScreen(
         postSeekGate.requested(now)
         awaitingSeekPlayback = true
         controller.player.seekTo(target)
+        lastHealthyPositionMs = target
         positionMs = media3SeekClock.requested(target, now)
         thumbnailPostSeekTargetMs = target
         scrubValue = target.toFloat()
@@ -517,7 +524,9 @@ fun VodPlayerScreen(
 
     suspend fun savePosition() {
         if (advanced.get()) return
-        val pos = if (usingVlc) positionMs else controller.player.currentPosition
+        val rawPos = if (usingVlc) positionMs else controller.player.currentPosition
+        val pos = if (recoveryIssue != null && lastHealthyPositionMs > 0L)
+            lastHealthyPositionMs else rawPos
         val dur = if (usingVlc) durationMs
             else controller.player.duration.takeIf { it > 0 } ?: 0L
         // LibVLC/Media3 can know elapsed time while reporting an unknown length.
@@ -811,6 +820,11 @@ fun VodPlayerScreen(
                     awaitingSeekPlayback = false
                     // Only playback after this seek starts the hide countdown.
                     interaction++
+                }
+                if (state is PlayerController.State.Playing &&
+                    controller.player.isPlaying && !awaitingSeekPlayback && positionMs > 0L &&
+                    recoveryIssue == null) {
+                    lastHealthyPositionMs = positionMs
                 }
                 PlaybackDiagnostics.sample(positionMs, durationMs, 0)
             }
@@ -1106,14 +1120,17 @@ fun VodPlayerScreen(
             onConnectionIssue = ::noteConnectionIssue,
             onPlaybackStable = ::noteStablePlayback,
             onProgress = { pos, dur ->
-                positionMs = pos
+                if (pos > 0L && recoveryIssue == null) lastHealthyPositionMs = pos
+                val keptPos = if (recoveryIssue != null && lastHealthyPositionMs > 0L)
+                    lastHealthyPositionMs else pos
+                positionMs = keptPos
                 durationMs = dur
                 // Only save a snapshot of primitives, with no native player access on IO.
                 // Unknown VOD duration must not suppress elapsed playback history.
                 val snapshot = if (!advanced.get()) WatchProgressCapture.snapshot(
                     profileId = settings.activeProfileId.value,
                     mediaKey = mediaKey,
-                    elapsedMs = pos,
+                    elapsedMs = keptPos,
                     reportedDurationMs = dur,
                     updatedAtMs = System.currentTimeMillis(),
                 ) else null
