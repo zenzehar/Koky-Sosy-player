@@ -59,7 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
-import app.sokyiptv.ui.isHandheldTouch
+import app.sokyiptv.ui.isHandheldPortrait
 import app.sokyiptv.R
 
 /**
@@ -82,7 +82,7 @@ fun SettingsHubScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val handheld = isHandheldTouch()
+    val handheld = isHandheldPortrait()
     var confirmFactoryReset by remember { mutableStateOf(false) }
     val entries = listOf(
         HubEntry(Icons.Filled.Dns, stringResource(R.string.settings_providers_title), stringResource(R.string.settings_providers_subtitle), onOpenProviders),
@@ -223,6 +223,6 @@ internal fun HubTextButton(label: String, onClick: () -> Unit) {
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
-            .padding(horizontal = if (isHandheldTouch()) 11.dp else 18.dp, vertical = 8.dp),
+            .padding(horizontal = if (isHandheldPortrait()) 11.dp else 18.dp, vertical = 8.dp),
     )
 }
