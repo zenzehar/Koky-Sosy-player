@@ -102,6 +102,7 @@ fun ChannelManagerScreen(
     // selected category, or Search) carries this requester, so LEFT from a channel row lands
     // straight back on it. The rail is always visible, so if the requester's node is scrolled out
     // this returns false and ordinary left-navigation still reaches a visible entry.
+    val portrait = isHandheldPortrait()
     val railFocusRequester = remember { FocusRequester() }
     val onExitLeftToRail: () -> Boolean = {
         runCatching { railFocusRequester.requestFocus() }.isSuccess
@@ -121,7 +122,7 @@ fun ChannelManagerScreen(
     // category re-emit later (a background sync) never yanks focus out of the channel list.
     var initialFocusDone by remember { mutableStateOf(false) }
     LaunchedEffect(categoryGroups, searchMode) {
-        if (!isHandheldPortrait() &&
+        if (!portrait &&
             !initialFocusDone && !searchMode && categoryGroups.isNotEmpty()) {
             delay(80)
             runCatching { railFocusRequester.requestFocus() }
@@ -129,7 +130,7 @@ fun ChannelManagerScreen(
         }
     }
 
-    if (isHandheldPortrait()) {
+    if (portrait) {
         var categoryMenuOpen by remember { mutableStateOf(false) }
         var providerMenuOpen by remember { mutableStateOf(false) }
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp),
