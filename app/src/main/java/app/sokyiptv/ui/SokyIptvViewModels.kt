@@ -379,6 +379,47 @@ class ChannelsViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     /**
+     * Fast Live TV tile catalogue: same category/provider/hidden/quality semantics as the
+     * EPG guide, but NEVER subscribes to programmeIndex or creates a 24-hour EPG window.
+     * All expensive channel grouping runs on Dispatchers.Default, outside Compose.
+     * Search of the resulting light cards is performed off-main by LiveCatalogueScreen.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val catalogueRows: StateFlow<List<Row>> =
+        combine(selectedCategory, favouritesOnly, categoryGroups, hiddenCategoryIds) {
+                category, favs, groups, hidden ->
+            RowsKey(category?.let { key -> groups.firstOrNull { it.key == key }?.ids },
+                favs, "", hidden)
+        }
+            .combine(selectedSource) { key, source -> key to source }
+            .flatMapLatest { (key, source) ->
+                val channelFlow = when {
+                    key.favs -> graph.catalogRepository.observeFavouriteChannels()
+                    key.categoryIds != null -> graph.catalogRepository.observeChannelsIn(key.categoryIds)
+                    else -> graph.catalogRepository.observeChannels(source)
+                }
+                channelFlow.map { channels ->
+                    val scoped = if (source == null) channels else
+                        channels.filter { it.sourceId == source }
+                    val visible = if (key.hiddenIds.isEmpty()) scoped else
+                        scoped.filter { it.categoryId !in key.hiddenIds }
+                    // This path has no now/next/programme lookups, time tick or EPG allocations.
+                    val groups = LinkedHashMap<Any, MutableList<Channel>>()
+                    visible.forEach { channel ->
+                        val id: Any = channel.groupKey.ifEmpty { channel.id }
+                        groups.getOrPut(id) { mutableListOf() }.add(channel)
+                    }
+                    groups.values.map { group ->
+                        group.sortByDescending { it.qualityRank }
+                        val variants = distinctByQuality(group)
+                        Row(variants.first(), variants, null, null, emptyList())
+                    }
+                }
+            }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
      * The whole guide window's programmes, grouped by their EPG channel id once — the single
      * expensive step. Grouping the entire catalogue's programmes (hundreds of thousands of rows
      * on a big provider) is what made every category tap slow, because it used to run inside the

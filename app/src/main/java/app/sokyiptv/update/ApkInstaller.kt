@@ -95,7 +95,9 @@ class ApkInstaller(private val http: OkHttpClient) {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            putExtra(Intent.EXTRA_RETURN_RESULT, true)
+            // The old process is killed when the new APK replaces this package.
+            // Do NOT ask the installer to return a result to that dead Activity:
+            // leave Android's normal Install complete / Open action available.
         }
         context.startActivity(intent)
     }
