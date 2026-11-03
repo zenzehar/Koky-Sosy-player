@@ -130,6 +130,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager)
+            ?.cancel(app.sokyiptv.update.UpdateRelaunch.NOTIFICATION_ID)
         // Set up the crash breadcrumb before any source loading or Compose playback.
         PlaybackDiagnostics.install(applicationContext)
         enableEdgeToEdge()
