@@ -141,7 +141,7 @@ class UpdateViewModel(app: Application) : AndroidViewModel(app) {
     private val installer = ApkInstaller(graph.httpClient)
     private val _state = UpdateHub.state
     val state = _state.asStateFlow()
-    val transfer = UpdateTransfer.state
+    internal val transfer = UpdateTransfer.state
 
     init {
         val snapshot = UpdateTransfer.restore(app)
