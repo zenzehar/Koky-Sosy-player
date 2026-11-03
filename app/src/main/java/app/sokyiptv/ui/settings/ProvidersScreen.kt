@@ -5,7 +5,7 @@
  */
 package app.sokyiptv.ui.settings
 
-import app.sokyiptv.ui.isHandheldTouch
+import app.sokyiptv.ui.isHandheldPortrait
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -65,10 +65,10 @@ fun ProvidersScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.settings_providers_title), style = MaterialTheme.typography.headlineMedium,
-                modifier = if (isHandheldTouch()) Modifier.weight(1f) else Modifier,
-                maxLines = if (isHandheldTouch()) 2 else Int.MAX_VALUE,
+                modifier = if (isHandheldPortrait()) Modifier.weight(1f) else Modifier,
+                maxLines = if (isHandheldPortrait()) 2 else Int.MAX_VALUE,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Spacer(if (isHandheldTouch()) Modifier.width(8.dp) else Modifier.weight(1f))
+            Spacer(if (isHandheldPortrait()) Modifier.width(8.dp) else Modifier.weight(1f))
             OutlinedButton(onClick = onAddSource) { Text(stringResource(R.string.providers_add), maxLines = 1, softWrap = false) }
             Spacer(Modifier.width(12.dp))
             OutlinedButton(onClick = onBack) { Text(stringResource(R.string.common_done), maxLines = 1, softWrap = false) }
