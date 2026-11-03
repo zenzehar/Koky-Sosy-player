@@ -272,6 +272,18 @@ class AppSettings private constructor(context: Context) {
         _liveSkipCountdownSeconds.value = safe
     }
 
+    // Shared retry cadence for Live TV and VOD. Network/decoder retries never
+    // modify the title's stored progress or seek clock.
+    private val _playbackRetryDelaySeconds = MutableStateFlow(
+        prefs.getInt("playback_retry_delay_seconds", 3).coerceIn(2, 10))
+    val playbackRetryDelaySeconds: StateFlow<Int> = _playbackRetryDelaySeconds.asStateFlow()
+
+    fun setPlaybackRetryDelaySeconds(seconds: Int) {
+        val safe = seconds.coerceIn(2, 10)
+        prefs.edit().putInt("playback_retry_delay_seconds", safe).apply()
+        _playbackRetryDelaySeconds.value = safe
+    }
+
     private val _liveNoResponseSeconds = MutableStateFlow(
         prefs.getInt("live_no_response_seconds", 20).coerceIn(10, 60))
     val liveNoResponseSeconds: StateFlow<Int> = _liveNoResponseSeconds.asStateFlow()

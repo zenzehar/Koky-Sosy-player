@@ -109,6 +109,11 @@ fun VlcFallbackScreen(
     onNextEpisodeClick: () -> Unit = {},
     // Keep the newer screensaver lifecycle hook even though the VLC engine is v0.1.9.
     suspendPlayback: Boolean = false,
+    /** Parent owns the five-count retry dialog, so do not show the legacy menu. */
+    recoveryManaged: Boolean = false,
+    noResponseSeconds: Int = 20,
+    onConnectionIssue: (String) -> Unit = {},
+    onPlaybackStable: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -316,6 +321,8 @@ fun VlcFallbackScreen(
                     if (epoch == startupErrorEpoch && !leaving.get() && !nativeReleased.get()) {
                         failed = true
                         ready = false
+                        if (recoveryManaged)
+                            onConnectionIssue("The provider stopped responding to this video.")
                         showControls()
                     }
                 }
@@ -340,6 +347,8 @@ fun VlcFallbackScreen(
                         PlaybackDiagnostics.event(context, "VLC_PREMATURE_END", persistNow = true)
                         failed = true
                         ready = false
+                        if (recoveryManaged)
+                            onConnectionIssue("The stream ended before the episode finished.")
                         showControls()
                         return@launch // Never move to another episode on lost connection.
                     }
@@ -589,6 +598,45 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
+    // Report stable decoded progress, not just the native Playing event: some
+    // providers say Playing and then immediately disconnect again.
+    LaunchedEffect(player, ready, failed, suspendPlayback, recoveryManaged) {
+        if (!recoveryManaged || !ready || failed || suspendPlayback) return@LaunchedEffect
+        val beginning = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
+        delay(2_600L)
+        val current = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
+        if (!failed && ready && !suspendPlayback && nativePlaybackActive &&
+            current >= beginning + 1_500L && !leaving.get() && !nativeReleased.get())
+            onPlaybackStable()
+    }
+
+    // A silent stall or endless buffer is a connection failure too, even if
+    // LibVLC never sends EncounteredError. Pausing or backgrounding suspends
+    // the clock and never consumes retries.
+    LaunchedEffect(player, recoveryManaged, suspendPlayback, paused, noResponseSeconds) {
+        if (!recoveryManaged || suspendPlayback || paused) return@LaunchedEffect
+        var previous = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
+        var lastProgress = android.os.SystemClock.elapsedRealtime()
+        while (isActive && !leaving.get() && !nativeReleased.get() && !ended && !failed) {
+            delay(1_000L)
+            val now = android.os.SystemClock.elapsedRealtime()
+            val current = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
+            if (current >= previous + 300L && nativePlaybackActive) {
+                previous = current
+                lastProgress = now
+            }
+            if (now - lastProgress >= noResponseSeconds.coerceIn(10, 60) * 1_000L &&
+                !failed && !ended && !leaving.get() && !nativeReleased.get()) {
+                PlaybackDiagnostics.event(context, "VLC_NO_RESPONSE", persistNow = true)
+                failed = true
+                ready = false
+                onConnectionIssue("No video response for " + noResponseSeconds + " seconds.")
+                showControls()
+                break
+            }
+        }
+    }
+
     // The two series marks are strictly different destinations: intro is the
     // ONLY seek destination at episode start. Never reuse a previous episode's
     // playback clock or use a credits marker as an intro target.
@@ -728,14 +776,15 @@ fun VlcFallbackScreen(
     }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
-    LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed, diagnosticsState) {
+    LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed,
+        diagnosticsState, recoveryManaged) {
         // Diagnostics is itself a modal. When it closes, restore focus to the
         // still-visible playback failure menu rather than native video.
-        if (diagnosticsState) return@LaunchedEffect
+        if (diagnosticsState || (failed && recoveryManaged)) return@LaunchedEffect
         withFrameNanos { }
         withFrameNanos { }
         runCatching {
-            if (failed) {
+            if (failed && !recoveryManaged) {
                 // Error menu is created after the native surface. Focus Retry
                 // first. If attachment is delayed, the focusable root keeps
                 // the fallback D-pad routing available.
@@ -783,6 +832,9 @@ fun VlcFallbackScreen(
             .onPreviewKeyEvent { event ->
                 if (!failed && onMarkerLongPress(event)) return@onPreviewKeyEvent true
                 if (leaving.get()) return@onPreviewKeyEvent true
+                // The parent's five-retry Dialog is the sole recovery input
+                // target. The old VLC error menu must never consume remote OK.
+                if (failed && recoveryManaged) return@onPreviewKeyEvent false
                 if (failed && (event.key == Key.Back || event.key == Key.Escape)) {
                     // Keep the Activity/Compose BackHandler usable.
                     return@onPreviewKeyEvent false
@@ -975,7 +1027,7 @@ fun VlcFallbackScreen(
                 },
             )
         }
-        if (failed) {
+        if (failed && !recoveryManaged) {
             Column(
                 Modifier.align(Alignment.Center).padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
