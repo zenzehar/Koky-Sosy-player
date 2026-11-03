@@ -616,7 +616,9 @@ private fun TvDetailTab(label: String, selected: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick), contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 17.sp, color = Color.White)
+            Text(label, fontSize = if (isHandheldPortrait()) 14.sp else 17.sp,
+                color = Color.White, maxLines = 1, softWrap = false,
+                overflow = TextOverflow.Ellipsis)
             if (selected || focused) Box(
                 Modifier.fillMaxWidth().height(if (focused) 3.dp else 2.dp)
                     .background(if (focused) Color(0xFF7AE4F0) else Color(0xFFDB8AD2))
