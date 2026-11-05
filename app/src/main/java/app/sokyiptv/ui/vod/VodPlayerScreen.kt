@@ -575,7 +575,8 @@ fun VodPlayerScreen(
         val endAt = android.os.SystemClock.elapsedRealtime() + duration * 1_000L
         while (isActive && recoveryInFlight && !recoveryStopped && recoveryIssue != null) {
             val left = (endAt - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-            recoveryCheckSeconds = ((left + 999L) / 1_000L).toInt()
+            recoveryCheckSeconds = app.sokyiptv.core.PlaybackRetryClock
+                .remainingSeconds(endAt, android.os.SystemClock.elapsedRealtime())
             if (left == 0L) {
                 if (!usingVlc) media3HadError = true
                 noteConnectionIssue("Stream did not recover within " + duration + " seconds.")
@@ -593,21 +594,34 @@ fun VodPlayerScreen(
         if (recoveryIssue == null || recoveryStopped || recoveryInFlight) return@LaunchedEffect
         if (app.sokyiptv.core.PlaybackRecoveryPolicy.shouldRetry(
                 recoveryAttempts, false, recoveryMaxRetries)) {
-            for (seconds in app.sokyiptv.core.PlaybackRecoveryPolicy
-                .retryDelaySeconds(recoveryRetryGap) downTo 1) {
-                recoveryCountdown = seconds
-                delay(1_000L)
+            val gapMs = app.sokyiptv.core.PlaybackRecoveryPolicy
+                .retryDelaySeconds(recoveryRetryGap) * 1_000L
+            val deadline = android.os.SystemClock.elapsedRealtime() + gapMs
+            while (isActive && recoveryIssue != null && !recoveryStopped && !recoveryInFlight) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                val left = (deadline - now).coerceAtLeast(0L)
+                recoveryCountdown = app.sokyiptv.core.PlaybackRetryClock
+                    .remainingSeconds(deadline, now)
+                if (left == 0L) break
+                delay(minOf(200L, left))
             }
-            performRecoveryRetry()
+            if (recoveryIssue != null && !recoveryStopped && !recoveryInFlight)
+                performRecoveryRetry()
         } else if (app.sokyiptv.core.PlaybackRecoveryPolicy.canAdvanceAfterExhaustion(
                 recoveryAttempts,
                 recoveryEnd == AppSettings.LiveRecoveryEnd.AUTO_SKIP,
                 mediaKey.startsWith("ep:"), followingEpisode != null,
                 recoveryMaxRetries,
             )) {
-            for (seconds in recoverySkipWait downTo 1) {
-                recoverySkipCountdown = seconds
-                delay(1_000L)
+            val deadline = android.os.SystemClock.elapsedRealtime() +
+                recoverySkipWait.coerceIn(5, 60) * 1_000L
+            while (isActive && recoveryIssue != null && !recoveryStopped) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                val left = (deadline - now).coerceAtLeast(0L)
+                recoverySkipCountdown = app.sokyiptv.core.PlaybackRetryClock
+                    .remainingSeconds(deadline, now)
+                if (left == 0L) break
+                delay(minOf(200L, left))
             }
             val next = followingEpisode
             if (next != null && recoveryIssue != null && !recoveryStopped) {
@@ -1166,8 +1180,9 @@ fun VodPlayerScreen(
                 }
             },
             onEnded = { naturalEnd() },
-            suspendPlayback = screenSaverSuspended ||
-                (recoveryStopped && recoveryIssue != null),
+            // "Wait on this episode" means do not advance/reopen the stream,
+            // not freeze the native player when the network recovers by itself.
+            suspendPlayback = screenSaverSuspended,
             recoveryManaged = true,
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
