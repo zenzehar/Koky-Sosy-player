@@ -7,23 +7,27 @@ import org.junit.Test
 
 class PlaybackRecoveryHealthTest {
     private fun tick(previous: Int, delta: Long = 500L, playing: Boolean = true,
-        paused: Boolean = false, suspended: Boolean = false, seeking: Boolean = false
+        paused: Boolean = false, suspended: Boolean = false, seeking: Boolean = false,
+        sinceAdvance: Long = 500L
     ) = PlaybackRecoveryHealth.accumulate(
-        previous, delta, playing, paused, false, suspended, false, seeking)
+        previous, delta, sinceAdvance, playing, paused, false, suspended, false, seeking)
 
-    @Test fun fourRealClockAdvancesClearRecovery() {
-        var samples = 0
-        repeat(3) {
-            samples = tick(samples)
-            assertFalse(PlaybackRecoveryHealth.confirmed(samples))
-        }
+    @Test fun sparseRealClockAdvancesClearRecovery() {
+        var samples = tick(0)
+        assertFalse(PlaybackRecoveryHealth.confirmed(samples))
+        samples = tick(samples, delta = 0L, sinceAdvance = 500L)
+        assertEquals(1, samples) // TV native time updates can be sparse.
+        samples = tick(samples)
+        assertFalse(PlaybackRecoveryHealth.confirmed(samples))
+        samples = tick(samples, delta = 0L, sinceAdvance = 1_000L)
+        assertEquals(2, samples)
         samples = tick(samples)
         assertTrue(PlaybackRecoveryHealth.confirmed(samples))
-        assertEquals(4, tick(samples))
+        assertEquals(3, tick(samples))
     }
 
     @Test fun staleClockAndSeekJumpNeverCountAsRecoveredVideo() {
-        assertEquals(0, tick(3, 0L))
+        assertEquals(0, tick(3, 0L, sinceAdvance = 2_501L))
         assertEquals(0, tick(3, 20_000L))
         assertEquals(0, tick(3, 500L, playing = false))
         assertEquals(0, tick(3, 500L, paused = true))
