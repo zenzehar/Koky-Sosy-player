@@ -434,17 +434,24 @@ fun VlcFallbackScreen(
                 // clock samples (~2 seconds). Do not depend on the separate
                 // health-classifier state; some providers keep BUFFERING set
                 // even while the actual movie has resumed rendering.
-                if (recoveryManaged && player.isPlaying && measuredForwardTick &&
-                    !paused && !ended && !suspendPlayback && !scrubbing &&
-                    !initialSeekPending) {
-                    consecutiveHealthyTicks++
-                    if (consecutiveHealthyTicks >= 4 && !recoveryWasConfirmed) {
+                if (recoveryManaged) {
+                    consecutiveHealthyTicks =
+                        app.sokyiptv.core.PlaybackRecoveryHealth.accumulate(
+                            previous = consecutiveHealthyTicks,
+                            nativeDeltaMs = if (measuredForwardTick) 500L else 0L,
+                            isPlaying = player.isPlaying,
+                            paused = paused, ended = ended,
+                            suspended = suspendPlayback, scrubbing = scrubbing,
+                            initialSeekPending = initialSeekPending,
+                        )
+                    if (app.sokyiptv.core.PlaybackRecoveryHealth.confirmed(
+                            consecutiveHealthyTicks) && !recoveryWasConfirmed) {
                         recoveryWasConfirmed = true
                         failed = false
                         ready = true
                         onPlaybackStable()
                     }
-                } else consecutiveHealthyTicks = 0
+                }
                 val clockAdvancing = lastObservedClockAdvanceAtMs != Long.MIN_VALUE &&
                     tick - lastObservedClockAdvanceAtMs <= 1_300L
                 val nativePlaying = player.isPlaying
