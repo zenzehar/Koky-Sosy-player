@@ -376,6 +376,7 @@ fun VodPlayerScreen(
     var recoveryCountdown by remember(mediaKey) { mutableIntStateOf(0) }
     var recoverySkipCountdown by remember(mediaKey) { mutableIntStateOf(0) }
     var recoveryInFlight by remember(mediaKey) { mutableStateOf(false) }
+    var recoveryCheckSeconds by remember(mediaKey) { mutableIntStateOf(0) }
     var recoveryStopped by remember(mediaKey) { mutableStateOf(false) }
     // Exhausted recovery text auto-fades. The failure remains retryable with OK
     // or tappable video, while Back retains the original player behaviour.
@@ -393,6 +394,7 @@ fun VodPlayerScreen(
         // EndReached and EncounteredError for the same dropped stream.
         if (recoveryIssue == null || recoveryInFlight) {
             recoveryIssue = message
+            recoveryCheckSeconds = 0
             controlsVisible = false // No playback chrome behind reconnecting text.
             recoveryExhaustedHintVisible = true
             recoveryInFlight = false
@@ -401,10 +403,15 @@ fun VodPlayerScreen(
     }
 
     fun noteStablePlayback() {
-        if (recoveryIssue != null && !recoveryStopped) {
+        // Real decoded playback may resume even AFTER the final retry has
+        // reached the manual-hold state. Never pin stale reconnect text to a
+        // playing video just because recoveryStopped was previously true.
+        if (recoveryIssue != null) {
             recoveryIssue = null
+            recoveryStopped = false
             recoveryAttempts = 0
             recoveryInFlight = false
+            recoveryCheckSeconds = 0
             recoveryCountdown = 0
             recoverySkipCountdown = 0
         }
@@ -422,6 +429,7 @@ fun VodPlayerScreen(
         recoverySkipCountdown = 0
         recoveryAttempts++
         recoveryInFlight = true
+        recoveryCheckSeconds = recoveryTimeout
         recoveryRetryEpoch++
         if (!usingVlc) {
             paused = false
@@ -553,6 +561,28 @@ fun VodPlayerScreen(
             reportedDurationMs = dur,
             updatedAtMs = System.currentTimeMillis(),
         )?.let { VodProgressStore.persist(graph, it) }
+    }
+
+    // A native decoder can remain in Buffering without delivering an error.
+    // Measure each real attempt from a monotonic timestamp, and show the
+    // *stream check* timeout separately from the gap between attempts.
+    // This also prevents a permanent "Checking stream..." on attempt N/N.
+    LaunchedEffect(recoveryRetryEpoch, recoveryInFlight, recoveryIssue,
+        recoveryTimeout, usingVlc, recoveryStopped) {
+        if (!recoveryInFlight || recoveryIssue == null || recoveryStopped)
+            return@LaunchedEffect
+        val duration = recoveryTimeout.coerceIn(10, 60)
+        val endAt = android.os.SystemClock.elapsedRealtime() + duration * 1_000L
+        while (isActive && recoveryInFlight && !recoveryStopped && recoveryIssue != null) {
+            val left = (endAt - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            recoveryCheckSeconds = ((left + 999L) / 1_000L).toInt()
+            if (left == 0L) {
+                if (!usingVlc) media3HadError = true
+                noteConnectionIssue("Stream did not recover within " + duration + " seconds.")
+                break
+            }
+            delay(minOf(500L, left))
+        }
     }
 
     LaunchedEffect(
@@ -1678,10 +1708,19 @@ fun VodPlayerScreen(
         attempts = recoveryAttempts,
         maxRetries = recoveryMaxRetries,
         retryCountdown = recoveryCountdown,
+        checkCountdown = recoveryCheckSeconds,
         skipCountdown = recoverySkipCountdown,
         retrying = recoveryInFlight,
         stopped = recoveryStopped,
         showExhaustedHint = recoveryExhaustedHintVisible,
+        onRetry = {
+            if (recoveryStopped && recoveryIssue != null)
+                performRecoveryRetry(manual = true)
+        },
+        onExit = {
+            recoveryStopped = true
+            onBack()
+        },
     )
 
     if (!usingVlc && markerDialogVisible && !seriesGroup.isNullOrBlank() &&
