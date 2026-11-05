@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.border
-import androidx.compose.ui.focus.focusGroup
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
