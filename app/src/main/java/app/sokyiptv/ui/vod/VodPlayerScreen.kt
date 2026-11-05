@@ -1184,6 +1184,7 @@ fun VodPlayerScreen(
             // not freeze the native player when the network recovers by itself.
             suspendPlayback = screenSaverSuspended,
             recoveryManaged = true,
+            recoveryOverlayActive = recoveryIssue != null,
             noResponseSeconds = recoveryTimeout,
             onConnectionIssue = ::noteConnectionIssue,
             onPlaybackStable = ::noteStablePlayback,
