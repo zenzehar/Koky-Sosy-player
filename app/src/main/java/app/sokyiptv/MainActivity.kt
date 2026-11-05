@@ -26,6 +26,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -850,27 +858,48 @@ private fun SokyIptvApp(isTelevision: Boolean) {
         // content during an outage. Make this explicit on EVERY screen and
         // offer a retry without discarding saved login details.
         (startupLogin as? StartupLoginGate.Offline)?.let { offline ->
-            Row(
+            var retryFocused by remember { mutableStateOf(false) }
+            // Place the only action at the horizontal CENTER of the TV, not
+            // far off to its right. A normal Up direction from central
+            // playback/navigation now points towards a real focusable Button.
+            // No focus requests are made when the banner appears: user focus
+            // stays in the player until they explicitly navigate to Retry.
+            Column(
                 Modifier.align(Alignment.TopCenter)
                     .padding(horizontal = 18.dp, vertical = 12.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xEE362A13))
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xED302719))
+                    .focusGroup()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
                     offline.warning,
                     color = Color(0xFFFFE9B6),
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
-                Spacer(Modifier.width(14.dp))
-                Text(
-                    "Retry connection",
-                    color = Color.White,
-                    modifier = Modifier.clickable { loginRetryEpoch++ }
-                        .padding(6.dp),
-                )
+                Spacer(Modifier.size(4.dp))
+                Button(
+                    onClick = { loginRetryEpoch++ },
+                    modifier = Modifier
+                        .onFocusChanged { retryFocused = it.isFocused }
+                        .border(
+                            if (retryFocused) 2.dp else 0.dp,
+                            Color(0xFFE9F4FF),
+                            RoundedCornerShape(8.dp),
+                        ),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (retryFocused)
+                            Color(0xFF4B6FAC) else Color(0xFF3E516F)),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text("Retry connection", maxLines = 1)
+                }
             }
         }
 

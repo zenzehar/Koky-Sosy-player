@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
@@ -111,6 +112,7 @@ fun VlcFallbackScreen(
     suspendPlayback: Boolean = false,
     /** Parent owns the five-count retry dialog, so do not show the legacy menu. */
     recoveryManaged: Boolean = false,
+    recoveryOverlayActive: Boolean = false,
     noResponseSeconds: Int = 20,
     onConnectionIssue: (String) -> Unit = {},
     onPlaybackStable: () -> Unit = {},
@@ -193,6 +195,10 @@ fun VlcFallbackScreen(
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
     var initialSeekPending by remember(mediaKey) { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
+    // The poll coroutine is keyed to the VLC player, not recomposition.
+    // Always inspect the CURRENT parent recovery status when deciding whether
+    // to auto-hide transport chrome after a successful reconnect.
+    val recoveringNow = rememberUpdatedState(recoveryOverlayActive)
     var netflixSeeking by remember(mediaKey) { mutableStateOf(false) }
     var interaction by remember { mutableIntStateOf(0) }
     val rootFocus = remember { FocusRequester() }
@@ -319,7 +325,11 @@ fun VlcFallbackScreen(
                     // an alarming error while it is still opening/buffering.
                     PlaybackDiagnostics.event(context, "VLC_ERROR", persistNow = true)
                     val epoch = ++startupErrorEpoch
-                    delay(7_000L)
+                    // The legacy 7s grace period made the advertised 3s
+                    // retry gap appear delayed on TV. Managed recovery has
+                    // its own stream timeout and still ignores a transient
+                    // error when Playing arrives before this short debounce.
+                    delay(if (recoveryManaged) 650L else 7_000L)
                     if (epoch == startupErrorEpoch && !leaving.get() && !nativeReleased.get()) {
                         failed = true
                         ready = false
@@ -409,6 +419,8 @@ fun VlcFallbackScreen(
         var previousHealth = VlcPlaybackHealth.State.STARTING
         var previousNativeClockMs = -1L
         var lastObservedClockAdvanceAtMs = Long.MIN_VALUE
+        var consecutiveHealthyTicks = 0
+        var recoveryWasConfirmed = false
         while (isActive && !leaving.get() && !nativeReleased.get()) {
             runCatching {
                 if (leaving.get() || nativeReleased.get()) return@runCatching
@@ -420,11 +432,43 @@ fun VlcFallbackScreen(
                 // isPlaying alone can stay true even while no frames/clock are advancing.
                 // A new stable ~500 ms clock sample confirms forward progress; a seek jump
                 // or rewind itself never starts the five-second chrome hide timer.
-                if (previousNativeClockMs >= 0L &&
-                    nativeClockMs - previousNativeClockMs in 100L..1_600L) {
-                    lastObservedClockAdvanceAtMs = tick
-                }
+                val measuredDeltaMs = if (previousNativeClockMs >= 0L)
+                    nativeClockMs - previousNativeClockMs else -1L
+                val measuredForwardTick = measuredDeltaMs in 100L..1_600L
+                if (measuredForwardTick) lastObservedClockAdvanceAtMs = tick
                 previousNativeClockMs = nativeClockMs
+                // Confirm real video progress from four consecutive native
+                // clock samples (~2 seconds). Do not depend on the separate
+                // health-classifier state; some providers keep BUFFERING set
+                // even while the actual movie has resumed rendering.
+                if (recoveryManaged) {
+                    consecutiveHealthyTicks =
+                        app.sokyiptv.core.PlaybackRecoveryHealth.accumulate(
+                            previous = consecutiveHealthyTicks,
+                            nativeDeltaMs = measuredDeltaMs,
+                            timeSinceLastAdvanceMs =
+                                if (lastObservedClockAdvanceAtMs == Long.MIN_VALUE)
+                                    Long.MAX_VALUE
+                                else (tick - lastObservedClockAdvanceAtMs).coerceAtLeast(0L),
+                            isPlaying = player.isPlaying,
+                            paused = paused, ended = ended,
+                            suspended = suspendPlayback, scrubbing = scrubbing,
+                            initialSeekPending = initialSeekPending,
+                        )
+                    // Re-arm after any genuine stall. Otherwise the first
+                    // healthy interval at initial player start would suppress
+                    // a later recovery callback on the same VLC instance.
+                    if (!app.sokyiptv.core.PlaybackRecoveryHealth.confirmed(
+                            consecutiveHealthyTicks)) recoveryWasConfirmed = false
+                    if (app.sokyiptv.core.PlaybackRecoveryHealth.confirmed(
+                            consecutiveHealthyTicks) && !recoveryWasConfirmed) {
+                        recoveryWasConfirmed = true
+                        failed = false
+                        ready = true
+                        if (recoveringNow.value) controlsVisible = false
+                        onPlaybackStable()
+                    }
+                }
                 val clockAdvancing = lastObservedClockAdvanceAtMs != Long.MIN_VALUE &&
                     tick - lastObservedClockAdvanceAtMs <= 1_300L
                 val nativePlaying = player.isPlaying
@@ -600,8 +644,8 @@ fun VlcFallbackScreen(
             controlsVisible = false
         }
     }
-    // Report stable decoded progress, not just the native Playing event: some
-    // providers say Playing and then immediately disconnect again.
+    // Secondary stable-clock check, retained for streams whose time events
+    // arrive irregularly. Main verification runs in the 500ms native poll.
     LaunchedEffect(player, ready, failed, suspendPlayback, recoveryManaged) {
         if (!recoveryManaged || !ready || failed || suspendPlayback) return@LaunchedEffect
         val beginning = runCatching { player.time }.getOrDefault(0L).coerceAtLeast(0L)
@@ -778,15 +822,9 @@ fun VlcFallbackScreen(
     }
     // Focus only when overlay visibility changes, never after a D-pad move.
     // Wait until the real focus targets have attached before requesting them.
-    // The modal and its focusable buttons are gone. Once automatic retries
-    // finish, focus the existing video root so OK can retry and Back can exit.
-    // Ordinary playback focus routes remain entirely unchanged.
-    LaunchedEffect(failed, recoveryManaged, manualRecoveryAvailable) {
-        if (failed && recoveryManaged && manualRecoveryAvailable) {
-            delay(50L)
-            runCatching { rootFocus.requestFocus() }
-        }
-    }
+    // After exhaustion the parent mounts two inline TV-focusable actions
+    // (Retry and Exit). Do NOT pull focus back to the video root: doing so
+    // makes the actions unreachable by D-pad on some TVs.
     LaunchedEffect(controlsVisible, netflix, skipPromptVisible, failed,
         diagnosticsState, recoveryManaged) {
         // Diagnostics is itself a modal. When it closes, restore focus to the
