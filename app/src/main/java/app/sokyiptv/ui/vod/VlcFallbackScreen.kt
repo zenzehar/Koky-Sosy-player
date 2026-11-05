@@ -449,6 +449,11 @@ fun VlcFallbackScreen(
                             suspended = suspendPlayback, scrubbing = scrubbing,
                             initialSeekPending = initialSeekPending,
                         )
+                    // Re-arm after any genuine stall. Otherwise the first
+                    // healthy interval at initial player start would suppress
+                    // a later recovery callback on the same VLC instance.
+                    if (!app.sokyiptv.core.PlaybackRecoveryHealth.confirmed(
+                            consecutiveHealthyTicks)) recoveryWasConfirmed = false
                     if (app.sokyiptv.core.PlaybackRecoveryHealth.confirmed(
                             consecutiveHealthyTicks) && !recoveryWasConfirmed) {
                         recoveryWasConfirmed = true
