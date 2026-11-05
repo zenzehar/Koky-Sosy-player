@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
@@ -111,6 +112,7 @@ fun VlcFallbackScreen(
     suspendPlayback: Boolean = false,
     /** Parent owns the five-count retry dialog, so do not show the legacy menu. */
     recoveryManaged: Boolean = false,
+    recoveryOverlayActive: Boolean = false,
     noResponseSeconds: Int = 20,
     onConnectionIssue: (String) -> Unit = {},
     onPlaybackStable: () -> Unit = {},
@@ -193,6 +195,10 @@ fun VlcFallbackScreen(
     val timelineScale = AdaptiveVodTimeline.scale(durationMs, positionMs)
     var initialSeekPending by remember(mediaKey) { mutableStateOf(initialPositionMs > 0L) }
     var controlsVisible by remember { mutableStateOf(true) }
+    // The poll coroutine is keyed to the VLC player, not recomposition.
+    // Always inspect the CURRENT parent recovery status when deciding whether
+    // to auto-hide transport chrome after a successful reconnect.
+    val recoveringNow = rememberUpdatedState(recoveryOverlayActive)
     var netflixSeeking by remember(mediaKey) { mutableStateOf(false) }
     var interaction by remember { mutableIntStateOf(0) }
     val rootFocus = remember { FocusRequester() }
@@ -459,6 +465,7 @@ fun VlcFallbackScreen(
                         recoveryWasConfirmed = true
                         failed = false
                         ready = true
+                        if (recoveringNow.value) controlsVisible = false
                         onPlaybackStable()
                     }
                 }
