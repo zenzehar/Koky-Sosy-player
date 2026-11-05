@@ -426,8 +426,9 @@ fun VlcFallbackScreen(
                 // isPlaying alone can stay true even while no frames/clock are advancing.
                 // A new stable ~500 ms clock sample confirms forward progress; a seek jump
                 // or rewind itself never starts the five-second chrome hide timer.
-                val measuredForwardTick = previousNativeClockMs >= 0L &&
-                    nativeClockMs - previousNativeClockMs in 100L..1_600L
+                val measuredDeltaMs = if (previousNativeClockMs >= 0L)
+                    nativeClockMs - previousNativeClockMs else -1L
+                val measuredForwardTick = measuredDeltaMs in 100L..1_600L
                 if (measuredForwardTick) lastObservedClockAdvanceAtMs = tick
                 previousNativeClockMs = nativeClockMs
                 // Confirm real video progress from four consecutive native
@@ -438,7 +439,11 @@ fun VlcFallbackScreen(
                     consecutiveHealthyTicks =
                         app.sokyiptv.core.PlaybackRecoveryHealth.accumulate(
                             previous = consecutiveHealthyTicks,
-                            nativeDeltaMs = if (measuredForwardTick) 500L else 0L,
+                            nativeDeltaMs = measuredDeltaMs,
+                            timeSinceLastAdvanceMs =
+                                if (lastObservedClockAdvanceAtMs == Long.MIN_VALUE)
+                                    Long.MAX_VALUE
+                                else (tick - lastObservedClockAdvanceAtMs).coerceAtLeast(0L),
                             isPlaying = player.isPlaying,
                             paused = paused, ended = ended,
                             suspended = suspendPlayback, scrubbing = scrubbing,
