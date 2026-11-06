@@ -192,7 +192,10 @@ private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> U
 
 /** A titled horizontal shelf of movie poster cards. Shared by the home and the detail's "more like this". */
 @Composable
-internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Movie) -> Unit) {
+internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Movie) -> Unit,
+    progressItems: List<VodViewModel.ResumeItem> = emptyList(),
+) {
+    val progressByKey = remember(progressItems) { progressItems.associateBy { it.logicalKey } }
     val context = LocalContext.current
     val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
     val scope = rememberCoroutineScope()
@@ -209,6 +212,12 @@ internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Mo
                     subtitle = movie.year?.toString(),
                     rating = movie.rating,
                     onClick = { onOpenMovie(movie) },
+                    progress = progressByKey[BrowseProgressKeys.movie(
+                        movie.sourceId, movie.displayTitle, movie.year)]
+                        ?.let { ResumeCardTime.fraction(it.positionMs, it.durationMs) },
+                    resumeLabel = progressByKey[BrowseProgressKeys.movie(
+                        movie.sourceId, movie.displayTitle, movie.year)]
+                        ?.let { ResumeCardTime.format(it.positionMs, it.durationMs) },
                     favourite = movie.favourite,
                     onSetFavourite = { desired ->
                         scope.launch { catalog.setMovieFavourite(movie.id, desired) }
