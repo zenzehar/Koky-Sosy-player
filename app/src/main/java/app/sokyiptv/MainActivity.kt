@@ -835,8 +835,8 @@ private fun SokyIptvApp(isTelevision: Boolean) {
                     userAgent = arg("ua").ifEmpty { "SokyIPTV/0.1 (Android)" },
                     onBack = { navController.popBackStack() },
                     onEpisodes = {
-                        val episodeId = arg("key").takeIf { it.startsWith("ep:") }
-                            ?.removePrefix("ep:")?.toLongOrNull()
+                        val episodeId = app.sokyiptv.ui.vod.EpisodeDetailsTarget
+                            .episodeId(arg("key"))
                         if (episodeId == null) {
                             navController.popBackStack()
                         } else {
