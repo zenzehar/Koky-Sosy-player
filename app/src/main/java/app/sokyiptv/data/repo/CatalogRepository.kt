@@ -370,11 +370,13 @@ class CatalogRepository(
 
     /** Bounded batched ID lookups for the recent-watch feed; no N+1 Room queries. */
     suspend fun moviesByIds(ids: List<Long>): List<Movie> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) emptyList() else movieDao.byIds(ids)
+        // SQLite on older Android TV boxes limits query placeholders. Chunk
+        // saved-progress lookups without affecting the fast paged browse SQL.
+        ids.distinct().chunked(400).flatMap { movieDao.byIds(it) }
     }
 
     suspend fun episodesByIds(ids: List<Long>): List<Episode> = withContext(Dispatchers.IO) {
-        if (ids.isEmpty()) emptyList() else episodeDao.byIds(ids)
+        ids.distinct().chunked(400).flatMap { episodeDao.byIds(it) }
     }
 
     /** Restrict movie reset scans to one provider/year before matching display titles. */
@@ -386,7 +388,7 @@ class CatalogRepository(
         withContext(Dispatchers.IO) {
             episodes.groupBy { it.sourceId }.flatMap { (sourceId, sameSource) ->
                 seriesDao.bySourceSeriesIds(
-                    sourceId, sameSource.map { it.seriesId }.distinct(),
+                    sourceId, sameSource.map { it.seriesId }.distinct().take(400),
                 )
             }.associateBy { it.sourceId to it.seriesId }
         }
