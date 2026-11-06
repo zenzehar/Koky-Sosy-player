@@ -20,6 +20,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import app.sokyiptv.core.ServiceLocator
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +59,11 @@ fun PersonScreen(
     viewModel: VodViewModel = viewModel(),
 ) {
     // null = still loading; empty = nothing matched. Keyed on name so a hop to another person reloads.
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
+    val progressItems by viewModel.continueWatching.collectAsState()
+    val progressByKey = remember(progressItems) { progressItems.associateBy { it.logicalKey } }
     var titles by remember(name) { mutableStateOf<List<PersonTitle>?>(null) }
     LaunchedEffect(name) { titles = viewModel.titlesWithPerson(name) }
     BackHandler { onBack() }
@@ -97,6 +107,16 @@ fun PersonScreen(
                                     subtitle = item.movie.year?.toString(),
                                     rating = item.movie.rating,
                                     onClick = { onOpenMovie(item.movie) },
+                                    favourite = item.movie.favourite,
+                                    onSetFavourite = { desired ->
+                                        scope.launch { catalog.setMovieFavourite(item.movie.id, desired) }
+                                    },
+                                    progress = progressByKey[BrowseProgressKeys.movie(
+                                        item.movie.sourceId, item.movie.displayTitle, item.movie.year)]
+                                        ?.let { ResumeCardTime.fraction(it.positionMs, it.durationMs) },
+                                    resumeLabel = progressByKey[BrowseProgressKeys.movie(
+                                        item.movie.sourceId, item.movie.displayTitle, item.movie.year)]
+                                        ?.let { ResumeCardTime.format(it.positionMs, it.durationMs) },
                                 )
                                 is PersonTitle.SeriesItem -> PosterCard(
                                     title = item.series.displayTitle,
@@ -104,6 +124,16 @@ fun PersonScreen(
                                     subtitle = item.series.year?.toString(),
                                     rating = item.series.rating,
                                     onClick = { onOpenSeries(item.series) },
+                                    favourite = item.series.favourite,
+                                    onSetFavourite = { desired ->
+                                        scope.launch { catalog.setSeriesFavourite(item.series.id, desired) }
+                                    },
+                                    progress = progressByKey[BrowseProgressKeys.series(
+                                        item.series.sourceId, item.series.seriesId)]
+                                        ?.let { ResumeCardTime.fraction(it.positionMs, it.durationMs) },
+                                    resumeLabel = progressByKey[BrowseProgressKeys.series(
+                                        item.series.sourceId, item.series.seriesId)]
+                                        ?.let { ResumeCardTime.format(it.positionMs, it.durationMs) },
                                 )
                             }
                         }

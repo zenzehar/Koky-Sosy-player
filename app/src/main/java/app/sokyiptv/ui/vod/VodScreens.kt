@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +51,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import app.sokyiptv.core.ServiceLocator
+import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -143,6 +149,10 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
                 rating = group.primary.rating,
                 qualityBadge = badge,
                 onClick = { onOpenMovie(group.primary) },
+                favourite = group.primary.favourite,
+                onSetFavourite = { desired ->
+                    viewModel.toggleMovieFavourite(group.primary.copy(favourite = !desired))
+                },
             )
         }
     }
@@ -151,6 +161,9 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
 /** One category's shows as a poster grid. */
 @Composable
 private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
     if (series.isEmpty()) { LoadingVod(stringResource(R.string.vod_loading_shows)); return }
     LazyVerticalGrid(
         columns = GridCells.Fixed(VOD_COLUMNS),
@@ -166,6 +179,10 @@ private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> U
                 subtitle = item.year?.toString(),
                 rating = item.rating,
                 onClick = { onOpenSeries(item) },
+                favourite = item.favourite,
+                onSetFavourite = { desired ->
+                    scope.launch { catalog.setSeriesFavourite(item.id, desired) }
+                },
             )
         }
     }
@@ -175,7 +192,13 @@ private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> U
 
 /** A titled horizontal shelf of movie poster cards. Shared by the home and the detail's "more like this". */
 @Composable
-internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Movie) -> Unit) {
+internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Movie) -> Unit,
+    progressItems: List<VodViewModel.ResumeItem> = emptyList(),
+) {
+    val progressByKey = remember(progressItems) { progressItems.associateBy { it.logicalKey } }
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(title)
         LazyRow(
@@ -189,6 +212,16 @@ internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Mo
                     subtitle = movie.year?.toString(),
                     rating = movie.rating,
                     onClick = { onOpenMovie(movie) },
+                    progress = progressByKey[BrowseProgressKeys.movie(
+                        movie.sourceId, movie.displayTitle, movie.year)]
+                        ?.let { ResumeCardTime.fraction(it.positionMs, it.durationMs) },
+                    resumeLabel = progressByKey[BrowseProgressKeys.movie(
+                        movie.sourceId, movie.displayTitle, movie.year)]
+                        ?.let { ResumeCardTime.format(it.positionMs, it.durationMs) },
+                    favourite = movie.favourite,
+                    onSetFavourite = { desired ->
+                        scope.launch { catalog.setMovieFavourite(movie.id, desired) }
+                    },
                 )
             }
         }
@@ -198,6 +231,9 @@ internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Mo
 /** A titled horizontal shelf of series poster cards. */
 @Composable
 internal fun SeriesPosterRow(title: String, series: List<Series>, onOpenSeries: (Series) -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(title)
         LazyRow(
@@ -211,6 +247,10 @@ internal fun SeriesPosterRow(title: String, series: List<Series>, onOpenSeries: 
                     subtitle = item.year?.toString(),
                     rating = item.rating,
                     onClick = { onOpenSeries(item) },
+                    favourite = item.favourite,
+                    onSetFavourite = { desired ->
+                        scope.launch { catalog.setSeriesFavourite(item.id, desired) }
+                    },
                 )
             }
         }
@@ -246,7 +286,13 @@ internal fun PosterCard(
     rating: Double? = null,
     qualityBadge: String? = null,
     progress: Float? = null,
+    resumeLabel: String? = null,
+    favourite: Boolean? = null,
+    onSetFavourite: ((Boolean) -> Unit)? = null,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var favouriteSelected by remember { mutableStateOf(favourite ?: false) }
+    LaunchedEffect(favourite) { if (favourite != null) favouriteSelected = favourite }
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
     Column(
@@ -255,7 +301,7 @@ internal fun PosterCard(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .tvRemoteActions(onClick = onClick, onLongPress = { menuOpen = true })
             .padding(4.dp),
     ) {
         Box(
@@ -281,12 +327,37 @@ internal fun PosterCard(
                     modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
                 )
             }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Open title") }, onClick = {
+                    menuOpen = false; onClick()
+                })
+                if (onSetFavourite != null) {
+                    DropdownMenuItem(
+                        text = { Text(if (favouriteSelected)
+                            "Remove from favourites" else "Add to favourites") },
+                        onClick = {
+                            menuOpen = false
+                            favouriteSelected = !favouriteSelected
+                            onSetFavourite(favouriteSelected)
+                        },
+                    )
+                }
+            }
             qualityBadge?.let {
                 Badge(
                     text = it,
                     highlight = true,
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
                 )
+            }
+            resumeLabel?.let { label ->
+                Text(label, color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = .78f))
+                        .padding(horizontal = 5.dp, vertical = 6.dp))
             }
             progress?.let {
                 LinearProgressIndicator(

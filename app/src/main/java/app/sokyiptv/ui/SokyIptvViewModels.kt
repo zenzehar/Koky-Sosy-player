@@ -12,6 +12,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 
 import app.sokyiptv.player.ResumeProgressPresentation
+import app.sokyiptv.ui.vod.BrowseProgressKeys
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -813,7 +814,12 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(ExperimentalCoroutinesApi::class)
     val continueWatching: StateFlow<List<ResumeItem>> =
         settings.activeProfileId
-            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 300) }
+            // Progress badges must also cover older titles outside the
+            // Continue Watching shelf (All, categories and Favourites).
+            // Read saved playback positions only, not the giant VOD catalogue.
+            .flatMapLatest { pid ->
+                graph.playbackPositions.observeRecent(pid, limit = Int.MAX_VALUE)
+            }
             .mapLatest { positions ->
                 if (positions.isEmpty()) return@mapLatest emptyList()
                 val plan = ResumeLookupPlan.from(positions.map { it.mediaKey })
@@ -839,7 +845,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                                 ResumeItem(
                                     position.mediaKey, movie.displayTitle, movie.posterUrl,
                                     movie.streamUrl, presentation.fraction,
-                                    logicalKey = "movie:${movie.sourceId}:${movie.displayTitle.trim().lowercase()}:${movie.year ?: 0}",
+                                    logicalKey = BrowseProgressKeys.movie(
+                                        movie.sourceId, movie.displayTitle, movie.year),
                                     finished = position.isFinished, sourceId = movie.sourceId,
                                     positionMs = position.positionMillis,
                                     durationMs = presentation.durationMs,
@@ -856,7 +863,8 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
                                     parent?.displayTitle ?: episode.title.ifBlank { "Season ${episode.season}" },
                                     parent?.posterUrl ?: episode.stillUrl,
                                     episode.streamUrl, presentation.fraction,
-                                    logicalKey = "series:${episode.sourceId}:${episode.seriesId}",
+                                    logicalKey = BrowseProgressKeys.series(
+                                        episode.sourceId, episode.seriesId),
                                     finished = position.isFinished, sourceId = episode.sourceId,
                                     seriesProviderId = episode.seriesId,
                                     episodeLabel = "S%02dE%02d".format(episode.season, episode.episodeNumber),

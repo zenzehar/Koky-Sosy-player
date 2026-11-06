@@ -100,6 +100,7 @@ fun VlcFallbackScreen(
     userAgent: String,
     initialPositionMs: Long,
     onBack: () -> Unit,
+    onEpisodes: () -> Unit = onBack,
     onTryMedia3: () -> Unit = {},
     onProgress: (Long, Long) -> Unit = { _, _ -> },
     onEnded: () -> Unit = {},
@@ -1143,7 +1144,7 @@ fun VlcFallbackScreen(
                     onSeekingChanged = { netflixSeeking = it; interaction++ },
                     onActivity = { interaction++ },
                     onBack = ::leaveVideo, onToggle = ::togglePlayback,
-                    onSeek = ::seekTo, onEpisodes = ::leaveVideo,
+                    onSeek = ::seekTo, onEpisodes = onEpisodes,
                     onTracks = { trackPanelVisible = true; showControls() },
                     onNext = onNextEpisodeClick,
                 )

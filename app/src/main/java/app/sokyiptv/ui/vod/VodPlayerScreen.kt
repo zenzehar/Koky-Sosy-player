@@ -151,6 +151,8 @@ fun VodPlayerScreen(
     title: String,
     userAgent: String,
     onBack: () -> Unit,
+    /** Opens the parent series' episode detail page, not the VOD category list. */
+    onEpisodes: () -> Unit = onBack,
     onNextEpisode: (app.sokyiptv.data.model.Episode) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -1174,6 +1176,7 @@ fun VodPlayerScreen(
                     scope.launch { savePosition(); onNextEpisode(target) }
                 }
             },
+            onEpisodes = { scope.launch { savePosition(); onEpisodes() } },
             onNextEpisodeClick = {
                 followingEpisode?.let { target ->
                     scope.launch { savePosition(); onNextEpisode(target) }
@@ -1402,7 +1405,8 @@ fun VodPlayerScreen(
                         onActivity = { interaction++ },
                         onBack = onBack,
                         onToggle = { setPlaybackIntent(paused) },
-                        onSeek = ::seekAt, onEpisodes = onBack,
+                        onSeek = ::seekAt,
+                        onEpisodes = { scope.launch { savePosition(); onEpisodes() } },
                         onTracks = { vodPanel = VodPanel.AUDIO; reveal() },
                         onNext = {
                             followingEpisode?.let { target ->

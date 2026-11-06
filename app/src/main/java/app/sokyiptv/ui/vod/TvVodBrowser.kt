@@ -30,6 +30,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -213,6 +216,36 @@ internal fun TvVodBrowser(
                 (if (isSeries) it.seriesProviderId != null else it.seriesProviderId == null)
         }
     }
+    // One profile-scoped progress map for every category. No per-focus I/O.
+    val resumeByKey = remember(recentResumes) { recentResumes.associateBy { it.logicalKey } }
+    fun movieProgress(item: Movie): VodViewModel.ResumeItem? =
+        resumeByKey[BrowseProgressKeys.movie(item.sourceId, item.displayTitle, item.year)]
+    fun seriesProgress(item: Series): VodViewModel.ResumeItem? =
+        resumeByKey[BrowseProgressKeys.series(item.sourceId, item.seriesId)]
+
+    suspend fun resumeFavourite(item: VodViewModel.ResumeItem): Boolean? =
+        if (item.seriesProviderId != null) {
+            catalog.seriesByProviderId(item.sourceId, item.seriesProviderId)?.favourite
+        } else {
+            item.mediaKey.removePrefix("movie:").toLongOrNull()
+                ?.let { catalog.movie(it)?.favourite }
+        }
+
+    suspend fun toggleResumeFavourite(item: VodViewModel.ResumeItem): Boolean? {
+        val current = resumeFavourite(item) ?: return null
+        if (item.seriesProviderId != null) {
+            val series = catalog.seriesByProviderId(item.sourceId, item.seriesProviderId)
+                ?: return null
+            catalog.setSeriesFavourite(series.id, !current)
+        } else {
+            val movieId = item.mediaKey.removePrefix("movie:").toLongOrNull()
+                ?: return null
+            catalog.setMovieFavourite(movieId, !current)
+        }
+        favouriteMutationRevision++
+        return !current
+    }
+
     val categories = remember(categoriesState, categoryQuery) {
         categoriesState.filter {
             if (categoryQuery.isBlank()) true
@@ -435,7 +468,9 @@ internal fun TvVodBrowser(
                                     }
                                 }
                             },
-                            onReset = { resetTarget = item })
+                            onReset = { resetTarget = item },
+                            onFavouriteStatus = { resumeFavourite(item) },
+                            onToggleFavourite = { toggleResumeFavourite(item) })
                     }
                 }
             } else {
@@ -451,6 +486,7 @@ internal fun TvVodBrowser(
                                 seriesPrefetch.onFocusChanged(item, hasFocus)
                             },
                             favourite = item.favourite,
+                            resumeProgress = seriesProgress(item),
                             onToggleFavourite = { toggleSeries(item) },
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
@@ -465,6 +501,7 @@ internal fun TvVodBrowser(
                             onClick = { onOpenMovie(item) },
                             onPlay = { onResume("movie:" + item.id, item.streamUrl, item.displayTitle) },
                             favourite = item.favourite,
+                            resumeProgress = movieProgress(item),
                             onToggleFavourite = { toggleMovie(item) },
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
@@ -597,6 +634,8 @@ internal fun TvVodBrowser(
                                     }
                                 },
                                 onReset = { resetTarget = item },
+                                onFavouriteStatus = { resumeFavourite(item) },
+                                onToggleFavourite = { toggleResumeFavourite(item) },
                             )
                         }
                     }
@@ -617,6 +656,7 @@ internal fun TvVodBrowser(
                                 seriesPrefetch.onFocusChanged(item, hasFocus)
                             },
                             favourite = item.favourite,
+                            resumeProgress = seriesProgress(item),
                             onToggleFavourite = { toggleSeries(item) },
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
@@ -634,6 +674,7 @@ internal fun TvVodBrowser(
                             onClick = { onOpenMovie(item) },
                             onPlay = { onResume("movie:${item.id}", item.streamUrl, item.displayTitle) },
                             favourite = item.favourite,
+                            resumeProgress = movieProgress(item),
                             onToggleFavourite = { toggleMovie(item) },
                             onMove = if (isFavourites && sortMode == BrowseSort.CUSTOM &&
                                          titleQuery.isBlank())
@@ -719,6 +760,7 @@ private fun TvPoster(
     onPlay: (() -> Unit)? = null,
     onFocusedState: (Boolean) -> Unit = {},
     favourite: Boolean = false,
+    resumeProgress: VodViewModel.ResumeItem? = null,
     onToggleFavourite: (() -> Unit)? = null,
     onMove: ((Int) -> Unit)? = null,
     grabbed: Boolean = false,
@@ -762,6 +804,45 @@ private fun TvPoster(
         ) {
             AsyncImage(model = poster, contentDescription = title,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            resumeProgress?.let { saved ->
+                val fraction = ResumeCardTime.fraction(saved.positionMs, saved.durationMs)
+                Box(Modifier.fillMaxWidth().align(Alignment.BottomCenter)
+                    .background(Brush.verticalGradient(listOf(
+                        Color.Transparent, Color.Black.copy(alpha = .95f))))
+                    .padding(horizontal = 6.dp, vertical = 9.dp)) {
+                    Text(ResumeCardTime.format(saved.positionMs, saved.durationMs),
+                        color = Color.White, fontSize = 10.sp, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                }
+                fraction?.let { progress ->
+                    Box(Modifier.fillMaxWidth().height(4.dp)
+                        .align(Alignment.BottomCenter).background(Color.DarkGray)) {
+                        Box(Modifier.fillMaxWidth(progress).height(4.dp)
+                            .background(teal))
+                    }
+                }
+            }
+            if (grabbed) {
+                // A decorative grab affordance; never a new focus target.
+                Column(Modifier.align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = .78f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Icon(Icons.Default.KeyboardArrowLeft, contentDescription = null,
+                            tint = Color(0xFFFFD466), modifier = Modifier.size(23.dp))
+                        Icon(Icons.Default.PanTool, contentDescription = null,
+                            tint = Color.White, modifier = Modifier.size(26.dp))
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null,
+                            tint = Color(0xFFFFD466), modifier = Modifier.size(23.dp))
+                    }
+                    Text("GRABBED", color = Color(0xFFFFD466), fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold)
+                    Text("OK to drop", color = Color.White, fontSize = 10.sp)
+                }
+            }
             // Avoid inserting a second focus target when the poster acquires focus.
             // Long-press OK or the Menu key still opens title options.
             if (isHandheldPortrait()) IconButton(
@@ -796,7 +877,7 @@ private fun TvPoster(
                 )
             }
         }
-        if (grabbed) Text("MOVING · Arrows to move · OK to drop",
+        if (grabbed) Text("MOVE  ← ↑ ↓ →  ·  OK to drop",
             color = Color(0xFFFFD466), fontSize = 10.sp, maxLines = 1)
         Text(title, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
             minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -810,9 +891,16 @@ private fun ResumePoster(
     onPlay: () -> Unit,
     onOpenTitle: () -> Unit,
     onReset: () -> Unit,
+    onFavouriteStatus: suspend () -> Boolean? = { null },
+    onToggleFavourite: suspend () -> Boolean? = { null },
 ) {
+    val scope = rememberCoroutineScope()
+    var favourite by remember(item.logicalKey) { mutableStateOf<Boolean?>(null) }
     var focused by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(menuOpen) {
+        if (menuOpen) favourite = onFavouriteStatus()
+    }
     // The value displayed must be derived from the exact saved resume timestamp.
     // A missing provider total means "unknown duration", never 0 minutes watched.
     val verifiedProgress = ResumeCardTime.fraction(item.positionMs, item.durationMs)
@@ -852,6 +940,14 @@ private fun ResumePoster(
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(text = { Text("Resume") }, onClick = { menuOpen = false; onPlay() })
                 DropdownMenuItem(text = { Text("Open title") }, onClick = { menuOpen = false; onOpenTitle() })
+                DropdownMenuItem(
+                    text = { Text(if (favourite == true)
+                        "Remove from favourites" else "Add to favourites") },
+                    onClick = {
+                        menuOpen = false
+                        scope.launch { favourite = onToggleFavourite() }
+                    },
+                )
                 DropdownMenuItem(text = { Text("Reset progress") }, onClick = { menuOpen = false; onReset() })
             }
         }
