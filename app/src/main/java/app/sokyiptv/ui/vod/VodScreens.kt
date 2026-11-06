@@ -277,6 +277,7 @@ internal fun PosterCard(
     rating: Double? = null,
     qualityBadge: String? = null,
     progress: Float? = null,
+    resumeLabel: String? = null,
     favourite: Boolean? = null,
     onSetFavourite: ((Boolean) -> Unit)? = null,
 ) {
@@ -339,6 +340,15 @@ internal fun PosterCard(
                     highlight = true,
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
                 )
+            }
+            resumeLabel?.let { label ->
+                Text(label, color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = .78f))
+                        .padding(horizontal = 5.dp, vertical = 6.dp))
             }
             progress?.let {
                 LinearProgressIndicator(
