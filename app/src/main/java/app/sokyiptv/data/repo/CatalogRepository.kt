@@ -387,9 +387,9 @@ class CatalogRepository(
     suspend fun parentSeriesForEpisodes(episodes: Collection<Episode>): Map<Pair<Long, String>, Series> =
         withContext(Dispatchers.IO) {
             episodes.groupBy { it.sourceId }.flatMap { (sourceId, sameSource) ->
-                seriesDao.bySourceSeriesIds(
-                    sourceId, sameSource.map { it.seriesId }.distinct().take(400),
-                )
+                sameSource.map { it.seriesId }.distinct().chunked(400).flatMap {
+                    seriesDao.bySourceSeriesIds(sourceId, it)
+                }
             }.associateBy { it.sourceId to it.seriesId }
         }
 
