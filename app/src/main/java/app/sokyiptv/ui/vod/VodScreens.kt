@@ -43,6 +43,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import app.sokyiptv.core.ServiceLocator
+import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -145,6 +149,10 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
                 rating = group.primary.rating,
                 qualityBadge = badge,
                 onClick = { onOpenMovie(group.primary) },
+                favourite = group.primary.favourite,
+                onSetFavourite = { desired ->
+                    viewModel.toggleMovieFavourite(group.primary.copy(favourite = !desired))
+                },
             )
         }
     }
@@ -153,6 +161,9 @@ private fun MovieCategoryGrid(movies: List<Movie>, viewModel: VodViewModel, onOp
 /** One category's shows as a poster grid. */
 @Composable
 private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
     if (series.isEmpty()) { LoadingVod(stringResource(R.string.vod_loading_shows)); return }
     LazyVerticalGrid(
         columns = GridCells.Fixed(VOD_COLUMNS),
@@ -168,6 +179,10 @@ private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> U
                 subtitle = item.year?.toString(),
                 rating = item.rating,
                 onClick = { onOpenSeries(item) },
+                favourite = item.favourite,
+                onSetFavourite = { desired ->
+                    scope.launch { catalog.setSeriesFavourite(item.id, desired) }
+                },
             )
         }
     }
@@ -178,6 +193,9 @@ private fun SeriesCategoryGrid(series: List<Series>, onOpenSeries: (Series) -> U
 /** A titled horizontal shelf of movie poster cards. Shared by the home and the detail's "more like this". */
 @Composable
 internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Movie) -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(title)
         LazyRow(
@@ -191,6 +209,10 @@ internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Mo
                     subtitle = movie.year?.toString(),
                     rating = movie.rating,
                     onClick = { onOpenMovie(movie) },
+                    favourite = movie.favourite,
+                    onSetFavourite = { desired ->
+                        scope.launch { catalog.setMovieFavourite(movie.id, desired) }
+                    },
                 )
             }
         }
@@ -200,6 +222,9 @@ internal fun MoviePosterRow(title: String, movies: List<Movie>, onOpenMovie: (Mo
 /** A titled horizontal shelf of series poster cards. */
 @Composable
 internal fun SeriesPosterRow(title: String, series: List<Series>, onOpenSeries: (Series) -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember(context) { ServiceLocator.get(context).catalogRepository }
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(title)
         LazyRow(
@@ -213,6 +238,10 @@ internal fun SeriesPosterRow(title: String, series: List<Series>, onOpenSeries: 
                     subtitle = item.year?.toString(),
                     rating = item.rating,
                     onClick = { onOpenSeries(item) },
+                    favourite = item.favourite,
+                    onSetFavourite = { desired ->
+                        scope.launch { catalog.setSeriesFavourite(item.id, desired) }
+                    },
                 )
             }
         }
