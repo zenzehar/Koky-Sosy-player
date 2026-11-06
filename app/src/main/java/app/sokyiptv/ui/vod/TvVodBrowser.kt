@@ -219,10 +219,9 @@ internal fun TvVodBrowser(
     // One profile-scoped progress map for every category. No per-focus I/O.
     val resumeByKey = remember(recentResumes) { recentResumes.associateBy { it.logicalKey } }
     fun movieProgress(item: Movie): VodViewModel.ResumeItem? =
-        resumeByKey["movie:" + item.sourceId + ":" +
-            item.displayTitle.trim().lowercase() + ":" + (item.year ?: 0)]
+        resumeByKey[BrowseProgressKeys.movie(item.sourceId, item.displayTitle, item.year)]
     fun seriesProgress(item: Series): VodViewModel.ResumeItem? =
-        resumeByKey["series:" + item.sourceId + ":" + item.seriesId]
+        resumeByKey[BrowseProgressKeys.series(item.sourceId, item.seriesId)]
 
     suspend fun resumeFavourite(item: VodViewModel.ResumeItem): Boolean? =
         if (item.seriesProviderId != null) {
