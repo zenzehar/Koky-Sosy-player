@@ -113,6 +113,7 @@ fun MovieDetailScreen(
     var confirmMovieReset by remember(movieId) { mutableStateOf(false) }
     val playFocus = remember { FocusRequester() }
     val hasAddons by viewModel.hasAddons.collectAsState()
+    val progressItems by viewModel.continueWatching.collectAsState()
     val scope = rememberCoroutineScope()
     // null = the add-on picker is closed; a (possibly empty) list = show it. Separate flag for the spinner.
     var addonStreams by remember(movieId) { mutableStateOf<List<StremioStream>?>(null) }
@@ -197,7 +198,8 @@ fun MovieDetailScreen(
         if (moreLike.isNotEmpty()) {
             item(key = "more") {
                 Spacer(Modifier.height(4.dp))
-                MoviePosterRow(stringResource(R.string.vod_more_like_this), moreLike, onOpenMovie)
+                MoviePosterRow(stringResource(R.string.vod_more_like_this), moreLike,
+                    onOpenMovie, progressItems = progressItems)
             }
         }
     }
