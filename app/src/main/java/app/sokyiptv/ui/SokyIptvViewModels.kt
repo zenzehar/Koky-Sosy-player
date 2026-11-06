@@ -813,7 +813,12 @@ class VodViewModel(app: Application) : AndroidViewModel(app) {
     @OptIn(ExperimentalCoroutinesApi::class)
     val continueWatching: StateFlow<List<ResumeItem>> =
         settings.activeProfileId
-            .flatMapLatest { pid -> graph.playbackPositions.observeRecent(pid, limit = 300) }
+            // Progress badges must also cover older titles outside the
+            // Continue Watching shelf (All, categories and Favourites).
+            // Read saved playback positions only, not the giant VOD catalogue.
+            .flatMapLatest { pid ->
+                graph.playbackPositions.observeRecent(pid, limit = Int.MAX_VALUE)
+            }
             .mapLatest { positions ->
                 if (positions.isEmpty()) return@mapLatest emptyList()
                 val plan = ResumeLookupPlan.from(positions.map { it.mediaKey })
