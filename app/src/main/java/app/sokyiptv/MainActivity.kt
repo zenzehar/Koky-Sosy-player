@@ -834,6 +834,35 @@ private fun SokyIptvApp(isTelevision: Boolean) {
                     title = arg("title"),
                     userAgent = arg("ua").ifEmpty { "SokyIPTV/0.1 (Android)" },
                     onBack = { navController.popBackStack() },
+                    onEpisodes = {
+                        val episodeId = arg("key").takeIf { it.startsWith("ep:") }
+                            ?.removePrefix("ep:")?.toLongOrNull()
+                        if (episodeId == null) {
+                            navController.popBackStack()
+                        } else {
+                            navScope.launch {
+                                val currentEpisode = catalogue.episode(episodeId)
+                                val parent = currentEpisode?.let {
+                                    catalogue.seriesByProviderId(it.sourceId, it.seriesId)
+                                }
+                                if (parent == null) {
+                                    // Catalogue may be offline/incomplete. Never
+                                    // guess a different title; preserve Back.
+                                    navController.popBackStack()
+                                } else {
+                                    val destination = Routes.seriesDetail(parent.id)
+                                    // Reuse the existing series page if the video
+                                    // was launched from it. No duplicate titles.
+                                    if (!navController.popBackStack(destination, false)) {
+                                        navController.navigate(destination) {
+                                            popUpTo(entry.destination.id) { inclusive = true }
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     onNextEpisode = nextEpisode@{ next ->
                         // Only a real playable next episode may advance the player.
                         // Never pop the current destination merely because credits began.
