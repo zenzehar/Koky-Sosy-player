@@ -33,6 +33,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -246,7 +248,12 @@ internal fun PosterCard(
     rating: Double? = null,
     qualityBadge: String? = null,
     progress: Float? = null,
+    favourite: Boolean? = null,
+    onSetFavourite: ((Boolean) -> Unit)? = null,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+    var favouriteSelected by remember { mutableStateOf(favourite ?: false) }
+    LaunchedEffect(favourite) { if (favourite != null) favouriteSelected = favourite }
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
     Column(
@@ -255,7 +262,7 @@ internal fun PosterCard(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { focused = it.isFocused }
             .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .tvRemoteActions(onClick = onClick, onLongPress = { menuOpen = true })
             .padding(4.dp),
     ) {
         Box(
@@ -280,6 +287,22 @@ internal fun PosterCard(
                     text = "★ ${formatRating(it)}",
                     modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
                 )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(text = { Text("Open title") }, onClick = {
+                    menuOpen = false; onClick()
+                })
+                if (onSetFavourite != null) {
+                    DropdownMenuItem(
+                        text = { Text(if (favouriteSelected)
+                            "Remove from favourites" else "Add to favourites") },
+                        onClick = {
+                            menuOpen = false
+                            favouriteSelected = !favouriteSelected
+                            onSetFavourite(favouriteSelected)
+                        },
+                    )
+                }
             }
             qualityBadge?.let {
                 Badge(
